@@ -1,444 +1,718 @@
-import React, { useState, useEffect } from 'react';
-import { materialService } from '../api/materialService';
-import { supabase } from '../lib/supabase';
-import { useResponsive } from '../lib/useResponsive';
+import React, { useEffect, useState } from 'react'
+import { materialService } from '../api/materialService'
+import { supabase } from '../lib/supabase'
+import { useResponsive } from '../lib/useResponsive'
 
 const POS = () => {
-  const [inventory, setInventory] = useState([]);
-  const [tables, setTables] = useState([]);
-  const [selectedTable, setSelectedTable] = useState(null);
-  const [cart, setCart] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const { isMobile, isTablet } = useResponsive();
+  const [inventory, setInventory] = useState([])
+  const [tables, setTables] = useState([])
+  const [selectedTable, setSelectedTable] = useState(null)
+  const [cart, setCart] = useState([])
+  const [loading, setLoading] = useState(true)
+  const { isMobile, isTablet } = useResponsive()
 
   useEffect(() => {
     const loadData = async () => {
       try {
-        await Promise.all([loadInventory(), loadTables()]);
+        await Promise.all([loadInventory(), loadTables()])
       } finally {
-        setLoading(false);
+        setLoading(false)
       }
-    };
+    }
 
-    loadData();
-  }, []);
+    loadData()
+  }, [])
 
   const loadInventory = async () => {
     try {
-      const data = await materialService.getAllMaterials();
-      setInventory(data || []);
+      const data = await materialService.getAllMaterials()
+      setInventory(data || [])
     } catch (error) {
-      console.error('Error al cargar inventario para POS:', error);
+      console.error('Error al cargar inventario para POS:', error)
     }
-  };
+  }
 
   const loadTables = async () => {
     try {
       const { data, error } = await supabase
         .from('tables')
         .select('*')
-        .order('number');
+        .order('number')
 
-      if (error) throw error;
-      setTables(data || []);
+      if (error) throw error
+      setTables(data || [])
     } catch (error) {
-      console.error('Error al cargar mesas:', error);
+      console.error('Error al cargar mesas:', error)
     }
-  };
+  }
 
   const handleSelectTable = async (table) => {
     try {
-      setSelectedTable(table);
+      setSelectedTable(table)
 
       if (!table.current_order_id) {
-        setCart([]);
-        return;
+        setCart([])
+        return
       }
 
       const { data: order, error } = await supabase
         .from('table_orders')
         .select('*')
         .eq('id', table.current_order_id)
-        .maybeSingle();
+        .maybeSingle()
 
-      if (error) throw error;
-      setCart(order?.items || []);
+      if (error) throw error
+      setCart(order?.items || [])
     } catch (error) {
-      console.error('Error al cargar la mesa:', error);
-      alert('No se pudo abrir la mesa.');
+      console.error('Error al cargar la mesa:', error)
+      alert('No se pudo abrir la mesa.')
     }
-  };
+  }
 
   const persistTableOrder = async (table, items) => {
-    const total = items.reduce((acc, item) => acc + (item.unit_price * item.quantity), 0);
-    let orderId = table.current_order_id;
+    const total = items.reduce((acc, item) => acc + item.unit_price * item.quantity, 0)
+    let orderId = table.current_order_id
 
     if (items.length === 0) {
       const { error: tableError } = await supabase
         .from('tables')
         .update({ status: 'libre', current_order_id: null })
-        .eq('id', table.id);
+        .eq('id', table.id)
 
-      if (tableError) throw tableError;
+      if (tableError) throw tableError
 
       if (orderId) {
         const { error: deleteError } = await supabase
           .from('table_orders')
           .delete()
-          .eq('id', orderId);
+          .eq('id', orderId)
 
-        if (deleteError) throw deleteError;
+        if (deleteError) throw deleteError
       }
 
-      return;
+      return
     }
 
     if (orderId) {
       const { error } = await supabase
         .from('table_orders')
         .update({ items, total })
-        .eq('id', orderId);
+        .eq('id', orderId)
 
-      if (error) throw error;
+      if (error) throw error
     } else {
       const { data, error } = await supabase
         .from('table_orders')
         .insert([{ table_id: table.id, items, total }])
         .select()
-        .single();
+        .single()
 
-      if (error) throw error;
-      orderId = data.id;
+      if (error) throw error
+      orderId = data.id
     }
 
     const { error: tableError } = await supabase
       .from('tables')
       .update({ status: 'ocupada', current_order_id: orderId })
-      .eq('id', table.id);
+      .eq('id', table.id)
 
-    if (tableError) throw tableError;
-  };
+    if (tableError) throw tableError
+  }
 
   const handleSaveAndExit = async () => {
-    if (!selectedTable) return;
+    if (!selectedTable) return
 
     try {
-      await persistTableOrder(selectedTable, cart);
-      setSelectedTable(null);
-      setCart([]);
-      await loadTables();
+      await persistTableOrder(selectedTable, cart)
+      setSelectedTable(null)
+      setCart([])
+      await loadTables()
     } catch (error) {
-      console.error('Error al guardar la mesa:', error);
-      alert('Error al guardar la mesa');
+      console.error('Error al guardar la mesa:', error)
+      alert('Error al guardar la mesa')
     }
-  };
+  }
 
   const addToCart = (item) => {
-    const isExtra = item.materials?.categories?.name === 'Extras';
+    const isExtra = item.materials?.categories?.name === 'Extras'
 
     if (item.precio_venta <= 0) {
-      alert('Este producto no tiene precio de venta asignado.');
-      return;
+      alert('Este producto no tiene precio de venta asignado.')
+      return
     }
 
     if (!isExtra && item.stock_actual <= 0) {
-      alert('No hay existencias de este producto.');
-      return;
+      alert('No hay existencias de este producto.')
+      return
     }
 
-    const existing = cart.find(c => c.material_id === item.materials.id);
+    const existing = cart.find((c) => c.material_id === item.materials.id)
 
     if (!isExtra && existing && existing.quantity >= item.stock_actual) {
-      alert(`Solo hay ${item.stock_actual} unidades disponibles.`);
-      return;
+      alert(`Solo hay ${item.stock_actual} unidades disponibles.`)
+      return
     }
 
     if (existing) {
-      setCart(cart.map(c =>
-        c.material_id === item.materials.id ? { ...c, quantity: c.quantity + 1 } : c
-      ));
+      setCart(
+        cart.map((c) =>
+          c.material_id === item.materials.id ? { ...c, quantity: c.quantity + 1 } : c
+        )
+      )
     } else {
-      setCart([...cart, {
-        material_id: item.materials.id,
-        name: item.materials.name,
-        unit_price: item.precio_venta,
-        quantity: 1,
-        is_extra: isExtra
-      }]);
+      setCart([
+        ...cart,
+        {
+          material_id: item.materials.id,
+          name: item.materials.name,
+          unit_price: item.precio_venta,
+          quantity: 1,
+          is_extra: isExtra,
+        },
+      ])
     }
-  };
+  }
+
+  const changeQuantity = (id, delta) => {
+    setCart((prevCart) =>
+      prevCart
+        .map((item) => {
+          if (item.material_id !== id) return item
+          return { ...item, quantity: item.quantity + delta }
+        })
+        .filter((item) => item.quantity > 0)
+    )
+  }
 
   const removeFromCart = (id) => {
-    setCart(cart.filter(c => c.material_id !== id));
-  };
+    setCart(cart.filter((c) => c.material_id !== id))
+  }
 
-  const total = cart.reduce((acc, curr) => acc + (curr.unit_price * curr.quantity), 0);
+  const total = cart.reduce((acc, curr) => acc + curr.unit_price * curr.quantity, 0)
+  const totalItems = cart.reduce((acc, curr) => acc + curr.quantity, 0)
+  const availableProducts = inventory.filter((item) => item.materials?.categories?.is_for_sale === true)
+  const occupiedTables = tables.filter((table) => table.status === 'ocupada').length
 
   const handleFinalizeSale = async () => {
-    if (!selectedTable || cart.length === 0) return;
+    if (!selectedTable || cart.length === 0) return
 
     try {
-      const centerId = inventory[0]?.centers?.id;
+      const centerId = inventory[0]?.centers?.id
       if (!centerId) {
-        alert('No se encontro un centro de inventario para procesar la venta.');
-        return;
+        alert('No se encontro un centro de inventario para procesar la venta.')
+        return
       }
 
-      const latestInventory = await materialService.getAllMaterials();
+      const latestInventory = await materialService.getAllMaterials()
       const inventoryByMaterialId = new Map(
         (latestInventory || [])
-          .filter(item => item.centers?.id === centerId)
-          .map(item => [item.materials?.id, item])
-      );
+          .filter((item) => item.centers?.id === centerId)
+          .map((item) => [item.materials?.id, item])
+      )
 
-      const normalizedCart = cart.map(item => {
-        const inventoryItem = inventoryByMaterialId.get(item.material_id);
-        const categoryName = inventoryItem?.materials?.categories?.name;
-        const isExtra = categoryName === 'Extras' || item.is_extra === true;
+      const normalizedCart = cart.map((item) => {
+        const inventoryItem = inventoryByMaterialId.get(item.material_id)
+        const categoryName = inventoryItem?.materials?.categories?.name
+        const isExtra = categoryName === 'Extras' || item.is_extra === true
 
         return {
           ...item,
-          is_extra: isExtra
-        };
-      });
+          is_extra: isExtra,
+        }
+      })
 
       for (const item of normalizedCart) {
-        if (item.is_extra) continue;
+        if (item.is_extra) continue
 
-        const availableStock = inventoryByMaterialId.get(item.material_id)?.stock_actual ?? 0;
+        const availableStock = inventoryByMaterialId.get(item.material_id)?.stock_actual ?? 0
         if (item.quantity > availableStock) {
-          alert(`No hay stock suficiente para ${item.name}. Disponible: ${availableStock}, solicitado: ${item.quantity}.`);
-          await loadInventory();
-          return;
+          alert(`No hay stock suficiente para ${item.name}. Disponible: ${availableStock}, solicitado: ${item.quantity}.`)
+          await loadInventory()
+          return
         }
       }
 
       const saleHeader = {
         center_id: centerId,
         total_amount: total,
-        payment_method: 'Efectivo'
-      };
+        payment_method: 'Efectivo',
+      }
 
-      await materialService.recordSale(saleHeader, normalizedCart);
-      await persistTableOrder(selectedTable, []);
-      alert('Venta realizada con exito');
-      setCart([]);
-      setSelectedTable(null);
-      await Promise.all([loadInventory(), loadTables()]);
+      await materialService.recordSale(saleHeader, normalizedCart)
+      await persistTableOrder(selectedTable, [])
+      alert('Venta realizada con exito')
+      setCart([])
+      setSelectedTable(null)
+      await Promise.all([loadInventory(), loadTables()])
     } catch (error) {
-      console.error('Error en la venta:', error);
-      alert(`Hubo un error al procesar la venta: ${error.message || 'Error desconocido'}`);
+      console.error('Error en la venta:', error)
+      alert(`Hubo un error al procesar la venta: ${error.message || 'Error desconocido'}`)
     }
-  };
+  }
 
-  if (loading) return <div style={{ padding: '20px' }}>Iniciando terminal de venta...</div>;
+  if (loading) return <div style={{ padding: '20px' }}>Iniciando terminal de venta...</div>
 
   if (!selectedTable) {
     return (
-      <div style={{ ...containerStyle, padding: isMobile ? '16px' : containerStyle.padding }}>
-        <h2 style={{ color: '#2d3748', marginBottom: '20px', fontSize: isMobile ? '1.5rem' : '1.75rem' }}>Selecciona una Mesa</h2>
-        <div
-          style={{
-            ...tableGridStyle,
-            gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : tableGridStyle.gridTemplateColumns,
-            gap: isMobile ? '12px' : tableGridStyle.gap
-          }}
-        >
-          {tables.map(table => (
-            <button
-              key={table.id}
-              onClick={() => handleSelectTable(table)}
-              style={{
-                ...tableButtonStyle,
-                padding: isMobile ? '22px 12px' : tableButtonStyle.padding,
-                fontSize: isMobile ? '1rem' : tableButtonStyle.fontSize,
-                backgroundColor: table.status === 'libre' ? '#2f855a' : '#c53030'
-              }}
-            >
-              {table.number}
-              <div style={tableStatusStyle}>
-                {(table.status || 'libre').toUpperCase()}
-              </div>
-            </button>
-          ))}
+      <div style={getContainerStyle(isMobile)}>
+        <div style={heroCardStyle}>
+          <div>
+            <h2 style={{ color: '#1f2937', margin: 0, fontSize: isMobile ? '1.5rem' : '1.9rem' }}>Mapa de Mesas</h2>
+            <p style={{ ...mutedTextStyle, margin: '8px 0 0 0' }}>
+              Toca una mesa para abrir su cuenta y seguir tomando pedidos.
+            </p>
+          </div>
+
+          <div style={getStatsGridStyle(isMobile)}>
+            <div style={statCardStyle}>
+              <span style={statLabelStyle}>Mesas libres</span>
+              <strong style={statValueStyle}>{tables.length - occupiedTables}</strong>
+            </div>
+            <div style={statCardStyle}>
+              <span style={statLabelStyle}>Mesas ocupadas</span>
+              <strong style={statValueStyle}>{occupiedTables}</strong>
+            </div>
+          </div>
+        </div>
+
+        <div style={getTableGridStyle(isMobile)}>
+          {tables.map((table) => {
+            const isFree = table.status === 'libre'
+            return (
+              <button
+                key={table.id}
+                onClick={() => handleSelectTable(table)}
+                style={{
+                  ...getTableButtonStyle(isMobile),
+                  background: isFree
+                    ? 'linear-gradient(135deg, #2f855a 0%, #276749 100%)'
+                    : 'linear-gradient(135deg, #c53030 0%, #9b2c2c 100%)',
+                }}
+              >
+                <span style={{ fontSize: isMobile ? '1rem' : '0.9rem', opacity: 0.88 }}>Mesa</span>
+                <strong style={{ fontSize: isMobile ? '1.35rem' : '1.55rem' }}>{table.number}</strong>
+                <span style={tableStatusBadgeStyle}>{(table.status || 'libre').toUpperCase()}</span>
+              </button>
+            )
+          })}
         </div>
       </div>
-    );
+    )
   }
 
   return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: isTablet ? '1fr' : '1fr 350px',
-        gap: '20px',
-        padding: isMobile ? '12px' : '20px',
-        fontFamily: 'sans-serif'
-      }}
-    >
+    <div style={getWorkspaceStyle(isTablet, isMobile)}>
       <section>
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: isMobile ? 'flex-start' : 'center',
-            flexDirection: isMobile ? 'column' : 'row',
-            gap: '10px',
-            marginBottom: '15px'
-          }}
-        >
+        <div style={topBarStyle(isMobile)}>
           <button onClick={handleSaveAndExit} style={btnSecondaryStyle}>
-            Volver a Mesas (Guardar)
+            Volver a Mesas
           </button>
-          <h3 style={{ color: '#2d3748', margin: 0 }}>Atendiendo: {selectedTable?.number}</h3>
+          <div style={tableInfoCardStyle}>
+            <span style={tableInfoLabelStyle}>Atendiendo</span>
+            <strong style={{ color: '#1f2937', fontSize: isMobile ? '1rem' : '1.15rem' }}>
+              {selectedTable?.number}
+            </strong>
+          </div>
         </div>
 
-        <h2>Productos Disponibles</h2>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: isMobile ? 'repeat(auto-fill, minmax(140px, 1fr))' : 'repeat(auto-fill, minmax(180px, 1fr))',
-            gap: isMobile ? '12px' : '15px'
-          }}
-        >
-          {inventory
-            .filter(item => item.materials?.categories?.is_for_sale === true)
-            .map((item, idx) => (
+        <div style={heroCardStyle}>
+          <div>
+            <h2 style={{ color: '#1f2937', margin: 0, fontSize: isMobile ? '1.35rem' : '1.65rem' }}>Productos Disponibles</h2>
+            <p style={{ ...mutedTextStyle, margin: '8px 0 0 0' }}>
+              Toca un producto para agregarlo a la cuenta de la mesa.
+            </p>
+          </div>
+
+          <div style={getStatsGridStyle(isMobile)}>
+            <div style={statCardStyle}>
+              <span style={statLabelStyle}>Productos</span>
+              <strong style={statValueStyle}>{availableProducts.length}</strong>
+            </div>
+            <div style={statCardStyle}>
+              <span style={statLabelStyle}>Articulos</span>
+              <strong style={statValueStyle}>{totalItems}</strong>
+            </div>
+          </div>
+        </div>
+
+        <div style={getProductGridStyle(isMobile)}>
+          {availableProducts.map((item, idx) => {
+            const isExtra = item.materials?.categories?.name === 'Extras'
+            const isOutOfStock = !isExtra && item.stock_actual <= 0
+
+            return (
               <div
                 key={idx}
                 onClick={() => addToCart(item)}
                 style={{
-                  ...productCardStyle,
-                  opacity: item.stock_actual <= 0 && item.materials.categories.name !== 'Extras' ? 0.5 : 1,
-                  cursor: item.stock_actual <= 0 && item.materials.categories.name !== 'Extras' ? 'not-allowed' : 'pointer'
+                  ...getProductCardStyle(isMobile),
+                  opacity: isOutOfStock ? 0.52 : 1,
+                  cursor: isOutOfStock ? 'not-allowed' : 'pointer',
                 }}
               >
-                <div style={{ fontWeight: 'bold' }}>{item.materials.name}</div>
-                <div style={{ fontSize: '0.8em', color: '#666' }}>{item.materials.categories.name}</div>
-                <div style={{ color: '#27ae60', fontWeight: 'bold', marginTop: '10px' }}>
+                <div style={productCategoryPillStyle}>{item.materials.categories.name}</div>
+                <div style={{ fontWeight: 'bold', color: '#1f2937', fontSize: isMobile ? '0.95rem' : '1rem' }}>
+                  {item.materials.name}
+                </div>
+                <div style={{ color: '#0f766e', fontWeight: 'bold', marginTop: '10px', fontSize: isMobile ? '1.1rem' : '1.2rem' }}>
                   ${item.precio_venta}
                 </div>
 
-                {item.materials.categories.is_inventoried && (
-                  <div style={{ fontSize: '0.75em', color: item.stock_actual <= 0 ? 'red' : '#333' }}>
+                {item.materials.categories.is_inventoried ? (
+                  <div style={{ fontSize: '0.78rem', color: item.stock_actual <= 0 ? '#b91c1c' : '#475569', marginTop: '10px' }}>
                     Stock: {item.stock_actual}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '10px' }}>
+                    Venta sin inventario fisico
                   </div>
                 )}
               </div>
-            ))}
+            )
+          })}
         </div>
       </section>
 
-      <section
-        style={{
-          ...cartContainerStyle,
-          height: isTablet ? 'auto' : cartContainerStyle.height,
-          position: isTablet ? 'static' : cartContainerStyle.position,
-          top: isTablet ? 'auto' : cartContainerStyle.top
-        }}
-      >
-        <h3>Cuenta Actual</h3>
-        <div style={{ flex: 1, overflowY: 'auto' }}>
-          {cart.map(c => (
-            <div key={c.material_id} style={cartItemStyle}>
-              <div>
-                <div style={{ fontSize: '0.9em' }}>{c.name}</div>
-                <div style={{ fontSize: '0.8em', color: '#666' }}>{c.quantity} x ${c.unit_price}</div>
-              </div>
-              <button onClick={() => removeFromCart(c.material_id)} style={deleteBtnStyle}>X</button>
-            </div>
-          ))}
-        </div>
-        <div style={{ borderTop: '2px solid #eee', paddingTop: '15px', marginTop: '10px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.2em', fontWeight: 'bold' }}>
-            <span>Total:</span>
-            <span>${total.toFixed(2)}</span>
+      <section style={getCartContainerStyle(isTablet, isMobile)}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+          <div>
+            <h3 style={{ margin: 0, color: '#1f2937' }}>Cuenta Actual</h3>
+            <p style={{ ...mutedTextStyle, margin: '6px 0 0 0' }}>{totalItems} articulos en la mesa</p>
           </div>
-          <button
-            onClick={handleFinalizeSale}
-            disabled={cart.length === 0}
-            style={checkoutBtnStyle}
-          >
+          <div style={cartBadgeStyle}>${total.toFixed(2)}</div>
+        </div>
+
+        <div style={cartListStyle}>
+          {cart.length === 0 ? (
+            <div style={emptyCartStyle}>
+              <strong style={{ color: '#334155' }}>Aun no hay productos</strong>
+              <span style={{ ...mutedTextStyle, marginTop: '6px' }}>Agrega articulos para comenzar la cuenta.</span>
+            </div>
+          ) : (
+            cart.map((c) => (
+              <div key={c.material_id} style={cartItemStyle}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: '0.95rem', color: '#0f172a', fontWeight: '700' }}>{c.name}</div>
+                  <div style={{ fontSize: '0.82rem', color: '#64748b', marginTop: '4px' }}>
+                    ${c.unit_price} c/u
+                  </div>
+                </div>
+
+                <div style={cartActionsStyle}>
+                  <div style={quantityControlStyle}>
+                    <button onClick={() => changeQuantity(c.material_id, -1)} style={qtyBtnStyle} type="button">
+                      -
+                    </button>
+                    <span style={qtyValueStyle}>{c.quantity}</span>
+                    <button onClick={() => changeQuantity(c.material_id, 1)} style={qtyBtnStyle} type="button">
+                      +
+                    </button>
+                  </div>
+
+                  <button onClick={() => removeFromCart(c.material_id)} style={deleteBtnStyle} type="button">
+                    Quitar
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div style={checkoutPanelStyle}>
+          <div style={checkoutRowStyle}>
+            <span>Total</span>
+            <strong>${total.toFixed(2)}</strong>
+          </div>
+          <button onClick={handleFinalizeSale} disabled={cart.length === 0} style={checkoutBtnStyle}>
             Finalizar Venta
           </button>
         </div>
       </section>
     </div>
-  );
-};
+  )
+}
 
-const containerStyle = {
-  padding: '30px',
-  backgroundColor: '#f7fafc',
-  minHeight: '100vh'
-};
-const tableGridStyle = {
+const getContainerStyle = (isMobile) => ({
+  padding: isMobile ? '16px' : '24px',
+  backgroundColor: '#f8fafc',
+  minHeight: '100vh',
+})
+
+const getWorkspaceStyle = (isTablet, isMobile) => ({
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
-  gap: '20px'
-};
-const tableButtonStyle = {
-  padding: '30px',
-  borderRadius: '12px',
-  border: 'none',
-  color: 'white',
-  fontSize: '1.2rem',
-  fontWeight: 'bold',
-  cursor: 'pointer',
-  boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
-};
-const tableStatusStyle = {
-  fontSize: '0.7rem',
-  marginTop: '5px',
-  fontWeight: 'normal'
-};
-const productCardStyle = {
-  padding: '15px',
-  backgroundColor: 'white',
-  borderRadius: '8px',
-  cursor: 'pointer',
-  boxShadow: '0 2px 5px rgba(0,0,0,0.1)',
-  border: '1px solid #eee',
-  textAlign: 'center'
-};
-const cartContainerStyle = {
-  backgroundColor: 'white',
-  padding: '20px',
-  borderRadius: '8px',
-  boxShadow: '0 2px 10px rgba(0,0,0,0.1)',
+  gridTemplateColumns: isTablet ? '1fr' : 'minmax(0, 1fr) 380px',
+  gap: isMobile ? '16px' : '20px',
+  padding: isMobile ? '12px' : '20px',
+  backgroundColor: '#f8fafc',
+  minHeight: '100vh',
+  fontFamily: 'sans-serif',
+})
+
+const heroCardStyle = {
+  backgroundColor: '#ffffff',
+  borderRadius: '18px',
+  padding: '18px',
+  boxShadow: '0 10px 30px rgba(15, 23, 42, 0.08)',
+  marginBottom: '18px',
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: '16px',
+  flexWrap: 'wrap',
+}
+
+const mutedTextStyle = {
+  color: '#64748b',
+  fontSize: '0.9rem',
+  lineHeight: 1.4,
+}
+
+const getStatsGridStyle = (isMobile) => ({
+  display: 'grid',
+  gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(2, 130px)',
+  gap: '10px',
+  width: isMobile ? '100%' : 'auto',
+})
+
+const statCardStyle = {
+  backgroundColor: '#f8fafc',
+  borderRadius: '14px',
+  padding: '12px 14px',
+  border: '1px solid #e2e8f0',
   display: 'flex',
   flexDirection: 'column',
-  height: '80vh',
-  position: 'sticky',
-  top: '20px'
-};
+  gap: '6px',
+}
+
+const statLabelStyle = {
+  color: '#64748b',
+  fontSize: '0.78rem',
+  textTransform: 'uppercase',
+  letterSpacing: '0.04em',
+}
+
+const statValueStyle = {
+  color: '#0f172a',
+  fontSize: '1.2rem',
+}
+
+const getTableGridStyle = (isMobile) => ({
+  display: 'grid',
+  gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(auto-fill, minmax(170px, 1fr))',
+  gap: isMobile ? '12px' : '18px',
+})
+
+const getTableButtonStyle = (isMobile) => ({
+  minHeight: isMobile ? '132px' : '148px',
+  padding: isMobile ? '18px 14px' : '24px 18px',
+  borderRadius: '18px',
+  border: 'none',
+  color: 'white',
+  cursor: 'pointer',
+  boxShadow: '0 14px 25px rgba(15, 23, 42, 0.14)',
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'flex-start',
+  justifyContent: 'space-between',
+  textAlign: 'left',
+})
+
+const tableStatusBadgeStyle = {
+  backgroundColor: 'rgba(255,255,255,0.18)',
+  borderRadius: '999px',
+  padding: '6px 10px',
+  fontSize: '0.72rem',
+  fontWeight: '700',
+  letterSpacing: '0.04em',
+}
+
+const topBarStyle = (isMobile) => ({
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: isMobile ? 'stretch' : 'center',
+  flexDirection: isMobile ? 'column' : 'row',
+  gap: '12px',
+  marginBottom: '16px',
+})
+
+const tableInfoCardStyle = {
+  backgroundColor: '#ffffff',
+  borderRadius: '14px',
+  padding: '12px 14px',
+  border: '1px solid #e2e8f0',
+  display: 'flex',
+  flexDirection: 'column',
+  minWidth: '140px',
+}
+
+const tableInfoLabelStyle = {
+  color: '#64748b',
+  fontSize: '0.78rem',
+  textTransform: 'uppercase',
+  letterSpacing: '0.04em',
+  marginBottom: '4px',
+}
+
+const getProductGridStyle = (isMobile) => ({
+  display: 'grid',
+  gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(auto-fill, minmax(180px, 1fr))',
+  gap: isMobile ? '12px' : '16px',
+})
+
+const getProductCardStyle = (isMobile) => ({
+  padding: isMobile ? '14px 12px' : '16px',
+  backgroundColor: '#ffffff',
+  borderRadius: '16px',
+  boxShadow: '0 8px 20px rgba(15, 23, 42, 0.08)',
+  border: '1px solid #e2e8f0',
+  display: 'flex',
+  flexDirection: 'column',
+  textAlign: 'left',
+  minHeight: isMobile ? '150px' : '164px',
+})
+
+const productCategoryPillStyle = {
+  alignSelf: 'flex-start',
+  backgroundColor: '#eff6ff',
+  color: '#1d4ed8',
+  padding: '5px 10px',
+  borderRadius: '999px',
+  fontSize: '0.72rem',
+  fontWeight: '700',
+  marginBottom: '10px',
+}
+
+const getCartContainerStyle = (isTablet, isMobile) => ({
+  backgroundColor: '#ffffff',
+  padding: isMobile ? '16px' : '20px',
+  borderRadius: '18px',
+  boxShadow: '0 10px 30px rgba(15, 23, 42, 0.08)',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '16px',
+  height: isTablet ? 'auto' : 'calc(100vh - 40px)',
+  maxHeight: isTablet ? 'none' : 'calc(100vh - 40px)',
+  position: isTablet ? 'static' : 'sticky',
+  top: isTablet ? 'auto' : '20px',
+})
+
+const cartBadgeStyle = {
+  backgroundColor: '#ecfdf5',
+  color: '#047857',
+  borderRadius: '999px',
+  padding: '8px 12px',
+  fontWeight: '800',
+  fontSize: '0.95rem',
+}
+
+const cartListStyle = {
+  flex: 1,
+  overflowY: 'auto',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '10px',
+}
+
+const emptyCartStyle = {
+  backgroundColor: '#f8fafc',
+  border: '1px dashed #cbd5e1',
+  borderRadius: '16px',
+  padding: '18px',
+  display: 'flex',
+  flexDirection: 'column',
+}
+
 const cartItemStyle = {
+  display: 'grid',
+  gridTemplateColumns: 'minmax(0, 1fr)',
+  gap: '10px',
+  padding: '14px',
+  borderRadius: '14px',
+  backgroundColor: '#f8fafc',
+  border: '1px solid #e2e8f0',
+}
+
+const cartActionsStyle = {
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'center',
-  padding: '10px 0',
-  borderBottom: '1px solid #eee'
-};
-const deleteBtnStyle = { background: 'none', border: 'none', color: '#e74c3c', cursor: 'pointer', fontSize: '1.1em' };
+  gap: '10px',
+  flexWrap: 'wrap',
+}
+
+const quantityControlStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '8px',
+  backgroundColor: '#ffffff',
+  borderRadius: '999px',
+  padding: '4px',
+  border: '1px solid #cbd5e1',
+}
+
+const qtyBtnStyle = {
+  width: '34px',
+  height: '34px',
+  borderRadius: '50%',
+  border: 'none',
+  backgroundColor: '#e2e8f0',
+  color: '#0f172a',
+  fontWeight: '800',
+  cursor: 'pointer',
+}
+
+const qtyValueStyle = {
+  minWidth: '18px',
+  textAlign: 'center',
+  fontWeight: '700',
+  color: '#0f172a',
+}
+
+const deleteBtnStyle = {
+  background: 'none',
+  border: 'none',
+  color: '#dc2626',
+  cursor: 'pointer',
+  fontSize: '0.88rem',
+  fontWeight: '700',
+  padding: '6px 0',
+}
+
+const checkoutPanelStyle = {
+  borderTop: '1px solid #e2e8f0',
+  paddingTop: '14px',
+}
+
+const checkoutRowStyle = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  fontSize: '1.12rem',
+  fontWeight: '800',
+  color: '#0f172a',
+}
+
 const btnSecondaryStyle = {
-  padding: '10px 16px',
-  backgroundColor: '#2d3748',
+  padding: '12px 18px',
+  backgroundColor: '#1f2937',
   color: 'white',
   border: 'none',
-  borderRadius: '8px',
+  borderRadius: '12px',
   cursor: 'pointer',
-  fontWeight: 'bold'
-};
+  fontWeight: '700',
+  fontSize: '0.95rem',
+}
+
 const checkoutBtnStyle = {
   width: '100%',
-  marginTop: '15px',
-  padding: '12px',
-  backgroundColor: '#27ae60',
+  marginTop: '14px',
+  padding: '15px',
+  backgroundColor: '#16a34a',
   color: 'white',
   border: 'none',
-  borderRadius: '5px',
-  fontWeight: 'bold',
-  cursor: 'pointer'
-};
+  borderRadius: '14px',
+  fontWeight: '800',
+  fontSize: '1rem',
+  cursor: 'pointer',
+}
 
-export default POS;
+export default POS

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { materialService } from '../api/materialService';
 import { providerService } from '../api/providerService';
+import { useResponsive } from '../lib/useResponsive';
 
 const PurchaseEntry = () => {
   const [materials, setMaterials] = useState([]);
@@ -8,6 +9,7 @@ const PurchaseEntry = () => {
   const [selectedProvider, setSelectedProvider] = useState('');
   const [invoiceRef, setInvoiceRef] = useState('');
   const [loading, setLoading] = useState(true);
+  const { isMobile } = useResponsive();
 
   const [purchase, setPurchase] = useState({
     center_id: '',
@@ -49,7 +51,7 @@ const PurchaseEntry = () => {
 
   const handleAddToList = () => {
     if (!currentEntry.material_id || !currentEntry.quantity || !currentEntry.unit_cost) {
-      alert("Por favor completa SKU, cantidad y costo unitario");
+      alert('Por favor completa SKU, cantidad y costo unitario');
       return;
     }
 
@@ -82,7 +84,7 @@ const PurchaseEntry = () => {
       };
 
       await materialService.recordPurchase(purchaseData, itemsList);
-      alert('Compra registrada y stock actualizado!');
+      alert('Compra registrada y stock actualizado');
       setSelectedProvider('');
       setInvoiceRef('');
       setItemsList([]);
@@ -96,12 +98,12 @@ const PurchaseEntry = () => {
   if (loading) return <div style={{ padding: '20px' }}>Cargando datos de compra...</div>;
 
   return (
-    <div style={{ padding: '20px', maxWidth: '800px', fontFamily: 'sans-serif' }}>
+    <div style={{ padding: isMobile ? '12px' : '20px', maxWidth: '800px', fontFamily: 'sans-serif', margin: '0 auto' }}>
       <h1>Entrada de Almacen (Compras)</h1>
 
       <form onSubmit={handleSavePurchase} style={formContainerStyle}>
         <section style={sectionStyle}>
-          <h3>Datos de la Factura / Remisión</h3>
+          <h3>Datos de la Factura / Remision</h3>
           <div style={{ marginBottom: '15px' }}>
             <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Proveedor:</label>
             <select
@@ -118,7 +120,7 @@ const PurchaseEntry = () => {
           </div>
 
           <div style={{ marginBottom: '15px' }}>
-            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Folio de Factura / Remisión:</label>
+            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Folio de Factura / Remision:</label>
             <input
               type="text"
               style={inputStyle}
@@ -149,7 +151,7 @@ const PurchaseEntry = () => {
             Unidad: <span style={{ fontWeight: 'bold' }}>{selectedMaterial?.materials?.uoms?.abbr || 'pz'}</span>
           </div>
 
-          <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+          <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: '10px', marginTop: '10px' }}>
             <div style={{ flex: 1 }}>
               <label style={labelStyle}>Cantidad:</label>
               <input
@@ -178,14 +180,14 @@ const PurchaseEntry = () => {
               onClick={handleAddToList}
               style={btnAddStyle}
             >
-              ➕ Agregar a la lista
+              Agregar a la lista
             </button>
           </div>
         </section>
       </form>
 
       <div style={tableWrapperStyle}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '680px' }}>
           <thead>
             <tr style={{ backgroundColor: '#2d3748', color: 'white' }}>
               <th style={thStyle}>SKU</th>
@@ -193,7 +195,7 @@ const PurchaseEntry = () => {
               <th style={thStyle}>Cant.</th>
               <th style={thStyle}>Costo U.</th>
               <th style={thStyle}>Subtotal</th>
-              <th style={thStyle}>Acción</th>
+              <th style={thStyle}>Accion</th>
             </tr>
           </thead>
           <tbody>
@@ -214,7 +216,7 @@ const PurchaseEntry = () => {
           </tbody>
         </table>
 
-        <div style={{ padding: '20px', textAlign: 'right', fontWeight: 'bold', fontSize: '1.1rem' }}>
+        <div style={{ padding: '20px', textAlign: isMobile ? 'left' : 'right', fontWeight: 'bold', fontSize: '1.1rem' }}>
           Total Factura: ${itemsList.reduce((acc, item) => acc + item.subtotal, 0).toFixed(2)}
         </div>
       </div>
@@ -251,7 +253,7 @@ const btnAddStyle = {
   fontSize: '1rem',
   transition: 'background 0.2s'
 };
-const tableWrapperStyle = { marginTop: '20px', backgroundColor: '#fff', borderRadius: '10px', overflow: 'hidden', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' };
+const tableWrapperStyle = { marginTop: '20px', backgroundColor: '#fff', borderRadius: '10px', overflowX: 'auto', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' };
 const thStyle = { padding: '15px', textAlign: 'left' };
 const tdStyle = { padding: '12px 15px' };
 

@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { materialService } from '../api/materialService';
+import React, { useEffect, useState } from 'react'
+import { materialService } from '../api/materialService'
+import { useResponsive } from '../lib/useResponsive'
 
 const MaterialForm = ({ onMaterialAdded }) => {
-  const [categories, setCategories] = useState([]);
-  const [uoms, setUoms] = useState([]);
+  const [categories, setCategories] = useState([])
+  const [uoms, setUoms] = useState([])
+  const { isMobile } = useResponsive()
 
   const [formData, setFormData] = useState({
     sku: '',
@@ -11,54 +13,55 @@ const MaterialForm = ({ onMaterialAdded }) => {
     cat_id: '',
     buy_uom_id: '',
     sell_uom_id: '',
-    conversion_factor: 1
-  });
+    conversion_factor: 1,
+  })
 
   useEffect(() => {
     const loadData = async () => {
-      const cats = await materialService.getCategories();
-      const units = await materialService.getUoms();
-      setCategories(cats);
-      setUoms(units);
-    };
-    loadData();
-  }, []);
+      const cats = await materialService.getCategories()
+      const units = await materialService.getUoms()
+      setCategories(cats)
+      setUoms(units)
+    }
+
+    loadData()
+  }, [])
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
+    e.preventDefault()
 
-    const { sku, name, cat_id, buy_uom_id, sell_uom_id } = formData;
+    const { sku, name, cat_id, buy_uom_id, sell_uom_id } = formData
     if (!sku || !name || !cat_id || !buy_uom_id || !sell_uom_id) {
-      alert("Todos los campos son obligatorios");
-      return;
+      alert('Todos los campos son obligatorios')
+      return
     }
 
     try {
-      await materialService.createMaterial(formData);
-      alert("Material creado con exito");
+      await materialService.createMaterial(formData)
+      alert('Material creado con exito')
       setFormData({
         sku: '',
         name: '',
         cat_id: '',
         buy_uom_id: '',
         sell_uom_id: '',
-        conversion_factor: 1
-      });
-      if (onMaterialAdded) onMaterialAdded();
+        conversion_factor: 1,
+      })
+      if (onMaterialAdded) onMaterialAdded()
     } catch (error) {
-      console.error(error);
-      alert("Error al guardar");
+      console.error(error)
+      alert('Error al guardar')
     }
-  };
+  }
 
-  const selectedCategory = categories.find(c => c.id === formData.cat_id);
-  const isBottleCategory = selectedCategory?.name === 'Botellas/Otros';
+  const selectedCategory = categories.find((c) => c.id === formData.cat_id)
+  const isBottleCategory = selectedCategory?.name === 'Botellas/Otros'
 
   return (
-    <form onSubmit={handleSubmit} style={formStyle}>
-      <h2 style={{ marginBottom: '20px' }}>Registro de Nuevo Material</h2>
+    <form onSubmit={handleSubmit} style={getFormStyle(isMobile)}>
+      <h2 style={{ marginBottom: '20px', fontSize: isMobile ? '1.25rem' : '1.5rem' }}>Registro de Nuevo Material</h2>
 
-      <div style={rowStyle}>
+      <div style={getRowStyle(isMobile)}>
         <div style={groupStyle}>
           <label style={labelStyle}>SKU (Codigo):</label>
           <input
@@ -81,7 +84,7 @@ const MaterialForm = ({ onMaterialAdded }) => {
         </div>
       </div>
 
-      <div style={rowStyle}>
+      <div style={getRowStyle(isMobile)}>
         <div style={groupStyle}>
           <label style={labelStyle}>Categoria:</label>
           <select
@@ -91,7 +94,11 @@ const MaterialForm = ({ onMaterialAdded }) => {
             onChange={(e) => setFormData({ ...formData, cat_id: e.target.value })}
           >
             <option value="">Selecciona una...</option>
-            {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
           </select>
         </div>
         <div style={groupStyle}>
@@ -106,7 +113,7 @@ const MaterialForm = ({ onMaterialAdded }) => {
         </div>
       </div>
 
-      <div style={rowStyle}>
+      <div style={getRowStyle(isMobile)}>
         <div style={groupStyle}>
           <label style={labelStyle}>Unidad de Compra:</label>
           <select
@@ -117,11 +124,15 @@ const MaterialForm = ({ onMaterialAdded }) => {
           >
             <option value="">Selecciona...</option>
             {uoms
-              .filter(u => {
-                if (u.abbr === 'lts') return isBottleCategory;
-                return true;
+              .filter((u) => {
+                if (u.abbr === 'lts') return isBottleCategory
+                return true
               })
-              .map(u => <option key={u.id} value={u.id}>{u.name} ({u.abbr})</option>)}
+              .map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name} ({u.abbr})
+                </option>
+              ))}
           </select>
         </div>
         <div style={groupStyle}>
@@ -134,36 +145,49 @@ const MaterialForm = ({ onMaterialAdded }) => {
           >
             <option value="">Selecciona...</option>
             {uoms
-              .filter(u => {
-                if (u.abbr === 'lts') return isBottleCategory;
-                return true;
+              .filter((u) => {
+                if (u.abbr === 'lts') return isBottleCategory
+                return true
               })
-              .map(u => <option key={u.id} value={u.id}>{u.name} ({u.abbr})</option>)}
+              .map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name} ({u.abbr})
+                </option>
+              ))}
           </select>
         </div>
       </div>
 
       <button type="submit" style={btnStyle}>Guardar Material</button>
     </form>
-  );
-};
+  )
+}
 
-const formStyle = {
+const getFormStyle = (isMobile) => ({
   backgroundColor: '#ffffff',
-  padding: '30px',
+  padding: isMobile ? '18px' : '30px',
   borderRadius: '15px',
   boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
-  border: '1px solid #dee2e6'
-};
-const rowStyle = { display: 'flex', gap: '20px', marginBottom: '15px' };
-const groupStyle = { flex: 1, display: 'flex', flexDirection: 'column' };
+  border: '1px solid #dee2e6',
+})
+
+const getRowStyle = (isMobile) => ({
+  display: 'flex',
+  flexDirection: isMobile ? 'column' : 'row',
+  gap: '20px',
+  marginBottom: '15px',
+})
+
+const groupStyle = { flex: 1, display: 'flex', flexDirection: 'column' }
+
 const labelStyle = {
   fontSize: '0.9em',
   fontWeight: '700',
   marginBottom: '8px',
   color: '#2c3e50',
-  display: 'block'
-};
+  display: 'block',
+}
+
 const inputStyle = {
   padding: '12px',
   borderRadius: '8px',
@@ -172,8 +196,11 @@ const inputStyle = {
   fontSize: '1em',
   color: '#495057',
   outline: 'none',
-  transition: 'border-color 0.2s'
-};
+  transition: 'border-color 0.2s',
+  width: '100%',
+  boxSizing: 'border-box',
+}
+
 const btnStyle = {
   width: '100%',
   padding: '15px',
@@ -185,7 +212,7 @@ const btnStyle = {
   fontSize: '1em',
   cursor: 'pointer',
   marginTop: '20px',
-  boxShadow: '0 4px 12px rgba(26, 115, 232, 0.3)'
-};
+  boxShadow: '0 4px 12px rgba(26, 115, 232, 0.3)',
+}
 
-export default MaterialForm;
+export default MaterialForm

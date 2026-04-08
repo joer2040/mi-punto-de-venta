@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { materialService } from '../api/materialService';
 import { supabase } from '../lib/supabase';
+import { useResponsive } from '../lib/useResponsive';
 
 const POS = () => {
   const [inventory, setInventory] = useState([]);
@@ -8,6 +9,7 @@ const POS = () => {
   const [selectedTable, setSelectedTable] = useState(null);
   const [cart, setCart] = useState([]);
   const [loading, setLoading] = useState(true);
+  const { isMobile, isTablet } = useResponsive();
 
   useEffect(() => {
     const loadData = async () => {
@@ -69,7 +71,6 @@ const POS = () => {
 
   const persistTableOrder = async (table, items) => {
     const total = items.reduce((acc, item) => acc + (item.unit_price * item.quantity), 0);
-
     let orderId = table.current_order_id;
 
     if (items.length === 0) {
@@ -95,21 +96,14 @@ const POS = () => {
     if (orderId) {
       const { error } = await supabase
         .from('table_orders')
-        .update({
-          items,
-          total
-        })
+        .update({ items, total })
         .eq('id', orderId);
 
       if (error) throw error;
     } else {
       const { data, error } = await supabase
         .from('table_orders')
-        .insert([{
-          table_id: table.id,
-          items,
-          total
-        }])
+        .insert([{ table_id: table.id, items, total }])
         .select()
         .single();
 
@@ -119,10 +113,7 @@ const POS = () => {
 
     const { error: tableError } = await supabase
       .from('tables')
-      .update({
-        status: 'ocupada',
-        current_order_id: orderId
-      })
+      .update({ status: 'ocupada', current_order_id: orderId })
       .eq('id', table.id);
 
     if (tableError) throw tableError;
@@ -189,7 +180,7 @@ const POS = () => {
     try {
       const centerId = inventory[0]?.centers?.id;
       if (!centerId) {
-        alert('No se encontró un centro de inventario para procesar la venta.');
+        alert('No se encontro un centro de inventario para procesar la venta.');
         return;
       }
 
@@ -229,17 +220,8 @@ const POS = () => {
       };
 
       await materialService.recordSale(saleHeader, normalizedCart);
-
-      for (const item of normalizedCart) {
-        if (!item.is_extra) {
-          console.log(`Descontando ${item.quantity} de stock para ${item.name}`);
-        } else {
-          console.log(`El producto ${item.name} es un Extra. No se descuenta stock físico.`);
-        }
-      }
-
       await persistTableOrder(selectedTable, []);
-      alert('Venta realizada con éxito');
+      alert('Venta realizada con exito');
       setCart([]);
       setSelectedTable(null);
       await Promise.all([loadInventory(), loadTables()]);
@@ -253,15 +235,23 @@ const POS = () => {
 
   if (!selectedTable) {
     return (
-      <div style={containerStyle}>
-        <h2 style={{ color: '#2d3748', marginBottom: '20px' }}>📍 Selecciona una Mesa</h2>
-        <div style={tableGridStyle}>
+      <div style={{ ...containerStyle, padding: isMobile ? '16px' : containerStyle.padding }}>
+        <h2 style={{ color: '#2d3748', marginBottom: '20px', fontSize: isMobile ? '1.5rem' : '1.75rem' }}>Selecciona una Mesa</h2>
+        <div
+          style={{
+            ...tableGridStyle,
+            gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : tableGridStyle.gridTemplateColumns,
+            gap: isMobile ? '12px' : tableGridStyle.gap
+          }}
+        >
           {tables.map(table => (
             <button
               key={table.id}
               onClick={() => handleSelectTable(table)}
               style={{
                 ...tableButtonStyle,
+                padding: isMobile ? '22px 12px' : tableButtonStyle.padding,
+                fontSize: isMobile ? '1rem' : tableButtonStyle.fontSize,
                 backgroundColor: table.status === 'libre' ? '#2f855a' : '#c53030'
               }}
             >
@@ -277,17 +267,40 @@ const POS = () => {
   }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 350px', gap: '20px', padding: '20px', fontFamily: 'sans-serif' }}>
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: isTablet ? '1fr' : '1fr 350px',
+        gap: '20px',
+        padding: isMobile ? '12px' : '20px',
+        fontFamily: 'sans-serif'
+      }}
+    >
       <section>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px', alignItems: 'center' }}>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: isMobile ? 'flex-start' : 'center',
+            flexDirection: isMobile ? 'column' : 'row',
+            gap: '10px',
+            marginBottom: '15px'
+          }}
+        >
           <button onClick={handleSaveAndExit} style={btnSecondaryStyle}>
-            ⬅️ Volver a Mesas (Guardar)
+            Volver a Mesas (Guardar)
           </button>
           <h3 style={{ color: '#2d3748', margin: 0 }}>Atendiendo: {selectedTable?.number}</h3>
         </div>
 
         <h2>Productos Disponibles</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '15px' }}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: isMobile ? 'repeat(auto-fill, minmax(140px, 1fr))' : 'repeat(auto-fill, minmax(180px, 1fr))',
+            gap: isMobile ? '12px' : '15px'
+          }}
+        >
           {inventory
             .filter(item => item.materials?.categories?.is_for_sale === true)
             .map((item, idx) => (
@@ -316,7 +329,14 @@ const POS = () => {
         </div>
       </section>
 
-      <section style={cartContainerStyle}>
+      <section
+        style={{
+          ...cartContainerStyle,
+          height: isTablet ? 'auto' : cartContainerStyle.height,
+          position: isTablet ? 'static' : cartContainerStyle.position,
+          top: isTablet ? 'auto' : cartContainerStyle.top
+        }}
+      >
         <h3>Cuenta Actual</h3>
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {cart.map(c => (
@@ -373,16 +393,31 @@ const tableStatusStyle = {
   fontWeight: 'normal'
 };
 const productCardStyle = {
-  padding: '15px', backgroundColor: 'white', borderRadius: '8px', cursor: 'pointer',
-  boxShadow: '0 2px 5px rgba(0,0,0,0.1)', border: '1px solid #eee', textAlign: 'center'
+  padding: '15px',
+  backgroundColor: 'white',
+  borderRadius: '8px',
+  cursor: 'pointer',
+  boxShadow: '0 2px 5px rgba(0,0,0,0.1)',
+  border: '1px solid #eee',
+  textAlign: 'center'
 };
 const cartContainerStyle = {
-  backgroundColor: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 10px rgba(0,0,0,0.1)',
-  display: 'flex', flexDirection: 'column', height: '80vh', position: 'sticky', top: '20px'
+  backgroundColor: 'white',
+  padding: '20px',
+  borderRadius: '8px',
+  boxShadow: '0 2px 10px rgba(0,0,0,0.1)',
+  display: 'flex',
+  flexDirection: 'column',
+  height: '80vh',
+  position: 'sticky',
+  top: '20px'
 };
 const cartItemStyle = {
-  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-  padding: '10px 0', borderBottom: '1px solid #eee'
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  padding: '10px 0',
+  borderBottom: '1px solid #eee'
 };
 const deleteBtnStyle = { background: 'none', border: 'none', color: '#e74c3c', cursor: 'pointer', fontSize: '1.1em' };
 const btnSecondaryStyle = {
@@ -395,8 +430,15 @@ const btnSecondaryStyle = {
   fontWeight: 'bold'
 };
 const checkoutBtnStyle = {
-  width: '100%', marginTop: '15px', padding: '12px', backgroundColor: '#27ae60',
-  color: 'white', border: 'none', borderRadius: '5px', fontWeight: 'bold', cursor: 'pointer'
+  width: '100%',
+  marginTop: '15px',
+  padding: '12px',
+  backgroundColor: '#27ae60',
+  color: 'white',
+  border: 'none',
+  borderRadius: '5px',
+  fontWeight: 'bold',
+  cursor: 'pointer'
 };
 
 export default POS;

@@ -1,8 +1,11 @@
 import React, { useEffect, useState } from 'react'
+import { jsPDF } from 'jspdf'
 import { materialService } from '../api/materialService'
 import { supabase } from '../lib/supabase'
 import { useResponsive } from '../lib/useResponsive'
 import logoCarreta from '../assets/la_carreta_sin_fondo.png'
+
+const TICKET_WIDTH_MM = 80
 
 const POS = () => {
   const [inventory, setInventory] = useState([])
@@ -10,6 +13,7 @@ const POS = () => {
   const [selectedTable, setSelectedTable] = useState(null)
   const [cart, setCart] = useState([])
   const [ticketData, setTicketData] = useState(null)
+  const [notice, setNotice] = useState(null)
   const [loading, setLoading] = useState(true)
   const { isMobile, isTablet } = useResponsive()
 
@@ -24,6 +28,31 @@ const POS = () => {
 
     loadData()
   }, [])
+
+  useEffect(() => {
+    if (!notice) return undefined
+
+    const timer = window.setTimeout(() => {
+      setNotice(null)
+    }, 3200)
+
+    return () => window.clearTimeout(timer)
+  }, [notice])
+
+  useEffect(() => {
+    const handleTicketNotice = (event) => {
+      if (event.detail) {
+        showNotice(event.detail, 'info')
+      }
+    }
+
+    window.addEventListener('pos-ticket-notice', handleTicketNotice)
+    return () => window.removeEventListener('pos-ticket-notice', handleTicketNotice)
+  }, [])
+
+  const showNotice = (message, type = 'info') => {
+    setNotice({ message, type })
+  }
 
   const loadInventory = async () => {
     try {
@@ -139,19 +168,19 @@ const POS = () => {
     const isExtra = item.materials?.categories?.name === 'Extras'
 
     if (item.precio_venta <= 0) {
-      alert('Este producto no tiene precio de venta asignado.')
+      showNotice('Este producto no tiene precio de venta asignado.', 'warning')
       return
     }
 
     if (!isExtra && item.stock_actual <= 0) {
-      alert('No hay existencias de este producto.')
+      showNotice('No hay existencias de este producto.', 'warning')
       return
     }
 
     const existing = cart.find((c) => c.material_id === item.materials.id)
 
     if (!isExtra && existing && existing.quantity >= item.stock_actual) {
-      alert(`Solo hay ${item.stock_actual} unidades disponibles.`)
+      showNotice(`Solo hay ${item.stock_actual} unidades disponibles.`, 'warning')
       return
     }
 
@@ -218,7 +247,7 @@ const POS = () => {
     try {
       const centerId = inventory[0]?.centers?.id
       if (!centerId) {
-        alert('No se encontro un centro de inventario para procesar la venta.')
+        showNotice('No se encontro un centro de inventario para procesar la venta.', 'warning')
         return
       }
 
@@ -245,7 +274,7 @@ const POS = () => {
 
         const availableStock = inventoryByMaterialId.get(item.material_id)?.stock_actual ?? 0
         if (item.quantity > availableStock) {
-          alert(`No hay stock suficiente para ${item.name}. Disponible: ${availableStock}, solicitado: ${item.quantity}.`)
+          showNotice(`No hay stock suficiente para ${item.name}. Disponible: ${availableStock}, solicitado: ${item.quantity}.`, 'warning')
           await loadInventory()
           return
         }
@@ -260,7 +289,7 @@ const POS = () => {
       const sale = await materialService.recordSale(saleHeader, normalizedCart)
       setTicketData(buildTicketData(sale, normalizedCart, selectedTable))
       await persistTableOrder(selectedTable, [])
-      alert('Venta realizada con exito')
+      showNotice('Venta realizada con exito', 'success')
       setCart([])
       setSelectedTable(null)
       await Promise.all([loadInventory(), loadTables()])
@@ -275,6 +304,7 @@ const POS = () => {
   if (!selectedTable) {
     return (
       <>
+        {notice && <NoticeBanner notice={notice} onClose={() => setNotice(null)} />}
         <div style={getContainerStyle(isMobile)}>
           <div style={heroCardStyle}>
             <div>
@@ -325,6 +355,7 @@ const POS = () => {
 
   return (
     <>
+      {notice && <NoticeBanner notice={notice} onClose={() => setNotice(null)} />}
       <div style={getWorkspaceStyle(isTablet, isMobile)}>
         <section>
           <div style={topBarStyle(isMobile)}>
@@ -458,6 +489,27 @@ const POS = () => {
   )
 }
 
+const NoticeBanner = ({ notice, onClose }) => (
+  <div style={noticeWrapStyle}>
+    <div
+      style={{
+        ...noticeCardStyle,
+        borderLeft: `5px solid ${getNoticeAccent(notice.type)}`,
+      }}
+    >
+      <div>
+        <strong style={{ color: '#111827', display: 'block', marginBottom: '4px' }}>
+          {getNoticeTitle(notice.type)}
+        </strong>
+        <span style={{ color: '#475569' }}>{notice.message}</span>
+      </div>
+      <button type="button" onClick={onClose} style={noticeCloseStyle}>
+        Cerrar
+      </button>
+    </div>
+  </div>
+)
+
 const TicketModal = ({ ticket, onClose }) => {
   const chargedAt = new Date(ticket.chargedAt)
   const dateLabel = chargedAt.toLocaleDateString('es-MX', {
@@ -469,6 +521,155 @@ const TicketModal = ({ ticket, onClose }) => {
     hour: '2-digit',
     minute: '2-digit',
   })
+  const [isExportingPdf, setIsExportingPdf] = useState(false)
+
+  const loadLogoDataUrl = async () => {
+    const response = await fetch(logoCarreta)
+    const blob = await response.blob()
+
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onloadend = () => resolve(reader.result)
+      reader.onerror = reject
+      reader.readAsDataURL(blob)
+    })
+  }
+
+  const buildTicketPdf = async () => {
+    const pageWidth = TICKET_WIDTH_MM
+    const margin = 6
+    const lineHeight = 4.3
+    const itemBlockHeight = 9
+    const baseHeight = 52
+    const footerHeight = 16
+    const pageHeight = Math.max(110, baseHeight + ticket.items.length * itemBlockHeight + footerHeight)
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: [pageWidth, pageHeight],
+    })
+
+    const watermarkUrl = await loadLogoDataUrl()
+    const centerX = pageWidth / 2
+    const contentWidth = pageWidth - margin * 2
+    const headerRight = pageWidth - margin
+    let y = 8
+
+    pdf.setFillColor(255, 255, 255)
+    pdf.rect(0, 0, pageWidth, pageHeight, 'F')
+
+    pdf.setGState(new pdf.GState({ opacity: 0.08 }))
+    pdf.addImage(watermarkUrl, 'PNG', 9, pageHeight / 2 - 22, 62, 44, undefined, 'FAST')
+    pdf.setGState(new pdf.GState({ opacity: 1 }))
+
+    pdf.setFont('helvetica', 'bold')
+    pdf.setFontSize(13)
+    pdf.text('LA CARRETA', centerX, y, { align: 'center' })
+    y += 6
+
+    pdf.setFontSize(10)
+    pdf.text('Ticket virtual', centerX, y, { align: 'center' })
+    y += 7
+
+    pdf.setDrawColor(203, 213, 225)
+    pdf.line(margin, y, headerRight, y)
+    y += 5
+
+    pdf.setFont('helvetica', 'normal')
+    pdf.setFontSize(8.5)
+    pdf.text(`Fecha: ${dateLabel}`, margin, y)
+    y += lineHeight
+    pdf.text(`Hora: ${timeLabel}`, margin, y)
+    y += lineHeight
+    pdf.text(`Mesa: ${ticket.tableNumber || 'General'}`, margin, y)
+    y += lineHeight
+
+    if (ticket.saleId) {
+      pdf.text(`Venta: ${ticket.saleId}`, margin, y)
+      y += lineHeight
+    }
+
+    y += 2
+    pdf.setFont('helvetica', 'bold')
+    pdf.setFontSize(8)
+    pdf.text('Producto', margin, y)
+    pdf.text('Importe', headerRight, y, { align: 'right' })
+    y += 2
+    pdf.line(margin, y, headerRight, y)
+    y += 5
+
+    ticket.items.forEach((item) => {
+      pdf.setFont('helvetica', 'bold')
+      pdf.setFontSize(8.4)
+      const itemNameLines = pdf.splitTextToSize(item.name, contentWidth - 16)
+      pdf.text(itemNameLines, margin, y)
+
+      pdf.text(`$${item.subtotal.toFixed(2)}`, headerRight, y, { align: 'right' })
+
+      y += itemNameLines.length * 3.7
+      pdf.setFont('helvetica', 'normal')
+      pdf.setFontSize(7.8)
+      pdf.text(`${item.quantity} x $${item.unitPrice.toFixed(2)}`, margin, y)
+      y += 5
+    })
+
+    pdf.line(margin, y, headerRight, y)
+    y += 6
+
+    pdf.setFont('helvetica', 'bold')
+    pdf.setFontSize(10.5)
+    pdf.text('Total', margin, y)
+    pdf.text(`$${ticket.total.toFixed(2)}`, headerRight, y, { align: 'right' })
+
+    return pdf
+  }
+
+  const handleDownloadPdf = async () => {
+    try {
+      setIsExportingPdf(true)
+      const pdf = await buildTicketPdf()
+      pdf.save(`ticket-la-carreta-${ticket.saleId || Date.now()}.pdf`)
+    } catch (error) {
+      console.error('Error al generar PDF:', error)
+      alert('No se pudo generar el PDF del ticket.')
+    } finally {
+      setIsExportingPdf(false)
+    }
+  }
+
+  const handleShareTicket = async () => {
+    try {
+      setIsExportingPdf(true)
+      const pdf = await buildTicketPdf()
+      const blob = pdf.output('blob')
+      const file = new File([blob], `ticket-la-carreta-${ticket.saleId || Date.now()}.pdf`, {
+        type: 'application/pdf',
+      })
+
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          title: 'Ticket La Carreta',
+          text: `Ticket de consumo${ticket.tableNumber ? ` - Mesa ${ticket.tableNumber}` : ''}`,
+          files: [file],
+        })
+      } else {
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = file.name
+        link.click()
+        URL.revokeObjectURL(url)
+        showTicketNotice('Tu navegador no permite compartir archivos directamente. Se descargo el PDF para que lo compartas manualmente.')
+      }
+    } catch (error) {
+      if (error?.name !== 'AbortError') {
+        console.error('Error al compartir ticket:', error)
+        alert('No se pudo compartir el ticket en este dispositivo.')
+      }
+    } finally {
+      setIsExportingPdf(false)
+    }
+  }
 
   const handlePrintTicket = () => {
     const watermarkUrl = new URL('../assets/la_carreta_sin_fondo.png', import.meta.url).href
@@ -506,21 +707,27 @@ const TicketModal = ({ ticket, onClose }) => {
               background: #f3f4f6;
               color: #111827;
             }
+            @page {
+              size: ${TICKET_WIDTH_MM}mm auto;
+              margin: 0;
+            }
             .sheet {
               position: relative;
-              max-width: 560px;
+              width: ${TICKET_WIDTH_MM}mm;
+              max-width: ${TICKET_WIDTH_MM}mm;
               margin: 24px auto;
-              padding: 24px;
+              padding: 8mm 6mm;
               background: #ffffff;
               border-radius: 18px;
               overflow: hidden;
               box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+              box-sizing: border-box;
             }
             .watermark {
               position: absolute;
               inset: 50% auto auto 50%;
               transform: translate(-50%, -50%);
-              width: 78%;
+              width: 64mm;
               opacity: 0.08;
               pointer-events: none;
             }
@@ -588,7 +795,8 @@ const TicketModal = ({ ticket, onClose }) => {
               }
               .sheet {
                 margin: 0;
-                max-width: none;
+                width: ${TICKET_WIDTH_MM}mm;
+                max-width: ${TICKET_WIDTH_MM}mm;
                 border-radius: 0;
                 box-shadow: none;
               }
@@ -634,7 +842,13 @@ const TicketModal = ({ ticket, onClose }) => {
         <div style={ticketHeaderStyle}>
           <h3 style={{ margin: 0, color: '#111827' }}>Ticket Virtual</h3>
           <div style={ticketHeaderActionsStyle}>
-            <button type="button" onClick={handlePrintTicket} style={ticketPrintBtnStyle}>
+            <button type="button" onClick={handleDownloadPdf} style={ticketPdfBtnStyle} disabled={isExportingPdf}>
+              {isExportingPdf ? 'Generando...' : 'Descargar PDF'}
+            </button>
+            <button type="button" onClick={handleShareTicket} style={ticketShareBtnStyle} disabled={isExportingPdf}>
+              Compartir
+            </button>
+            <button type="button" onClick={handlePrintTicket} style={ticketPrintBtnStyle} disabled={isExportingPdf}>
               Imprimir
             </button>
             <button type="button" onClick={onClose} style={ticketCloseBtnStyle}>
@@ -676,6 +890,10 @@ const TicketModal = ({ ticket, onClose }) => {
       </div>
     </div>
   )
+}
+
+const showTicketNotice = (message) => {
+  window.dispatchEvent(new CustomEvent('pos-ticket-notice', { detail: message }))
 }
 
 const getContainerStyle = (isMobile) => ({
@@ -1018,6 +1236,26 @@ const ticketPrintBtnStyle = {
   padding: '8px 14px',
 }
 
+const ticketPdfBtnStyle = {
+  border: 'none',
+  borderRadius: '999px',
+  backgroundColor: '#1d4ed8',
+  color: '#ffffff',
+  fontWeight: '700',
+  cursor: 'pointer',
+  padding: '8px 14px',
+}
+
+const ticketShareBtnStyle = {
+  border: 'none',
+  borderRadius: '999px',
+  backgroundColor: '#7c3aed',
+  color: '#ffffff',
+  fontWeight: '700',
+  cursor: 'pointer',
+  padding: '8px 14px',
+}
+
 const ticketCloseBtnStyle = {
   border: 'none',
   borderRadius: '999px',
@@ -1084,6 +1322,46 @@ const ticketTotalStyle = {
   borderTop: '2px solid #e5e7eb',
   fontSize: '1.08rem',
   color: '#111827',
+}
+
+const noticeWrapStyle = {
+  position: 'fixed',
+  top: '18px',
+  right: '18px',
+  zIndex: 1100,
+  width: 'min(420px, calc(100vw - 32px))',
+}
+
+const noticeCardStyle = {
+  backgroundColor: '#ffffff',
+  borderRadius: '16px',
+  boxShadow: '0 18px 40px rgba(15, 23, 42, 0.16)',
+  padding: '14px 16px',
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'flex-start',
+  gap: '12px',
+}
+
+const noticeCloseStyle = {
+  border: 'none',
+  background: 'transparent',
+  color: '#1d4ed8',
+  fontWeight: '700',
+  cursor: 'pointer',
+  padding: 0,
+}
+
+const getNoticeAccent = (type) => {
+  if (type === 'success') return '#16a34a'
+  if (type === 'warning') return '#d97706'
+  return '#2563eb'
+}
+
+const getNoticeTitle = (type) => {
+  if (type === 'success') return 'Operacion exitosa'
+  if (type === 'warning') return 'Aviso'
+  return 'Informacion'
 }
 
 export default POS

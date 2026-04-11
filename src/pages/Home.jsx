@@ -22,9 +22,9 @@ const sections = [
     accent: '#0f766e',
   },
   {
-    id: 'report',
-    label: 'Reporte de Existencias',
-    description: 'Revisa stock, costo promedio y valor actual del almacen.',
+    id: 'reports',
+    label: 'Reportes',
+    description: 'Accede a existencias, compras y ventas desde un solo lugar.',
     accent: '#b45309',
   },
   {

@@ -4,7 +4,10 @@ import Inventory from './pages/Inventory'
 import ProviderMaster from './pages/ProviderMaster'
 import PurchaseEntry from './pages/PurchaseEntry'
 import InventoryReport from './pages/InventoryReport'
+import PurchasesReport from './pages/PurchasesReport'
 import POS from './pages/POS'
+import ReportsHome from './pages/ReportsHome'
+import SalesReport from './pages/SalesReport'
 import { useResponsive } from './lib/useResponsive'
 
 function App() {
@@ -31,7 +34,7 @@ function App() {
           <button onClick={() => setCurrentPage('master')} style={currentPage === 'master' ? getActiveBtnStyle(isMobile) : getBtnNavStyle(isMobile)}>Maestro de Materiales</button>
           <button onClick={() => setCurrentPage('providers')} style={currentPage === 'providers' ? getActiveBtnStyle(isMobile) : getBtnNavStyle(isMobile)}>Proveedores</button>
           <button onClick={() => setCurrentPage('purchases')} style={currentPage === 'purchases' ? getActiveBtnStyle(isMobile) : getBtnNavStyle(isMobile)}>Entrada por Compra</button>
-          <button onClick={() => setCurrentPage('report')} style={currentPage === 'report' ? getActiveBtnStyle(isMobile) : getBtnNavStyle(isMobile)}>Reporte de Existencias</button>
+          <button onClick={() => setCurrentPage('reports')} style={currentPage.startsWith('report') ? getActiveBtnStyle(isMobile) : getBtnNavStyle(isMobile)}>Reportes</button>
           <button onClick={() => setCurrentPage('pos')} style={currentPage === 'pos' ? getActiveBtnStyle(isMobile) : getBtnNavStyle(isMobile)}>Punto de Venta</button>
         </nav>
       )}
@@ -41,7 +44,10 @@ function App() {
         {currentPage === 'master' && <Inventory />}
         {currentPage === 'providers' && <ProviderMaster />}
         {currentPage === 'purchases' && <PurchaseEntry />}
-        {currentPage === 'report' && <InventoryReport />}
+        {currentPage === 'reports' && <ReportsHome onNavigate={setCurrentPage} />}
+        {currentPage === 'report-inventory' && <InventoryReport />}
+        {currentPage === 'report-purchases' && <PurchasesReport />}
+        {currentPage === 'report-sales' && <SalesReport />}
         {currentPage === 'pos' && <POS />}
       </main>
     </div>

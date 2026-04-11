@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { jsPDF } from 'jspdf'
 import { materialService } from '../api/materialService'
 import { supabase } from '../lib/supabase'
@@ -15,7 +15,10 @@ const POS = () => {
   const [ticketData, setTicketData] = useState(null)
   const [notice, setNotice] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [isHydratingTable, setIsHydratingTable] = useState(false)
   const { isMobile, isTablet } = useResponsive()
+  const latestTableRef = useRef(null)
+  const latestCartRef = useRef([])
 
   useEffect(() => {
     const loadData = async () => {
@@ -50,6 +53,43 @@ const POS = () => {
     return () => window.removeEventListener('pos-ticket-notice', handleTicketNotice)
   }, [])
 
+  useEffect(() => {
+    latestTableRef.current = selectedTable
+    latestCartRef.current = cart
+  }, [cart, selectedTable])
+
+  useEffect(() => {
+    if (!selectedTable || isHydratingTable) return undefined
+
+    const persistCurrentTable = async () => {
+      try {
+        await persistTableOrder(selectedTable, cart)
+        await loadTables()
+      } catch (error) {
+        console.error('Error al guardar automaticamente la mesa:', error)
+      }
+    }
+
+    persistCurrentTable()
+    return undefined
+  }, [cart, isHydratingTable, selectedTable])
+
+  useEffect(() => {
+    const handlePageHide = () => {
+      const table = latestTableRef.current
+      const items = latestCartRef.current
+
+      if (!table) return
+
+      persistTableOrder(table, items).catch((error) => {
+        console.error('Error al guardar la mesa al salir de la pantalla:', error)
+      })
+    }
+
+    window.addEventListener('pagehide', handlePageHide)
+    return () => window.removeEventListener('pagehide', handlePageHide)
+  }, [])
+
   const showNotice = (message, type = 'info') => {
     setNotice({ message, type })
   }
@@ -79,10 +119,12 @@ const POS = () => {
 
   const handleSelectTable = async (table) => {
     try {
+      setIsHydratingTable(true)
       setSelectedTable(table)
 
       if (!table.current_order_id) {
         setCart([])
+        setIsHydratingTable(false)
         return
       }
 
@@ -97,6 +139,8 @@ const POS = () => {
     } catch (error) {
       console.error('Error al cargar la mesa:', error)
       alert('No se pudo abrir la mesa.')
+    } finally {
+      setIsHydratingTable(false)
     }
   }
 
@@ -224,11 +268,12 @@ const POS = () => {
   const availableProducts = inventory.filter((item) => item.materials?.categories?.is_for_sale === true)
   const occupiedTables = tables.filter((table) => table.status === 'ocupada').length
 
-  const buildTicketData = (sale, items, table) => {
+  const buildTicketData = (sale, items, table, documentNumber) => {
     const chargedAt = sale?.created_at || new Date().toISOString()
 
     return {
       saleId: sale?.id,
+      documentNumber,
       chargedAt,
       tableNumber: table?.number,
       items: items.map((item) => ({
@@ -287,7 +332,8 @@ const POS = () => {
       }
 
       const sale = await materialService.recordSale(saleHeader, normalizedCart)
-      setTicketData(buildTicketData(sale, normalizedCart, selectedTable))
+      const documentNumber = sale?.document_number || null
+      setTicketData(buildTicketData(sale, normalizedCart, selectedTable, documentNumber))
       await persistTableOrder(selectedTable, [])
       showNotice('Venta realizada con exito', 'success')
       setCart([])
@@ -522,6 +568,7 @@ const TicketModal = ({ ticket, onClose }) => {
     minute: '2-digit',
   })
   const [isExportingPdf, setIsExportingPdf] = useState(false)
+  const ticketReference = ticket.documentNumber
 
   const loadLogoDataUrl = async () => {
     const response = await fetch(logoCarreta)
@@ -577,17 +624,16 @@ const TicketModal = ({ ticket, onClose }) => {
 
     pdf.setFont('helvetica', 'normal')
     pdf.setFontSize(8.5)
+    if (ticketReference) {
+      pdf.text(`Folio de venta: ${ticketReference}`, margin, y)
+      y += lineHeight
+    }
     pdf.text(`Fecha: ${dateLabel}`, margin, y)
     y += lineHeight
     pdf.text(`Hora: ${timeLabel}`, margin, y)
     y += lineHeight
     pdf.text(`Mesa: ${ticket.tableNumber || 'General'}`, margin, y)
     y += lineHeight
-
-    if (ticket.saleId) {
-      pdf.text(`Venta: ${ticket.saleId}`, margin, y)
-      y += lineHeight
-    }
 
     y += 2
     pdf.setFont('helvetica', 'bold')
@@ -628,7 +674,7 @@ const TicketModal = ({ ticket, onClose }) => {
     try {
       setIsExportingPdf(true)
       const pdf = await buildTicketPdf()
-      pdf.save(`ticket-la-carreta-${ticket.saleId || Date.now()}.pdf`)
+      pdf.save(`ticket-la-carreta-${ticket.documentNumber || Date.now()}.pdf`)
     } catch (error) {
       console.error('Error al generar PDF:', error)
       alert('No se pudo generar el PDF del ticket.')
@@ -642,7 +688,7 @@ const TicketModal = ({ ticket, onClose }) => {
       setIsExportingPdf(true)
       const pdf = await buildTicketPdf()
       const blob = pdf.output('blob')
-      const file = new File([blob], `ticket-la-carreta-${ticket.saleId || Date.now()}.pdf`, {
+      const file = new File([blob], `ticket-la-carreta-${ticket.documentNumber || Date.now()}.pdf`, {
         type: 'application/pdf',
       })
 
@@ -810,10 +856,10 @@ const TicketModal = ({ ticket, onClose }) => {
               <h1>Ticket Virtual</h1>
             </div>
             <div class="meta">
+              ${ticketReference ? `<div><strong>Folio de venta:</strong> ${ticketReference}</div>` : ''}
               <div><strong>Fecha:</strong> ${dateLabel}</div>
               <div><strong>Hora:</strong> ${timeLabel}</div>
               <div><strong>Mesa:</strong> ${ticket.tableNumber || 'General'}</div>
-              ${ticket.saleId ? `<div><strong>Venta:</strong> ${ticket.saleId}</div>` : ''}
             </div>
             <div class="items-header">
               <span>Producto</span>
@@ -858,10 +904,10 @@ const TicketModal = ({ ticket, onClose }) => {
         </div>
 
         <div style={ticketMetaStyle}>
+          {ticketReference && <div><strong>Folio de venta:</strong> {ticketReference}</div>}
           <div><strong>Fecha:</strong> {dateLabel}</div>
           <div><strong>Hora:</strong> {timeLabel}</div>
           <div><strong>Mesa:</strong> {ticket.tableNumber || 'General'}</div>
-          {ticket.saleId && <div><strong>Venta:</strong> {ticket.saleId}</div>}
         </div>
 
         <div style={ticketItemsWrapStyle}>

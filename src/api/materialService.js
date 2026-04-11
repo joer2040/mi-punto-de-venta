@@ -188,6 +188,16 @@ export const materialService = {
     return data
   },
 
+  async getInventoryMovements() {
+    const { data, error } = await supabase
+      .from('inventory_movements')
+      .select('material_id, created_at')
+      .order('created_at', { ascending: false })
+
+    if (error) throw error
+    return data
+  },
+
   async createMaterial(formData) {
     const { data: material, error: materialError } = await supabase
       .from('materials')

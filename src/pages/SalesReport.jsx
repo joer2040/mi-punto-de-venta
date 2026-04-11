@@ -5,6 +5,8 @@ import { useResponsive } from '../lib/useResponsive'
 const SalesReport = () => {
   const [sales, setSales] = useState([])
   const [loading, setLoading] = useState(true)
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const { isMobile } = useResponsive()
 
   useEffect(() => {
@@ -22,11 +24,26 @@ const SalesReport = () => {
     loadReport()
   }, [])
 
+  const filteredSales = sales.filter((sale) => isWithinDateRange(sale.created_at, dateFrom, dateTo))
+
   if (loading) return <div style={loadingStyle}>Generando reporte de ventas...</div>
 
   return (
     <div style={getContainerStyle(isMobile)}>
       <h2 style={getTitleStyle(isMobile)}>Reporte de Ventas</h2>
+
+      <div style={filterCardStyle}>
+        <div style={getFilterGridStyle(isMobile)}>
+          <div>
+            <label style={filterLabelStyle}>Fecha desde</label>
+            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} style={filterInputStyle} />
+          </div>
+          <div>
+            <label style={filterLabelStyle}>Fecha hasta</label>
+            <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} style={filterInputStyle} />
+          </div>
+        </div>
+      </div>
 
       <div style={tableWrapperStyle}>
         <div style={tableScrollStyle}>
@@ -39,7 +56,7 @@ const SalesReport = () => {
               </tr>
             </thead>
             <tbody>
-              {sales.map((sale) => (
+              {filteredSales.map((sale) => (
                 <tr key={sale.id} style={rowStyle}>
                   <td style={tdStyle}>{formatDateTime(sale.created_at)}</td>
                   <td style={{ ...tdStyle, fontWeight: 'bold' }}>{sale.document_number}</td>
@@ -54,10 +71,25 @@ const SalesReport = () => {
       </div>
 
       <div style={getSummaryStyle(isMobile)}>
-        Total vendido: ${sales.reduce((acc, sale) => acc + sale.total_amount, 0).toFixed(2)}
+        Total vendido: ${filteredSales.reduce((acc, sale) => acc + sale.total_amount, 0).toFixed(2)}
       </div>
     </div>
   )
+}
+
+const isWithinDateRange = (value, dateFrom, dateTo) => {
+  const current = new Date(value)
+  if (dateFrom) {
+    const from = new Date(`${dateFrom}T00:00:00`)
+    if (current < from) return false
+  }
+
+  if (dateTo) {
+    const to = new Date(`${dateTo}T23:59:59`)
+    if (current > to) return false
+  }
+
+  return true
 }
 
 const formatDateTime = (value) =>
@@ -82,6 +114,36 @@ const getTitleStyle = (isMobile) => ({
   paddingBottom: '10px',
   fontSize: isMobile ? '1.35rem' : '1.75rem',
 })
+
+const filterCardStyle = {
+  backgroundColor: '#ffffff',
+  borderRadius: '12px',
+  padding: '18px',
+  boxShadow: '0 4px 6px rgba(0,0,0,0.08)',
+  marginBottom: '18px',
+}
+
+const getFilterGridStyle = (isMobile) => ({
+  display: 'grid',
+  gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, minmax(0, 1fr))',
+  gap: '12px',
+})
+
+const filterLabelStyle = {
+  display: 'block',
+  marginBottom: '6px',
+  color: '#475569',
+  fontWeight: '700',
+  fontSize: '0.85rem',
+}
+
+const filterInputStyle = {
+  width: '100%',
+  padding: '10px',
+  borderRadius: '8px',
+  border: '1px solid #cbd5e1',
+  boxSizing: 'border-box',
+}
 
 const loadingStyle = { padding: '50px', textAlign: 'center' }
 const tableWrapperStyle = {

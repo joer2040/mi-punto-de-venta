@@ -2,13 +2,32 @@ import { useEffect, useState } from 'react'
 
 const getViewportInfo = () => {
   if (typeof window === 'undefined') {
-    return { isMobile: false, isTablet: false }
+    return {
+      width: 1280,
+      height: 720,
+      isPhone: false,
+      isMobile: false,
+      isTablet: false,
+      isCompact: false,
+      isDesktop: true,
+    }
   }
 
   const width = window.innerWidth
+  const height = window.innerHeight
+
+  const isPhone = width <= 640
+  const isMobile = width <= 768
+  const isTablet = width <= 1024
+
   return {
-    isMobile: width <= 768,
-    isTablet: width <= 1024
+    width,
+    height,
+    isPhone,
+    isMobile,
+    isTablet,
+    isCompact: width <= 900,
+    isDesktop: width > 1024,
   }
 }
 

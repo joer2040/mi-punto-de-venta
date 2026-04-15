@@ -12,6 +12,7 @@ import Home from './pages/Home'
 import Login from './pages/Login'
 import AccessDenied from './pages/AccessDenied'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { useResponsive } from './lib/useResponsive'
 
 const STORAGE_KEY = 'mi-punto-de-venta.current-page'
 
@@ -34,6 +35,7 @@ const getInitialUiState = () => ({
   currentPage: typeof window === 'undefined' ? 'home' : localStorage.getItem(STORAGE_KEY) || 'home',
   isPosEditing: false,
   restoredProfileId: null,
+  isMobileNavOpen: false,
 })
 
 const uiReducer = (state, action) => {
@@ -43,6 +45,7 @@ const uiReducer = (state, action) => {
         currentPage: 'home',
         isPosEditing: false,
         restoredProfileId: null,
+        isMobileNavOpen: false,
       }
     case 'restore-page':
       return {
@@ -54,11 +57,17 @@ const uiReducer = (state, action) => {
       return {
         ...state,
         currentPage: action.page,
+        isMobileNavOpen: false,
       }
     case 'set-pos-editing':
       return {
         ...state,
         isPosEditing: action.value,
+      }
+    case 'set-mobile-nav-open':
+      return {
+        ...state,
+        isMobileNavOpen: action.value,
       }
     default:
       return state
@@ -75,8 +84,9 @@ const AppShell = () => {
     profile,
     isWaiter,
   } = useAuth()
+  const { isMobile } = useResponsive()
   const [uiState, dispatch] = useReducer(uiReducer, undefined, getInitialUiState)
-  const { currentPage, isPosEditing, restoredProfileId } = uiState
+  const { currentPage, isPosEditing, restoredProfileId, isMobileNavOpen } = uiState
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -107,6 +117,12 @@ const AppShell = () => {
     localStorage.setItem(STORAGE_KEY, currentPage)
   }, [canAccessPage, currentPage, getFirstAllowedPage, isAuthenticated])
 
+  useEffect(() => {
+    if (!isMobile && isMobileNavOpen) {
+      dispatch({ type: 'set-mobile-nav-open', value: false })
+    }
+  }, [isMobile, isMobileNavOpen])
+
   const navItems = useMemo(
     () =>
       PRIMARY_NAV_PAGES.filter((pageKey) => canAccessPage(pageKey)).map((pageKey) => ({
@@ -119,6 +135,14 @@ const AppShell = () => {
   const handleNavigate = (pageKey) => {
     if (!canAccessPage(pageKey)) return
     dispatch({ type: 'set-page', page: pageKey })
+  }
+
+  const handleMobileNavToggle = () => {
+    dispatch({ type: 'set-mobile-nav-open', value: !isMobileNavOpen })
+  }
+
+  const closeMobileNav = () => {
+    dispatch({ type: 'set-mobile-nav-open', value: false })
   }
 
   const handlePosEditingStateChange = (value) => {
@@ -165,6 +189,7 @@ const AppShell = () => {
   }
 
   const hideNavigation = currentPage === 'home' || (isWaiter && currentPage === 'pos' && isPosEditing)
+  const currentPageLabel = PAGE_LABELS[currentPage] || 'Panel'
 
   return (
     <div style={appStyle}>
@@ -174,7 +199,7 @@ const AppShell = () => {
         </div>
       )}
 
-      {!hideNavigation && (
+      {!hideNavigation && !isMobile && (
         <header style={headerStyle}>
           <div>
             <div style={brandStyle}>La Carreta</div>
@@ -197,6 +222,64 @@ const AppShell = () => {
             ))}
           </nav>
         </header>
+      )}
+
+      {!hideNavigation && isMobile && (
+        <>
+          <header style={mobileHeaderStyle}>
+            <div>
+              <div style={mobileBrandStyle}>La Carreta</div>
+              <div style={mobilePageLabelStyle}>{currentPageLabel}</div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleMobileNavToggle}
+              style={mobileMenuButtonStyle}
+              aria-label={isMobileNavOpen ? 'Cerrar menu' : 'Abrir menu'}
+              aria-expanded={isMobileNavOpen}
+            >
+              {isMobileNavOpen ? '✕' : '☰'}
+            </button>
+          </header>
+
+          {isMobileNavOpen && <div style={mobileOverlayStyle} onClick={closeMobileNav} />}
+
+          <aside
+            style={{
+              ...mobileDrawerStyle,
+              transform: isMobileNavOpen ? 'translateX(0)' : 'translateX(100%)',
+              pointerEvents: isMobileNavOpen ? 'auto' : 'none',
+            }}
+            aria-hidden={!isMobileNavOpen}
+          >
+            <div style={mobileDrawerHeaderStyle}>
+              <div>
+                <div style={mobileDrawerTitleStyle}>Navegacion</div>
+                <div style={mobileDrawerSubtitleStyle}>{profile?.full_name || profile?.username || 'Usuario activo'}</div>
+              </div>
+              <button type="button" onClick={closeMobileNav} style={mobileDrawerCloseStyle} aria-label="Cerrar menu">
+                ✕
+              </button>
+            </div>
+
+            <nav style={mobileDrawerNavStyle}>
+              {navItems.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => handleNavigate(item.key)}
+                  style={{
+                    ...mobileDrawerButtonStyle,
+                    ...(currentPage === item.key ? mobileDrawerActiveButtonStyle : null),
+                  }}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </nav>
+          </aside>
+        </>
       )}
 
       <main style={mainStyle}>{renderPage()}</main>
@@ -280,6 +363,120 @@ const activeNavButtonStyle = {
 
 const mainStyle = {
   width: '100%',
+}
+
+const mobileHeaderStyle = {
+  position: 'sticky',
+  top: 0,
+  zIndex: 20,
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  gap: '16px',
+  padding: '12px 16px 0',
+  background: '#f8fafc',
+}
+
+const mobileBrandStyle = {
+  color: '#0f172a',
+  fontWeight: 900,
+  fontSize: '1.1rem',
+}
+
+const mobilePageLabelStyle = {
+  color: '#64748b',
+  fontSize: '0.9rem',
+  marginTop: '4px',
+}
+
+const mobileMenuButtonStyle = {
+  width: '46px',
+  height: '46px',
+  borderRadius: '14px',
+  border: '1px solid #cbd5e1',
+  background: '#ffffff',
+  color: '#0f172a',
+  fontSize: '1.35rem',
+  fontWeight: 900,
+  cursor: 'pointer',
+  boxShadow: '0 10px 24px rgba(15, 23, 42, 0.08)',
+}
+
+const mobileOverlayStyle = {
+  position: 'fixed',
+  inset: 0,
+  background: 'rgba(15, 23, 42, 0.35)',
+  zIndex: 29,
+}
+
+const mobileDrawerStyle = {
+  position: 'fixed',
+  top: 0,
+  right: 0,
+  bottom: 0,
+  width: 'min(86vw, 320px)',
+  padding: '18px 16px 24px',
+  background: '#ffffff',
+  boxShadow: '-16px 0 40px rgba(15, 23, 42, 0.18)',
+  zIndex: 30,
+  transition: 'transform 180ms ease',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '18px',
+}
+
+const mobileDrawerHeaderStyle = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'flex-start',
+  gap: '12px',
+}
+
+const mobileDrawerTitleStyle = {
+  color: '#0f172a',
+  fontWeight: 900,
+  fontSize: '1rem',
+}
+
+const mobileDrawerSubtitleStyle = {
+  color: '#64748b',
+  fontSize: '0.9rem',
+  marginTop: '4px',
+}
+
+const mobileDrawerCloseStyle = {
+  width: '40px',
+  height: '40px',
+  borderRadius: '12px',
+  border: '1px solid #cbd5e1',
+  background: '#f8fafc',
+  color: '#0f172a',
+  fontSize: '1.2rem',
+  cursor: 'pointer',
+}
+
+const mobileDrawerNavStyle = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '10px',
+}
+
+const mobileDrawerButtonStyle = {
+  width: '100%',
+  textAlign: 'left',
+  padding: '14px 16px',
+  borderRadius: '14px',
+  border: '1px solid #dbe4f0',
+  background: '#ffffff',
+  color: '#334155',
+  fontWeight: 800,
+  cursor: 'pointer',
+}
+
+const mobileDrawerActiveButtonStyle = {
+  background: '#0f172a',
+  color: '#ffffff',
+  borderColor: '#0f172a',
 }
 
 const loadingStyle = {

@@ -1,0 +1,517 @@
+// @ts-nocheck
+import { createClient } from 'npm:@supabase/supabase-js@2'
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+}
+
+const json = (body: Record<string, unknown>, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      ...corsHeaders,
+      'Content-Type': 'application/json',
+    },
+  })
+
+const appError = (message: string, status = 400) => Object.assign(new Error(message), { status })
+const normalizeRoleName = (value: string | null | undefined) => (value || '').trim().toLowerCase()
+const isManagerRoleName = (value: string | null | undefined) =>
+  ['manager', 'administrador operativo'].includes(normalizeRoleName(value))
+const toNumber = (value: unknown, fallback = 0) => {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
+type RoleLinkRow = {
+  role_id: string
+  app_roles: { name: string | null } | { name: string | null }[] | null
+}
+
+const readRoleName = (roleLink: RoleLinkRow) => {
+  if (Array.isArray(roleLink.app_roles)) {
+    return roleLink.app_roles[0]?.name ?? null
+  }
+
+  return roleLink.app_roles?.name ?? null
+}
+
+const logAuditEvent = async (adminClient: ReturnType<typeof createClient>, {
+  entityType,
+  entityId,
+  eventType,
+  oldValues = {},
+  newValues = {},
+  notes = null,
+  performedBy = 'system',
+}) => {
+  const { error } = await adminClient.from('audit_log').insert([
+    {
+      entity_type: entityType,
+      entity_id: entityId,
+      event_type: eventType,
+      old_values: oldValues,
+      new_values: newValues,
+      notes,
+      performed_by: performedBy,
+    },
+  ])
+
+  if (error) throw error
+}
+
+const logInventoryMovement = async (adminClient: ReturnType<typeof createClient>, movement: Record<string, unknown>) => {
+  const { error } = await adminClient.from('inventory_movements').insert([movement])
+  if (error) throw error
+}
+
+const createInventoryAdjustment = async (adminClient: ReturnType<typeof createClient>, adjustment: Record<string, unknown>) => {
+  const { data, error } = await adminClient
+    .from('inventory_adjustments')
+    .insert([adjustment])
+    .select()
+    .single()
+
+  if (error) throw error
+  return data
+}
+
+const getInventorySnapshot = async (adminClient: ReturnType<typeof createClient>, materialId: string, centerId: string) => {
+  const { data, error } = await adminClient
+    .from('inventory')
+    .select('material_id, center_id, stock_actual, costo_promedio, precio_venta')
+    .eq('material_id', materialId)
+    .eq('center_id', centerId)
+    .single()
+
+  if (error) throw error
+  return data
+}
+
+const getMaterialSnapshot = async (adminClient: ReturnType<typeof createClient>, id: string) => {
+  const { data, error } = await adminClient
+    .from('materials')
+    .select('*')
+    .eq('id', id)
+    .single()
+
+  if (error) throw error
+  return data
+}
+
+const loadCallerContext = async (adminClient: ReturnType<typeof createClient>, userId: string) => {
+  const { data: profile, error: profileError } = await adminClient
+    .from('app_profiles')
+    .select('id, username, is_superadmin, status')
+    .eq('id', userId)
+    .maybeSingle()
+
+  if (profileError || profile?.status !== 'active') {
+    throw appError('No tienes permisos para operar este modulo.', 403)
+  }
+
+  const { data: callerRoleLinks, error: callerRoleError } = await adminClient
+    .from('app_user_roles')
+    .select('role_id, app_roles(name)')
+    .eq('user_id', userId)
+
+  if (callerRoleError) throw callerRoleError
+
+  const roleNames = Array.from(
+    new Set(((callerRoleLinks as RoleLinkRow[] | null) || []).map(readRoleName).filter(Boolean))
+  )
+
+  const isSuperadmin = Boolean(profile?.is_superadmin)
+  const isManager = roleNames.some((roleName) => isManagerRoleName(roleName))
+
+  if (!isSuperadmin && !isManager) {
+    throw appError('No tienes permisos para operar este modulo.', 403)
+  }
+
+  return {
+    profile,
+    isSuperadmin,
+    isManager,
+    performedBy: profile?.username || userId,
+  }
+}
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders })
+  }
+
+  try {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!
+    const serviceRoleKey = Deno.env.get('SERVICE_ROLE_KEY')!
+    const authorization = req.headers.get('Authorization')
+
+    if (!authorization) {
+      return json({ error: 'No se recibio token de autenticacion.' }, 401)
+    }
+
+    const userClient = createClient(supabaseUrl, anonKey, {
+      global: {
+        headers: {
+          Authorization: authorization,
+        },
+      },
+    })
+
+    const adminClient = createClient(supabaseUrl, serviceRoleKey)
+
+    const {
+      data: { user },
+      error: userError,
+    } = await userClient.auth.getUser()
+
+    if (userError || !user) {
+      return json({ error: 'Sesion invalida o expirada.' }, 401)
+    }
+
+    const caller = await loadCallerContext(adminClient, user.id)
+    const body = (await req.json()) as Record<string, unknown>
+    const action = String(body?.action ?? '')
+
+    if (action === 'create_provider') {
+      const provider = (body.provider || {}) as Record<string, unknown>
+      const name = String(provider.name ?? '').trim()
+      const rfc = String(provider.rfc ?? '').trim()
+      const phone = String(provider.phone ?? '').trim()
+      const email = String(provider.email ?? '').trim()
+
+      if (!name || !rfc) return json({ error: 'Nombre y RFC son obligatorios.' }, 400)
+
+      const { data, error } = await adminClient
+        .from('providers')
+        .insert([{ name, rfc, phone: phone || null, email: email || null }])
+        .select()
+        .single()
+
+      if (error) throw error
+
+      await logAuditEvent(adminClient, {
+        entityType: 'provider',
+        entityId: data.id,
+        eventType: 'provider_created',
+        newValues: data,
+        notes: 'Alta de proveedor desde el maestro de proveedores',
+        performedBy: caller.performedBy,
+      })
+
+      return json({ provider: data })
+    }
+
+    if (action === 'record_purchase') {
+      const purchaseHeader = (body.purchase_header || {}) as Record<string, unknown>
+      const rawItems = Array.isArray(body.items) ? body.items : []
+      const items = rawItems
+        .map((item) => ({
+          material_id: String(item?.material_id ?? '').trim(),
+          quantity: toNumber(item?.quantity, 0),
+          unit_cost: toNumber(item?.unit_cost, 0),
+        }))
+        .filter((item) => item.material_id && item.quantity > 0 && item.unit_cost >= 0)
+
+      const centerId = String(purchaseHeader.center_id ?? '').trim()
+      const providerId = String(purchaseHeader.provider_id ?? '').trim()
+      const invoiceRef = String(purchaseHeader.invoice_ref ?? '').trim()
+
+      if (!centerId || !providerId || items.length === 0) {
+        return json({ error: 'La compra debe incluir centro, proveedor y al menos un item.' }, 400)
+      }
+
+      const { data: purchase, error: purchaseError } = await adminClient
+        .from('purchases')
+        .insert([
+          {
+            center_id: centerId,
+            provider_id: providerId,
+            invoice_ref: invoiceRef || null,
+          },
+        ])
+        .select()
+        .single()
+
+      if (purchaseError) throw purchaseError
+
+      const itemsWithId = items.map((item) => ({
+        material_id: item.material_id,
+        quantity: item.quantity,
+        unit_cost: item.unit_cost,
+        purchase_id: purchase.id,
+      }))
+
+      const { error: itemsError } = await adminClient.from('purchase_items').insert(itemsWithId)
+      if (itemsError) throw itemsError
+
+      for (const item of itemsWithId) {
+        const inventorySnapshot = await getInventorySnapshot(adminClient, item.material_id, centerId)
+        const afterStock = parseFloat(inventorySnapshot.stock_actual)
+        const beforeStock = afterStock - parseFloat(item.quantity)
+
+        await logInventoryMovement(adminClient, {
+          center_id: centerId,
+          material_id: item.material_id,
+          movement_type: 'purchase',
+          direction: 'in',
+          quantity: parseFloat(item.quantity),
+          before_stock: beforeStock,
+          after_stock: afterStock,
+          unit_cost: parseFloat(item.unit_cost),
+          unit_price: null,
+          reference_table: 'purchases',
+          reference_id: purchase.id,
+          reference_number: purchase.invoice_ref || invoiceRef || null,
+          reason_code: 'purchase_invoice',
+          notes: 'Entrada de inventario por compra',
+          performed_by: caller.performedBy,
+        })
+      }
+
+      await logAuditEvent(adminClient, {
+        entityType: 'purchase',
+        entityId: purchase.id,
+        eventType: 'purchase_created',
+        newValues: {
+          center_id: centerId,
+          provider_id: providerId,
+          invoice_ref: invoiceRef || null,
+          items: itemsWithId,
+        },
+        notes: 'Compra registrada desde entradas por compra',
+        performedBy: caller.performedBy,
+      })
+
+      return json({ purchase })
+    }
+
+    if (action === 'create_material') {
+      const material = (body.material || {}) as Record<string, unknown>
+      const sku = String(material.sku ?? '').trim()
+      const name = String(material.name ?? '').trim()
+      const catId = String(material.cat_id ?? '').trim()
+      const buyUomId = String(material.buy_uom_id ?? '').trim()
+      const sellUomId = String(material.sell_uom_id ?? '').trim()
+      const conversionFactor = toNumber(material.conversion_factor, 1)
+
+      if (!sku || !name || !catId || !buyUomId || !sellUomId) {
+        return json({ error: 'Todos los campos del material son obligatorios.' }, 400)
+      }
+
+      const { data: createdMaterial, error: materialError } = await adminClient
+        .from('materials')
+        .insert([
+          {
+            sku,
+            name,
+            cat_id: catId,
+            buy_uom_id: buyUomId,
+            sell_uom_id: sellUomId,
+            conversion_factor: conversionFactor,
+          },
+        ])
+        .select()
+        .single()
+
+      if (materialError) throw materialError
+
+      const { data: center, error: centerError } = await adminClient
+        .from('centers')
+        .select('id')
+        .limit(1)
+        .single()
+
+      if (centerError) throw centerError
+
+      if (center) {
+        const { error: inventoryError } = await adminClient.from('inventory').upsert(
+          [
+            {
+              material_id: createdMaterial.id,
+              center_id: center.id,
+              stock_actual: 0,
+              costo_promedio: 0,
+              precio_venta: 0,
+            },
+          ],
+          {
+            onConflict: 'material_id,center_id',
+            ignoreDuplicates: true,
+          }
+        )
+
+        if (inventoryError) throw inventoryError
+      }
+
+      await logAuditEvent(adminClient, {
+        entityType: 'material',
+        entityId: createdMaterial.id,
+        eventType: 'material_created',
+        newValues: createdMaterial,
+        notes: 'Alta de material desde el maestro de materiales',
+        performedBy: caller.performedBy,
+      })
+
+      return json({ material: createdMaterial })
+    }
+
+    if (action === 'update_price') {
+      const materialId = String(body.material_id ?? '').trim()
+      const centerId = String(body.center_id ?? '').trim()
+      const parsedPrice = toNumber(body.new_price, NaN)
+
+      if (!materialId || !centerId || Number.isNaN(parsedPrice)) {
+        return json({ error: 'Faltan datos para actualizar el precio.' }, 400)
+      }
+
+      const inventorySnapshot = await getInventorySnapshot(adminClient, materialId, centerId)
+
+      const { data, error } = await adminClient
+        .from('inventory')
+        .update({ precio_venta: parsedPrice })
+        .eq('material_id', materialId)
+        .eq('center_id', centerId)
+        .select()
+        .single()
+
+      if (error) throw error
+
+      await logAuditEvent(adminClient, {
+        entityType: 'material',
+        entityId: materialId,
+        eventType: 'price_updated',
+        oldValues: {
+          center_id: centerId,
+          precio_venta: inventorySnapshot.precio_venta,
+        },
+        newValues: {
+          center_id: centerId,
+          precio_venta: parsedPrice,
+        },
+        notes: 'Actualizacion manual de precio de venta',
+        performedBy: caller.performedBy,
+      })
+
+      return json({ inventory: data })
+    }
+
+    if (action === 'update_manual_stock') {
+      const materialId = String(body.material_id ?? '').trim()
+      const centerId = String(body.center_id ?? '').trim()
+      const parsedNewStock = toNumber(body.new_stock, NaN)
+      const options = (body.options || {}) as Record<string, unknown>
+
+      if (!materialId || !centerId || Number.isNaN(parsedNewStock)) {
+        return json({ error: 'Faltan datos para actualizar el stock.' }, 400)
+      }
+
+      const inventorySnapshot = await getInventorySnapshot(adminClient, materialId, centerId)
+      const previousStock = parseFloat(inventorySnapshot.stock_actual)
+      const differenceQty = parsedNewStock - previousStock
+
+      const adjustment = await createInventoryAdjustment(adminClient, {
+        center_id: centerId,
+        material_id: materialId,
+        previous_stock: previousStock,
+        new_stock: parsedNewStock,
+        difference_qty: differenceQty,
+        reason_code: String(options.reason_code ?? 'manual_count'),
+        notes: String(options.notes ?? 'Ajuste manual desde el maestro de materiales'),
+        authorization_code: String(options.authorization_code ?? 'PIN-LOCAL'),
+        performed_by: caller.performedBy,
+      })
+
+      const { data, error } = await adminClient
+        .from('inventory')
+        .update({
+          stock_actual: parsedNewStock,
+        })
+        .eq('material_id', materialId)
+        .eq('center_id', centerId)
+        .select()
+        .single()
+
+      if (error) throw error
+
+      await logInventoryMovement(adminClient, {
+        center_id: centerId,
+        material_id: materialId,
+        movement_type: 'manual_adjustment',
+        direction: 'adjust',
+        quantity: Math.abs(differenceQty),
+        before_stock: previousStock,
+        after_stock: parsedNewStock,
+        unit_cost: null,
+        unit_price: null,
+        reference_table: 'inventory_adjustments',
+        reference_id: adjustment?.id || null,
+        reference_number: adjustment?.id || null,
+        reason_code: String(options.reason_code ?? 'manual_count'),
+        notes: String(options.notes ?? 'Ajuste manual desde el maestro de materiales'),
+        performed_by: caller.performedBy,
+      })
+
+      await logAuditEvent(adminClient, {
+        entityType: 'material',
+        entityId: materialId,
+        eventType: 'inventory_adjusted',
+        oldValues: {
+          center_id: centerId,
+          stock_actual: previousStock,
+        },
+        newValues: {
+          center_id: centerId,
+          stock_actual: parsedNewStock,
+        },
+        notes: 'Ajuste manual de inventario',
+        performedBy: caller.performedBy,
+      })
+
+      return json({ inventory: data, adjustment })
+    }
+
+    if (action === 'update_material_field') {
+      const materialId = String(body.material_id ?? '').trim()
+      const field = String(body.field ?? '').trim()
+      const value = body.value
+      const allowedFields = new Set(['sku', 'name'])
+
+      if (!materialId || !allowedFields.has(field)) {
+        return json({ error: 'Actualizacion de material no permitida.' }, 400)
+      }
+
+      const materialSnapshot = await getMaterialSnapshot(adminClient, materialId)
+
+      const { data, error } = await adminClient
+        .from('materials')
+        .update({ [field]: value })
+        .eq('id', materialId)
+        .select()
+        .single()
+
+      if (error) throw error
+
+      await logAuditEvent(adminClient, {
+        entityType: 'material',
+        entityId: materialId,
+        eventType: 'material_updated',
+        oldValues: { [field]: materialSnapshot[field] },
+        newValues: { [field]: value },
+        notes: `Actualizacion del campo ${field}`,
+        performedBy: caller.performedBy,
+      })
+
+      return json({ material: data })
+    }
+
+    return json({ error: 'Accion no soportada.' }, 400)
+  } catch (error) {
+    console.error(error)
+    const status = typeof error?.status === 'number' ? error.status : 500
+    return json({ error: error instanceof Error ? error.message : 'Error inesperado.' }, status)
+  }
+})

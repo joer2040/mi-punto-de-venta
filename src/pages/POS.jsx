@@ -1,13 +1,16 @@
-import React, { useEffect, useRef, useState } from 'react'
+﻿import React, { useEffect, useRef, useState } from 'react'
 import { jsPDF } from 'jspdf'
 import { materialService } from '../api/materialService'
+import { posService } from '../api/posService'
+import { useAuth } from '../contexts/AuthContext'
+import { ACTION_KEYS, PAGE_PERMISSION_MAP } from '../lib/permissionConfig'
 import { supabase } from '../lib/supabase'
 import { useResponsive } from '../lib/useResponsive'
 import logoCarreta from '../assets/la_carreta_sin_fondo.png'
 
 const TICKET_WIDTH_MM = 80
 
-const POS = () => {
+const POS = ({ onEditingStateChange = () => {} }) => {
   const [inventory, setInventory] = useState([])
   const [tables, setTables] = useState([])
   const [selectedTable, setSelectedTable] = useState(null)
@@ -16,7 +19,14 @@ const POS = () => {
   const [notice, setNotice] = useState(null)
   const [loading, setLoading] = useState(true)
   const [isHydratingTable, setIsHydratingTable] = useState(false)
+  const [waiterEditLocked, setWaiterEditLocked] = useState(false)
+  const [showFinalizeConfirm, setShowFinalizeConfirm] = useState(false)
   const { isMobile, isTablet } = useResponsive()
+  const { can, isManager, isSuperadmin, isWaiter } = useAuth()
+  const canCreateSale = can(PAGE_PERMISSION_MAP.pos, ACTION_KEYS.CREATE)
+  const canEditSale = can(PAGE_PERMISSION_MAP.pos, ACTION_KEYS.EDIT)
+  const canOperatePOS = canCreateSale || canEditSale
+  const canFullyEditOccupiedTable = isSuperadmin || isManager
   const latestTableRef = useRef(null)
   const latestCartRef = useRef([])
 
@@ -30,7 +40,7 @@ const POS = () => {
     }
 
     loadData()
-  }, [])
+  }, [isWaiter])
 
   useEffect(() => {
     if (!notice) return undefined
@@ -51,19 +61,41 @@ const POS = () => {
 
     window.addEventListener('pos-ticket-notice', handleTicketNotice)
     return () => window.removeEventListener('pos-ticket-notice', handleTicketNotice)
-  }, [])
+  }, [isWaiter])
 
   useEffect(() => {
     latestTableRef.current = selectedTable
     latestCartRef.current = cart
   }, [cart, selectedTable])
 
+  const isOccupiedTable = selectedTable?.status === 'ocupada' || Boolean(selectedTable?.current_order_id)
+  const meseroLockedTable =
+    isWaiter && isOccupiedTable && !canFullyEditOccupiedTable && waiterEditLocked
+  const canDecreaseOrRemoveFromOccupiedTable = !meseroLockedTable
+
+  useEffect(() => {
+    onEditingStateChange(Boolean(selectedTable))
+
+    return () => {
+      onEditingStateChange(false)
+    }
+  }, [onEditingStateChange, selectedTable])
+
   useEffect(() => {
     if (!selectedTable || isHydratingTable) return undefined
 
     const persistCurrentTable = async () => {
       try {
-        await persistTableOrder(selectedTable, cart)
+        const persistedTable = await persistTableOrder(selectedTable, cart)
+        if (
+          persistedTable &&
+          (
+            persistedTable.current_order_id !== selectedTable.current_order_id ||
+            persistedTable.status !== selectedTable.status
+          )
+        ) {
+          setSelectedTable(persistedTable)
+        }
         await loadTables()
       } catch (error) {
         console.error('Error al guardar automaticamente la mesa:', error)
@@ -81,14 +113,16 @@ const POS = () => {
 
       if (!table) return
 
-      persistTableOrder(table, items).catch((error) => {
+      persistTableOrder(table, items, {
+        lockWaiterEditing: isWaiter && items.length > 0,
+      }).catch((error) => {
         console.error('Error al guardar la mesa al salir de la pantalla:', error)
       })
     }
 
     window.addEventListener('pagehide', handlePageHide)
     return () => window.removeEventListener('pagehide', handlePageHide)
-  }, [])
+  }, [isWaiter])
 
   const showNotice = (message, type = 'info') => {
     setNotice({ message, type })
@@ -121,6 +155,7 @@ const POS = () => {
     try {
       setIsHydratingTable(true)
       setSelectedTable(table)
+      setWaiterEditLocked(false)
 
       if (!table.current_order_id) {
         setCart([])
@@ -136,6 +171,7 @@ const POS = () => {
 
       if (error) throw error
       setCart(order?.items || [])
+      setWaiterEditLocked(Boolean(order?.waiter_edit_locked))
     } catch (error) {
       console.error('Error al cargar la mesa:', error)
       alert('No se pudo abrir la mesa.')
@@ -144,62 +180,29 @@ const POS = () => {
     }
   }
 
-  const persistTableOrder = async (table, items) => {
-    const total = items.reduce((acc, item) => acc + item.unit_price * item.quantity, 0)
-    let orderId = table.current_order_id
+  const persistTableOrder = async (table, items, options = {}) => {
+    const { table: persistedTable, order } = await posService.saveTableOrder({
+      table_id: table.id,
+      items,
+      lock_waiter_editing: Boolean(options.lockWaiterEditing),
+    })
 
-    if (items.length === 0) {
-      const { error: tableError } = await supabase
-        .from('tables')
-        .update({ status: 'libre', current_order_id: null })
-        .eq('id', table.id)
-
-      if (tableError) throw tableError
-
-      if (orderId) {
-        const { error: deleteError } = await supabase
-          .from('table_orders')
-          .delete()
-          .eq('id', orderId)
-
-        if (deleteError) throw deleteError
-      }
-
-      return
-    }
-
-    if (orderId) {
-      const { error } = await supabase
-        .from('table_orders')
-        .update({ items, total })
-        .eq('id', orderId)
-
-      if (error) throw error
-    } else {
-      const { data, error } = await supabase
-        .from('table_orders')
-        .insert([{ table_id: table.id, items, total }])
-        .select()
-        .single()
-
-      if (error) throw error
-      orderId = data.id
-    }
-
-    const { error: tableError } = await supabase
-      .from('tables')
-      .update({ status: 'ocupada', current_order_id: orderId })
-      .eq('id', table.id)
-
-    if (tableError) throw tableError
+    setWaiterEditLocked(Boolean(order?.waiter_edit_locked))
+    return persistedTable
   }
 
   const handleSaveAndExit = async () => {
-    if (!selectedTable) return
+    if (!canOperatePOS || !selectedTable) return
 
     try {
-      await persistTableOrder(selectedTable, cart)
+      const persistedTable = await persistTableOrder(selectedTable, cart, {
+        lockWaiterEditing: isWaiter && cart.length > 0,
+      })
+      if (persistedTable) {
+        setSelectedTable(persistedTable)
+      }
       setSelectedTable(null)
+      setWaiterEditLocked(false)
       setCart([])
       await loadTables()
     } catch (error) {
@@ -209,6 +212,7 @@ const POS = () => {
   }
 
   const addToCart = (item) => {
+    if (!canOperatePOS) return
     const isExtra = item.materials?.categories?.name === 'Extras'
 
     if (item.precio_venta <= 0) {
@@ -249,6 +253,12 @@ const POS = () => {
   }
 
   const changeQuantity = (id, delta) => {
+    if (!canOperatePOS) return
+    if (delta < 0 && !canDecreaseOrRemoveFromOccupiedTable) {
+      showNotice('Los meseros no pueden disminuir cantidades en una mesa ya ocupada. Solo un manager puede hacerlo.', 'warning')
+      return
+    }
+
     setCart((prevCart) =>
       prevCart
         .map((item) => {
@@ -260,6 +270,11 @@ const POS = () => {
   }
 
   const removeFromCart = (id) => {
+    if (!canOperatePOS) return
+    if (!canDecreaseOrRemoveFromOccupiedTable) {
+      showNotice('Los meseros no pueden remover productos de una mesa ya ocupada. Solo un manager puede hacerlo.', 'warning')
+      return
+    }
     setCart(cart.filter((c) => c.material_id !== id))
   }
 
@@ -286,10 +301,18 @@ const POS = () => {
     }
   }
 
+  const handleRequestFinalizeSale = () => {
+    if (!canOperatePOS) return
+    if (!selectedTable || cart.length === 0) return
+    setShowFinalizeConfirm(true)
+  }
+
   const handleFinalizeSale = async () => {
+    if (!canOperatePOS) return
     if (!selectedTable || cart.length === 0) return
 
     try {
+      setShowFinalizeConfirm(false)
       const centerId = inventory[0]?.centers?.id
       if (!centerId) {
         showNotice('No se encontro un centro de inventario para procesar la venta.', 'warning')
@@ -325,19 +348,18 @@ const POS = () => {
         }
       }
 
-      const saleHeader = {
-        center_id: centerId,
-        total_amount: total,
-        payment_method: 'Efectivo',
-      }
 
-      const sale = await materialService.recordSale(saleHeader, normalizedCart)
+      const { sale } = await posService.finalizeSale({
+        table_id: selectedTable.id,
+        items: normalizedCart,
+        payment_method: 'Efectivo',
+      })
       const documentNumber = sale?.document_number || null
       setTicketData(buildTicketData(sale, normalizedCart, selectedTable, documentNumber))
-      await persistTableOrder(selectedTable, [])
       showNotice('Venta realizada con exito', 'success')
       setCart([])
       setSelectedTable(null)
+      setWaiterEditLocked(false)
       await Promise.all([loadInventory(), loadTables()])
     } catch (error) {
       console.error('Error en la venta:', error)
@@ -358,6 +380,16 @@ const POS = () => {
               <p style={{ ...mutedTextStyle, margin: '8px 0 0 0' }}>
                 Toca una mesa para abrir su cuenta y seguir tomando pedidos.
               </p>
+              {!canOperatePOS && (
+                <div style={readOnlyHintStyle}>
+                  Tu usuario puede consultar mesas, pero no modificar pedidos.
+                </div>
+              )}
+              {meseroLockedTable && (
+                <div style={warningHintStyle}>
+                  Mesa ocupada: como mesero solo puedes agregar productos o aumentar cantidades.
+                </div>
+              )}
             </div>
 
             <div style={getStatsGridStyle(isMobile)}>
@@ -405,7 +437,7 @@ const POS = () => {
       <div style={getWorkspaceStyle(isTablet, isMobile)}>
         <section>
           <div style={topBarStyle(isMobile)}>
-            <button onClick={handleSaveAndExit} style={btnSecondaryStyle}>
+            <button onClick={handleSaveAndExit} disabled={!canOperatePOS} style={canOperatePOS ? btnSecondaryStyle : disabledSecondaryBtnStyle}>
               Volver a Mesas
             </button>
             <div style={tableInfoCardStyle}>
@@ -422,6 +454,11 @@ const POS = () => {
               <p style={{ ...mutedTextStyle, margin: '8px 0 0 0' }}>
                 Toca un producto para agregarlo a la cuenta de la mesa.
               </p>
+              {!canOperatePOS && (
+                <div style={readOnlyHintStyle}>
+                  Modo solo lectura. Puedes revisar el contenido de la mesa, pero no cambiarlo.
+                </div>
+              )}
             </div>
 
             <div style={getStatsGridStyle(isMobile)}>
@@ -448,7 +485,7 @@ const POS = () => {
                   style={{
                     ...getProductCardStyle(isMobile),
                     opacity: isOutOfStock ? 0.52 : 1,
-                    cursor: isOutOfStock ? 'not-allowed' : 'pointer',
+                    cursor: !canOperatePOS || isOutOfStock ? 'not-allowed' : 'pointer',
                   }}
                 >
                   <div style={productCategoryPillStyle}>{item.materials.categories.name}</div>
@@ -501,16 +538,16 @@ const POS = () => {
 
                   <div style={cartActionsStyle}>
                     <div style={quantityControlStyle}>
-                      <button onClick={() => changeQuantity(c.material_id, -1)} style={qtyBtnStyle} type="button">
+                      <button onClick={() => changeQuantity(c.material_id, -1)} disabled={!canOperatePOS || !canDecreaseOrRemoveFromOccupiedTable} style={canOperatePOS && canDecreaseOrRemoveFromOccupiedTable ? qtyBtnStyle : disabledQtyBtnStyle} type="button">
                         -
                       </button>
                       <span style={qtyValueStyle}>{c.quantity}</span>
-                      <button onClick={() => changeQuantity(c.material_id, 1)} style={qtyBtnStyle} type="button">
+                      <button onClick={() => changeQuantity(c.material_id, 1)} disabled={!canOperatePOS} style={canOperatePOS ? qtyBtnStyle : disabledQtyBtnStyle} type="button">
                         +
                       </button>
                     </div>
 
-                    <button onClick={() => removeFromCart(c.material_id)} style={deleteBtnStyle} type="button">
+                    <button onClick={() => removeFromCart(c.material_id)} disabled={!canOperatePOS || !canDecreaseOrRemoveFromOccupiedTable} style={canOperatePOS && canDecreaseOrRemoveFromOccupiedTable ? deleteBtnStyle : disabledDeleteBtnStyle} type="button">
                       Quitar
                     </button>
                   </div>
@@ -524,13 +561,22 @@ const POS = () => {
               <span>Total</span>
               <strong>${total.toFixed(2)}</strong>
             </div>
-            <button onClick={handleFinalizeSale} disabled={cart.length === 0} style={checkoutBtnStyle}>
+            <button onClick={handleRequestFinalizeSale} disabled={cart.length === 0 || !canOperatePOS} style={cart.length === 0 || !canOperatePOS ? disabledCheckoutBtnStyle : checkoutBtnStyle}>
               Finalizar Venta
             </button>
           </div>
         </section>
       </div>
       {ticketData && <TicketModal ticket={ticketData} onClose={() => setTicketData(null)} />}
+      {showFinalizeConfirm && (
+        <FinalizeSaleModal
+          table={selectedTable}
+          total={total}
+          totalItems={totalItems}
+          onCancel={() => setShowFinalizeConfirm(false)}
+          onConfirm={handleFinalizeSale}
+        />
+      )}
     </>
   )
 }
@@ -556,6 +602,35 @@ const NoticeBanner = ({ notice, onClose }) => (
   </div>
 )
 
+const FinalizeSaleModal = ({ table, total, totalItems, onCancel, onConfirm }) => (
+  <div style={confirmOverlayStyle}>
+    <div style={confirmCardStyle}>
+      <div style={confirmBadgeStyle}>Confirmar venta</div>
+      <h3 style={confirmTitleStyle}>Estas por finalizar la cuenta</h3>
+      <p style={confirmTextStyle}>
+        Se cerrara la venta de <strong>Mesa {table?.number || 'General'}</strong> y la mesa quedara libre para un nuevo pedido.
+      </p>
+      <div style={confirmSummaryStyle}>
+        <div style={confirmMetricStyle}>
+          <span style={confirmMetricLabelStyle}>Articulos</span>
+          <strong style={confirmMetricValueStyle}>{totalItems}</strong>
+        </div>
+        <div style={confirmMetricStyle}>
+          <span style={confirmMetricLabelStyle}>Total</span>
+          <strong style={confirmMetricValueStyle}>{total.toFixed(2)}</strong>
+        </div>
+      </div>
+      <div style={confirmActionsStyle}>
+        <button type="button" onClick={onCancel} style={confirmCancelBtnStyle}>
+          Cancelar
+        </button>
+        <button type="button" onClick={onConfirm} style={confirmApproveBtnStyle}>
+          Si, finalizar venta
+        </button>
+      </div>
+    </div>
+  </div>
+)
 const TicketModal = ({ ticket, onClose }) => {
   const chargedAt = new Date(ticket.chargedAt)
   const dateLabel = chargedAt.toLocaleDateString('es-MX', {
@@ -1169,6 +1244,11 @@ const qtyBtnStyle = {
   fontWeight: '800',
   cursor: 'pointer',
 }
+const disabledQtyBtnStyle = {
+  ...qtyBtnStyle,
+  color: '#94a3b8',
+  cursor: 'not-allowed',
+}
 
 const qtyValueStyle = {
   minWidth: '18px',
@@ -1185,6 +1265,11 @@ const deleteBtnStyle = {
   fontSize: '0.88rem',
   fontWeight: '700',
   padding: '6px 0',
+}
+const disabledDeleteBtnStyle = {
+  ...deleteBtnStyle,
+  color: '#94a3b8',
+  cursor: 'not-allowed',
 }
 
 const checkoutPanelStyle = {
@@ -1211,6 +1296,11 @@ const btnSecondaryStyle = {
   fontWeight: '700',
   fontSize: '0.95rem',
 }
+const disabledSecondaryBtnStyle = {
+  ...btnSecondaryStyle,
+  backgroundColor: '#94a3b8',
+  cursor: 'not-allowed',
+}
 
 const checkoutBtnStyle = {
   width: '100%',
@@ -1224,7 +1314,133 @@ const checkoutBtnStyle = {
   fontSize: '1rem',
   cursor: 'pointer',
 }
+const disabledCheckoutBtnStyle = {
+  ...checkoutBtnStyle,
+  backgroundColor: '#94a3b8',
+  cursor: 'not-allowed',
+}
+const readOnlyHintStyle = {
+  marginTop: '12px',
+  display: 'inline-flex',
+  padding: '8px 12px',
+  borderRadius: '999px',
+  backgroundColor: '#edf2f7',
+  color: '#475569',
+  fontWeight: '700',
+  fontSize: '0.82rem',
+}
+const warningHintStyle = {
+  marginTop: '12px',
+  display: 'inline-flex',
+  padding: '8px 12px',
+  borderRadius: '999px',
+  backgroundColor: '#fff7ed',
+  color: '#b45309',
+  fontWeight: '700',
+  fontSize: '0.82rem',
+}
 
+const confirmOverlayStyle = {
+  position: 'fixed',
+  inset: 0,
+  backgroundColor: 'rgba(15, 23, 42, 0.52)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: '18px',
+  zIndex: 1050,
+}
+
+const confirmCardStyle = {
+  width: '100%',
+  maxWidth: '460px',
+  backgroundColor: '#ffffff',
+  borderRadius: '24px',
+  boxShadow: '0 28px 70px rgba(15, 23, 42, 0.28)',
+  padding: '24px',
+  border: '1px solid #fecaca',
+}
+
+const confirmBadgeStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  padding: '8px 12px',
+  borderRadius: '999px',
+  backgroundColor: '#fff7ed',
+  color: '#c2410c',
+  fontWeight: '800',
+  fontSize: '0.82rem',
+  marginBottom: '14px',
+}
+
+const confirmTitleStyle = {
+  margin: 0,
+  color: '#111827',
+  fontSize: '1.45rem',
+}
+
+const confirmTextStyle = {
+  margin: '12px 0 0 0',
+  color: '#475569',
+  lineHeight: 1.65,
+}
+
+const confirmSummaryStyle = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+  gap: '12px',
+  marginTop: '18px',
+}
+
+const confirmMetricStyle = {
+  backgroundColor: '#f8fafc',
+  border: '1px solid #e2e8f0',
+  borderRadius: '16px',
+  padding: '14px',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '4px',
+}
+
+const confirmMetricLabelStyle = {
+  color: '#64748b',
+  fontSize: '0.78rem',
+  textTransform: 'uppercase',
+  letterSpacing: '0.04em',
+}
+
+const confirmMetricValueStyle = {
+  color: '#0f172a',
+  fontSize: '1.1rem',
+}
+
+const confirmActionsStyle = {
+  display: 'flex',
+  justifyContent: 'flex-end',
+  gap: '12px',
+  flexWrap: 'wrap',
+  marginTop: '22px',
+}
+
+const confirmCancelBtnStyle = {
+  border: '1px solid #cbd5e1',
+  backgroundColor: '#ffffff',
+  color: '#334155',
+  borderRadius: '12px',
+  padding: '12px 16px',
+  fontWeight: '700',
+  cursor: 'pointer',
+}
+
+const confirmApproveBtnStyle = {
+  border: 'none',
+  backgroundColor: '#dc2626',
+  color: '#ffffff',
+  borderRadius: '12px',
+  padding: '12px 16px',
+  fontWeight: '800',
+  cursor: 'pointer',
+}
 const ticketOverlayStyle = {
   position: 'fixed',
   inset: 0,
@@ -1411,3 +1627,8 @@ const getNoticeTitle = (type) => {
 }
 
 export default POS
+
+
+
+
+

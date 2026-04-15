@@ -1,4 +1,5 @@
-import { supabase } from '../lib/supabase'
+﻿import { supabase } from '../lib/supabase'
+import { erpService } from './erpService'
 
 const padDocumentSegment = (value, length = 2) => String(value).padStart(length, '0')
 
@@ -23,34 +24,6 @@ const getDayBounds = (dateValue) => {
   }
 }
 
-const logAuditEvent = async ({
-  entityType,
-  entityId,
-  eventType,
-  oldValues = {},
-  newValues = {},
-  notes = null,
-  performedBy = 'system',
-}) => {
-  try {
-    const { error } = await supabase.from('audit_log').insert([
-      {
-        entity_type: entityType,
-        entity_id: entityId,
-        event_type: eventType,
-        old_values: oldValues,
-        new_values: newValues,
-        notes,
-        performed_by: performedBy,
-      },
-    ])
-
-    if (error) throw error
-  } catch (error) {
-    console.warn('No se pudo registrar audit_log:', error)
-  }
-}
-
 const logInventoryMovement = async (movement) => {
   try {
     const { error } = await supabase.from('inventory_movements').insert([movement])
@@ -60,39 +33,12 @@ const logInventoryMovement = async (movement) => {
   }
 }
 
-const createInventoryAdjustment = async (adjustment) => {
-  try {
-    const { data, error } = await supabase
-      .from('inventory_adjustments')
-      .insert([adjustment])
-      .select()
-      .single()
-
-    if (error) throw error
-    return data
-  } catch (error) {
-    console.warn('No se pudo registrar inventory_adjustments:', error)
-    return null
-  }
-}
-
 const getInventorySnapshot = async (materialId, centerId) => {
   const { data, error } = await supabase
     .from('inventory')
     .select('material_id, center_id, stock_actual, costo_promedio, precio_venta')
     .eq('material_id', materialId)
     .eq('center_id', centerId)
-    .single()
-
-  if (error) throw error
-  return data
-}
-
-const getMaterialSnapshot = async (id) => {
-  const { data, error } = await supabase
-    .from('materials')
-    .select('*')
-    .eq('id', id)
     .single()
 
   if (error) throw error
@@ -199,144 +145,18 @@ export const materialService = {
   },
 
   async createMaterial(formData) {
-    const { data: material, error: materialError } = await supabase
-      .from('materials')
-      .insert([formData])
-      .select()
-      .single()
-
-    if (materialError) throw materialError
-
-    const { data: center, error: centerError } = await supabase
-      .from('centers')
-      .select('id')
-      .limit(1)
-      .single()
-
-    if (centerError) throw centerError
-
-    if (center) {
-      const { error: inventoryError } = await supabase
-        .from('inventory')
-        .insert([
-          {
-            material_id: material.id,
-            center_id: center.id,
-            stock_actual: 0,
-            costo_promedio: 0,
-            precio_venta: 0,
-          },
-        ])
-
-      if (inventoryError) {
-        console.error('Error al crear registro de inventario:', inventoryError)
-      }
-    }
-
-    await logAuditEvent({
-      entityType: 'material',
-      entityId: material.id,
-      eventType: 'material_created',
-      newValues: material,
-      notes: 'Alta de material desde el maestro de materiales',
-      performedBy: 'material_form',
-    })
-
-    return material
+    const response = await erpService.createMaterial(formData)
+    return response.material
   },
 
   async recordPurchase(purchaseHeader, items) {
-    const normalizedPurchaseHeader = {
-      center_id: purchaseHeader.center_id,
-      provider_id: purchaseHeader.provider_id,
-      invoice_ref: purchaseHeader.invoice_ref,
-    }
-
-    const { data: purchase, error: purchaseError } = await supabase
-      .from('purchases')
-      .insert([normalizedPurchaseHeader])
-      .select()
-      .single()
-
-    if (purchaseError) throw purchaseError
-
-    const itemsWithId = items.map((item) => ({
-      material_id: item.material_id,
-      quantity: parseFloat(item.quantity),
-      unit_cost: parseFloat(item.unit_cost),
-      purchase_id: purchase.id,
-    }))
-
-    if (itemsWithId.length > 0) {
-      const { error: itemsError } = await supabase
-        .from('purchase_items')
-        .insert(itemsWithId)
-
-      if (itemsError) throw itemsError
-    }
-
-    await Promise.all(
-      itemsWithId.map(async (item) => {
-        try {
-          const inventorySnapshot = await getInventorySnapshot(item.material_id, purchase.center_id)
-          const afterStock = parseFloat(inventorySnapshot.stock_actual)
-          const beforeStock = afterStock - parseFloat(item.quantity)
-
-          await logInventoryMovement({
-            center_id: purchase.center_id,
-            material_id: item.material_id,
-            movement_type: 'purchase',
-            direction: 'in',
-            quantity: parseFloat(item.quantity),
-            before_stock: beforeStock,
-            after_stock: afterStock,
-            unit_cost: parseFloat(item.unit_cost),
-            unit_price: null,
-            reference_table: 'purchases',
-            reference_id: purchase.id,
-            reference_number: purchase.invoice_ref || purchaseHeader.invoice_ref || null,
-            reason_code: 'purchase_invoice',
-            notes: 'Entrada de inventario por compra',
-            performed_by: 'purchase_entry',
-          })
-        } catch (error) {
-          console.warn('No se pudo registrar movimiento de compra:', error)
-        }
-      })
-    )
-
-    return purchase
+    const response = await erpService.recordPurchase(purchaseHeader, items)
+    return response.purchase
   },
 
   async updatePrice(materialId, centerId, newPrice) {
-    const inventorySnapshot = await getInventorySnapshot(materialId, centerId)
-    const parsedPrice = parseFloat(newPrice)
-
-    const { data, error } = await supabase
-      .from('inventory')
-      .update({ precio_venta: parsedPrice })
-      .eq('material_id', materialId)
-      .eq('center_id', centerId)
-
-    if (error) throw error
-
-    await logAuditEvent({
-      entityType: 'material',
-      entityId: materialId,
-      eventType: 'price_updated',
-      oldValues: {
-        center_id: centerId,
-        precio_venta: inventorySnapshot.precio_venta,
-      },
-      newValues: {
-        center_id: centerId,
-        precio_venta: parsedPrice,
-      },
-      notes: 'Actualizacion manual de precio de venta',
-      performedBy: 'inventory_admin',
-    })
-
-    return data
+    const response = await erpService.updatePrice(materialId, centerId, newPrice)
+    return response.inventory
   },
 
   async recordSale(saleHeader, items) {
@@ -454,77 +274,13 @@ export const materialService = {
   },
 
   async updateManualStock(materialId, centerId, newStock, options = {}) {
-    const inventorySnapshot = await getInventorySnapshot(materialId, centerId)
-    const previousStock = parseFloat(inventorySnapshot.stock_actual)
-    const parsedNewStock = parseFloat(newStock)
-    const differenceQty = parsedNewStock - previousStock
-
-    const adjustment = await createInventoryAdjustment({
-      center_id: centerId,
-      material_id: materialId,
-      previous_stock: previousStock,
-      new_stock: parsedNewStock,
-      difference_qty: differenceQty,
-      reason_code: options.reason_code || 'manual_count',
-      notes: options.notes || 'Ajuste manual desde el maestro de materiales',
-      authorization_code: options.authorization_code || 'PIN-LOCAL',
-      performed_by: options.performed_by || 'inventory_admin',
-    })
-
-    const { data, error } = await supabase
-      .from('inventory')
-      .update({
-        stock_actual: parsedNewStock,
-      })
-      .eq('material_id', materialId)
-      .eq('center_id', centerId)
-
-    if (error) {
-      console.error('Error en Supabase:', error)
-      throw error
-    }
-
-    await logInventoryMovement({
-      center_id: centerId,
-      material_id: materialId,
-      movement_type: 'manual_adjustment',
-      direction: 'adjust',
-      quantity: Math.abs(differenceQty),
-      before_stock: previousStock,
-      after_stock: parsedNewStock,
-      unit_cost: null,
-      unit_price: null,
-      reference_table: 'inventory_adjustments',
-      reference_id: adjustment?.id || null,
-      reference_number: adjustment?.id || null,
-      reason_code: options.reason_code || 'manual_count',
-      notes: options.notes || 'Ajuste manual desde el maestro de materiales',
-      performed_by: options.performed_by || 'inventory_admin',
-    })
-
-    return data
+    const response = await erpService.updateManualStock(materialId, centerId, newStock, options)
+    return response.inventory
   },
 
   async updateMaterialField(id, field, value) {
-    const materialSnapshot = await getMaterialSnapshot(id)
-
-    const { data, error } = await supabase
-      .from('materials')
-      .update({ [field]: value })
-      .eq('id', id)
-
-    if (error) throw error
-
-    await logAuditEvent({
-      entityType: 'material',
-      entityId: id,
-      eventType: 'material_updated',
-      oldValues: { [field]: materialSnapshot[field] },
-      newValues: { [field]: value },
-      notes: `Actualizacion del campo ${field}`,
-      performedBy: 'inventory_admin',
-    })
-
-    return data
+    const response = await erpService.updateMaterialField(id, field, value)
+    return response.material
   },
 }
+

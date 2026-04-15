@@ -1,75 +1,295 @@
-import React, { useState } from 'react'
-import Home from './pages/Home'
+﻿import { useEffect, useMemo, useReducer } from 'react'
 import Inventory from './pages/Inventory'
 import ProviderMaster from './pages/ProviderMaster'
 import PurchaseEntry from './pages/PurchaseEntry'
+import ReportsHome from './pages/ReportsHome'
 import InventoryReport from './pages/InventoryReport'
 import PurchasesReport from './pages/PurchasesReport'
-import POS from './pages/POS'
-import ReportsHome from './pages/ReportsHome'
 import SalesReport from './pages/SalesReport'
-import { useResponsive } from './lib/useResponsive'
+import POS from './pages/POS'
+import SecurityUsers from './pages/SecurityUsers'
+import Home from './pages/Home'
+import Login from './pages/Login'
+import AccessDenied from './pages/AccessDenied'
+import { AuthProvider, useAuth } from './contexts/AuthContext'
 
-function App() {
-  const [currentPage, setCurrentPage] = useState('home')
-  const { isMobile } = useResponsive()
-  const isHome = currentPage === 'home'
+const STORAGE_KEY = 'mi-punto-de-venta.current-page'
+
+const PAGE_LABELS = {
+  home: 'Inicio',
+  master: 'Materiales',
+  providers: 'Proveedores',
+  purchases: 'Compras',
+  reports: 'Reportes',
+  'report-inventory': 'Existencias',
+  'report-purchases': 'Reporte compras',
+  'report-sales': 'Reporte ventas',
+  pos: 'Punto de venta',
+  security: 'Usuarios',
+}
+
+const PRIMARY_NAV_PAGES = ['home', 'master', 'providers', 'purchases', 'reports', 'pos', 'security']
+
+const getInitialUiState = () => ({
+  currentPage: typeof window === 'undefined' ? 'home' : localStorage.getItem(STORAGE_KEY) || 'home',
+  isPosEditing: false,
+  restoredProfileId: null,
+})
+
+const uiReducer = (state, action) => {
+  switch (action.type) {
+    case 'reset':
+      return {
+        currentPage: 'home',
+        isPosEditing: false,
+        restoredProfileId: null,
+      }
+    case 'restore-page':
+      return {
+        ...state,
+        currentPage: action.page,
+        restoredProfileId: action.profileId,
+      }
+    case 'set-page':
+      return {
+        ...state,
+        currentPage: action.page,
+      }
+    case 'set-pos-editing':
+      return {
+        ...state,
+        isPosEditing: action.value,
+      }
+    default:
+      return state
+  }
+}
+
+const AppShell = () => {
+  const {
+    loading,
+    isAuthenticated,
+    isActive,
+    canAccessPage,
+    getFirstAllowedPage,
+    profile,
+    isWaiter,
+  } = useAuth()
+  const [uiState, dispatch] = useReducer(uiReducer, undefined, getInitialUiState)
+  const { currentPage, isPosEditing, restoredProfileId } = uiState
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      localStorage.removeItem(STORAGE_KEY)
+      dispatch({ type: 'reset' })
+    }
+  }, [isAuthenticated])
+
+  useEffect(() => {
+    if (!isAuthenticated || !profile?.id) return
+    if (restoredProfileId === profile.id) return
+
+    const storedPage = localStorage.getItem(STORAGE_KEY)
+    const nextPage = storedPage && canAccessPage(storedPage)
+      ? storedPage
+      : getFirstAllowedPage()
+
+    dispatch({ type: 'restore-page', page: nextPage, profileId: profile.id })
+  }, [canAccessPage, getFirstAllowedPage, isAuthenticated, profile?.id, restoredProfileId])
+
+  useEffect(() => {
+    if (!isAuthenticated) return
+    if (!canAccessPage(currentPage)) {
+      dispatch({ type: 'set-page', page: getFirstAllowedPage() })
+      return
+    }
+
+    localStorage.setItem(STORAGE_KEY, currentPage)
+  }, [canAccessPage, currentPage, getFirstAllowedPage, isAuthenticated])
+
+  const navItems = useMemo(
+    () =>
+      PRIMARY_NAV_PAGES.filter((pageKey) => canAccessPage(pageKey)).map((pageKey) => ({
+        key: pageKey,
+        label: PAGE_LABELS[pageKey] || pageKey,
+      })),
+    [canAccessPage]
+  )
+
+  const handleNavigate = (pageKey) => {
+    if (!canAccessPage(pageKey)) return
+    dispatch({ type: 'set-page', page: pageKey })
+  }
+
+  const handlePosEditingStateChange = (value) => {
+    dispatch({ type: 'set-pos-editing', value: Boolean(value) })
+  }
+
+  const renderPage = () => {
+    switch (currentPage) {
+      case 'home':
+        return <Home onNavigate={handleNavigate} />
+      case 'master':
+        return <Inventory />
+      case 'providers':
+        return <ProviderMaster />
+      case 'purchases':
+        return <PurchaseEntry />
+      case 'reports':
+        return <ReportsHome onNavigate={handleNavigate} />
+      case 'report-inventory':
+        return <InventoryReport />
+      case 'report-purchases':
+        return <PurchasesReport />
+      case 'report-sales':
+        return <SalesReport />
+      case 'pos':
+        return <POS onEditingStateChange={handlePosEditingStateChange} />
+      case 'security':
+        return <SecurityUsers />
+      default:
+        return <AccessDenied />
+    }
+  }
+
+  if (loading) {
+    return <div style={loadingStyle}>Cargando aplicacion...</div>
+  }
+
+  if (!isAuthenticated) {
+    return <Login />
+  }
+
+  if (!isActive) {
+    return <AccessDenied />
+  }
+
+  const hideNavigation = currentPage === 'home' || (isWaiter && currentPage === 'pos' && isPosEditing)
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: '#e9ecef', paddingBottom: '40px' }}>
-      {!isHome && (
-        <nav
-          style={{
-            display: 'flex',
-            gap: '12px',
-            alignItems: 'center',
-            justifyContent: isMobile ? 'center' : 'flex-start',
-            flexWrap: 'wrap',
-            padding: isMobile ? '12px' : '15px 30px',
-            backgroundColor: '#2c3e50',
-            boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
-          }}
-        >
-          <button onClick={() => setCurrentPage('home')} style={currentPage === 'home' ? getActiveBtnStyle(isMobile) : getBtnNavStyle(isMobile)}>Inicio</button>
-          <button onClick={() => setCurrentPage('master')} style={currentPage === 'master' ? getActiveBtnStyle(isMobile) : getBtnNavStyle(isMobile)}>Maestro de Materiales</button>
-          <button onClick={() => setCurrentPage('providers')} style={currentPage === 'providers' ? getActiveBtnStyle(isMobile) : getBtnNavStyle(isMobile)}>Proveedores</button>
-          <button onClick={() => setCurrentPage('purchases')} style={currentPage === 'purchases' ? getActiveBtnStyle(isMobile) : getBtnNavStyle(isMobile)}>Entrada por Compra</button>
-          <button onClick={() => setCurrentPage('reports')} style={currentPage.startsWith('report') ? getActiveBtnStyle(isMobile) : getBtnNavStyle(isMobile)}>Reportes</button>
-          <button onClick={() => setCurrentPage('pos')} style={currentPage === 'pos' ? getActiveBtnStyle(isMobile) : getBtnNavStyle(isMobile)}>Punto de Venta</button>
-        </nav>
+    <div style={appStyle}>
+      {currentPage !== 'home' && (
+        <div style={topMetaStyle}>
+          <span style={userPillStyle}>{profile?.full_name || profile?.username || 'Usuario activo'}</span>
+        </div>
       )}
 
-      <main style={{ marginTop: isMobile ? '12px' : '20px' }}>
-        {currentPage === 'home' && <Home onNavigate={setCurrentPage} />}
-        {currentPage === 'master' && <Inventory />}
-        {currentPage === 'providers' && <ProviderMaster />}
-        {currentPage === 'purchases' && <PurchaseEntry />}
-        {currentPage === 'reports' && <ReportsHome onNavigate={setCurrentPage} />}
-        {currentPage === 'report-inventory' && <InventoryReport />}
-        {currentPage === 'report-purchases' && <PurchasesReport />}
-        {currentPage === 'report-sales' && <SalesReport />}
-        {currentPage === 'pos' && <POS />}
-      </main>
+      {!hideNavigation && (
+        <header style={headerStyle}>
+          <div>
+            <div style={brandStyle}>La Carreta</div>
+            <div style={subtitleStyle}>{profile?.full_name || profile?.username || 'Panel operativo'}</div>
+          </div>
+
+          <nav style={navStyle}>
+            {navItems.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => handleNavigate(item.key)}
+                style={{
+                  ...navButtonStyle,
+                  ...(currentPage === item.key ? activeNavButtonStyle : null),
+                }}
+              >
+                {item.label}
+              </button>
+            ))}
+          </nav>
+        </header>
+      )}
+
+      <main style={mainStyle}>{renderPage()}</main>
     </div>
   )
 }
 
-const getBtnNavStyle = (isMobile) => ({
-  minWidth: isMobile ? 'calc(50% - 12px)' : 'auto',
-  padding: isMobile ? '10px 12px' : '8px 16px',
-  cursor: 'pointer',
-  backgroundColor: 'transparent',
-  color: '#bdc3c7',
-  border: '1px solid #7f8c8d',
-  borderRadius: '4px',
-  fontSize: isMobile ? '0.9rem' : '1rem',
-})
+function App() {
+  return (
+    <AuthProvider>
+      <AppShell />
+    </AuthProvider>
+  )
+}
 
-const getActiveBtnStyle = (isMobile) => ({
-  ...getBtnNavStyle(isMobile),
-  backgroundColor: '#3498db',
-  color: 'white',
-  border: '1px solid #3498db',
-})
+const appStyle = {
+  minHeight: '100vh',
+  background: '#f8fafc',
+}
+
+const topMetaStyle = {
+  display: 'flex',
+  justifyContent: 'flex-end',
+  padding: '18px 24px 0',
+}
+
+const userPillStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  padding: '10px 16px',
+  borderRadius: '999px',
+  background: '#ffffff',
+  border: '1px solid #bfdbfe',
+  color: '#1e3a5f',
+  fontWeight: 800,
+  boxShadow: '0 10px 24px rgba(59, 130, 246, 0.08)',
+}
+
+const headerStyle = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  gap: '20px',
+  flexWrap: 'wrap',
+  padding: '12px 24px 0',
+}
+
+const brandStyle = {
+  color: '#0f172a',
+  fontWeight: 900,
+  fontSize: '1.35rem',
+}
+
+const subtitleStyle = {
+  color: '#64748b',
+  fontSize: '0.95rem',
+  marginTop: '4px',
+}
+
+const navStyle = {
+  display: 'flex',
+  gap: '10px',
+  flexWrap: 'wrap',
+}
+
+const navButtonStyle = {
+  padding: '10px 16px',
+  borderRadius: '999px',
+  border: '1px solid #cbd5e1',
+  background: '#ffffff',
+  color: '#334155',
+  fontWeight: 700,
+  cursor: 'pointer',
+}
+
+const activeNavButtonStyle = {
+  background: '#0f172a',
+  color: '#ffffff',
+  borderColor: '#0f172a',
+}
+
+const mainStyle = {
+  width: '100%',
+}
+
+const loadingStyle = {
+  minHeight: '100vh',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  color: '#0f172a',
+  fontWeight: 800,
+  background: '#f8fafc',
+}
 
 export default App

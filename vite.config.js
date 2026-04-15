@@ -1,8 +1,36 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
   plugins: [
-    react()
+    react(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      includeAssets: ['pwa-192x192.png', 'pwa-512x512.png'],
+      manifest: {
+        name: 'La Carreta POS',
+        short_name: 'La Carreta',
+        description: 'Sistema de inventario, compras y punto de venta para La Carreta.',
+        start_url: '/',
+        scope: '/',
+        display: 'standalone',
+        background_color: '#e9ecef',
+        theme_color: '#1f2937',
+        orientation: 'portrait-primary',
+        icons: [
+          {
+            src: 'pwa-192x192.png',
+            sizes: '192x192',
+            type: 'image/png'
+          },
+          {
+            src: 'pwa-512x512.png',
+            sizes: '512x512',
+            type: 'image/png'
+          }
+        ]
+      }
+    })
   ]
 })

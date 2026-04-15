@@ -1,4 +1,5 @@
 import React from 'react'
+import { useAuth } from '../contexts/AuthContext'
 import { useResponsive } from '../lib/useResponsive'
 
 const reportCards = [
@@ -24,6 +25,8 @@ const reportCards = [
 
 const ReportsHome = ({ onNavigate }) => {
   const { isMobile } = useResponsive()
+  const { canAccessPage } = useAuth()
+  const visibleReports = reportCards.filter((card) => canAccessPage(card.id))
 
   return (
     <div style={getContainerStyle(isMobile)}>
@@ -40,7 +43,7 @@ const ReportsHome = ({ onNavigate }) => {
 
       <section style={cardsSectionStyle}>
         <div style={getCardsGridStyle(isMobile)}>
-          {reportCards.map((card) => (
+          {visibleReports.map((card) => (
             <button
               key={card.id}
               type="button"

@@ -1,4 +1,5 @@
-import React from 'react'
+﻿import React from 'react'
+import { useAuth } from '../contexts/AuthContext'
 import logoCarreta from '../assets/la_carreta_sin_fondo.png'
 import { useResponsive } from '../lib/useResponsive'
 
@@ -33,10 +34,27 @@ const sections = [
     description: 'Opera mesas, cuentas activas y el cierre de ventas.',
     accent: '#be123c',
   },
+  {
+    id: 'security',
+    label: 'Usuarios',
+    description: 'Administra cuentas del sistema y asigna si cada usuario es manager o mesero.',
+    accent: '#0f172a',
+  },
 ]
 
 const Home = ({ onNavigate }) => {
   const { isMobile, isTablet } = useResponsive()
+  const { canAccessPage, profile, signOut } = useAuth()
+  const visibleSections = sections.filter((section) => canAccessPage(section.id))
+
+  const handleSignOut = async () => {
+    try {
+      await signOut()
+    } catch (error) {
+      console.error('Error al cerrar sesion:', error)
+      window.alert('No se pudo cerrar sesion.')
+    }
+  }
 
   return (
     <div style={getPageStyle(isMobile)}>
@@ -48,6 +66,13 @@ const Home = ({ onNavigate }) => {
             <p style={getSubtitleStyle(isMobile)}>
               Esta pantalla queda como punto principal del sistema. Desde aqui puedes entrar rapido a cada modulo y volver despues cuando lo necesites.
             </p>
+
+            <div style={getMetaRowStyle(isMobile)}>
+              <span style={userBadgeStyle}>{profile?.full_name || profile?.username || 'Usuario activo'}</span>
+              <button type="button" onClick={handleSignOut} style={signOutButtonStyle}>
+                Cerrar sesion
+              </button>
+            </div>
           </div>
 
           <div style={getLogoWrapStyle(isTablet)}>
@@ -58,19 +83,17 @@ const Home = ({ onNavigate }) => {
 
       <section style={cardsSectionStyle}>
         <div style={getCardsGridStyle(isMobile)}>
-          {sections.map((section) => (
+          {visibleSections.map((section) => (
             <button
               key={section.id}
               onClick={() => onNavigate(section.id)}
               style={{
                 ...cardButtonStyle,
-                borderTop: `5px solid ${section.accent}`,
+                borderTop: `6px solid ${section.accent}`,
               }}
               type="button"
             >
-              <div style={{ color: section.accent, fontWeight: '800', fontSize: '0.82rem', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-                Modulo
-              </div>
+              <div style={{ color: section.accent, ...moduleTagStyle }}>Modulo</div>
               <div style={cardTitleStyle}>{section.label}</div>
               <div style={cardDescriptionStyle}>{section.description}</div>
               <div style={{ ...cardLinkStyle, color: section.accent }}>Entrar</div>
@@ -83,109 +106,149 @@ const Home = ({ onNavigate }) => {
 }
 
 const getPageStyle = (isMobile) => ({
-  padding: isMobile ? '16px' : '28px',
+  padding: isMobile ? '16px' : '28px 30px 40px',
 })
 
 const heroStyle = {
-  background: 'linear-gradient(135deg, #f8fafc 0%, #ffffff 55%, #dbeafe 100%)',
-  borderRadius: '28px',
-  boxShadow: '0 18px 45px rgba(15, 23, 42, 0.08)',
+  background: 'linear-gradient(90deg, #ffffff 0%, #ffffff 44%, #dcebff 100%)',
+  borderRadius: '32px',
+  boxShadow: '0 18px 50px rgba(15, 23, 42, 0.09)',
   overflow: 'hidden',
-  border: '1px solid rgba(148, 163, 184, 0.18)',
+  border: '1px solid rgba(191, 219, 254, 0.95)',
 }
 
 const getHeroContentStyle = (isTablet) => ({
   display: 'grid',
-  gridTemplateColumns: isTablet ? '1fr' : 'minmax(0, 1fr) 340px',
+  gridTemplateColumns: isTablet ? '1fr' : 'minmax(0, 1fr) 380px',
   alignItems: 'center',
-  gap: '20px',
-  padding: isTablet ? '22px' : '34px',
+  gap: isTablet ? '18px' : '30px',
+  padding: isTablet ? '24px' : '42px 42px 38px',
 })
 
 const heroTextBlockStyle = {
   display: 'flex',
   flexDirection: 'column',
-  gap: '12px',
+  gap: '16px',
 }
 
 const eyebrowStyle = {
   color: '#1d4ed8',
-  fontWeight: '800',
-  fontSize: '0.82rem',
-  letterSpacing: '0.1em',
+  fontWeight: '900',
+  fontSize: '0.85rem',
+  letterSpacing: '0.16em',
   textTransform: 'uppercase',
 }
 
 const getTitleStyle = (isMobile) => ({
   margin: 0,
   color: '#0f172a',
-  fontSize: isMobile ? '2rem' : '3rem',
-  lineHeight: 1.05,
+  fontSize: isMobile ? '2.6rem' : '4rem',
+  lineHeight: 1,
+  fontWeight: '900',
 })
 
 const getSubtitleStyle = (isMobile) => ({
   margin: 0,
-  color: '#475569',
-  fontSize: isMobile ? '1rem' : '1.08rem',
-  maxWidth: '620px',
-  lineHeight: 1.6,
+  color: '#1e3a5f',
+  fontSize: isMobile ? '1.02rem' : '1.1rem',
+  maxWidth: '760px',
+  lineHeight: 1.7,
 })
+
+const getMetaRowStyle = (isMobile) => ({
+  display: 'flex',
+  gap: '14px',
+  flexWrap: 'wrap',
+  alignItems: 'center',
+  marginTop: isMobile ? '4px' : '8px',
+})
+
+const userBadgeStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  padding: '12px 18px',
+  borderRadius: '999px',
+  background: '#ffffff',
+  border: '1px solid #bfdbfe',
+  color: '#1e3a5f',
+  fontWeight: 800,
+  boxShadow: '0 10px 24px rgba(59, 130, 246, 0.08)',
+}
+
+const signOutButtonStyle = {
+  border: '1px solid #fca5a5',
+  background: '#ffffff',
+  color: '#b91c1c',
+  fontWeight: 800,
+  borderRadius: '999px',
+  padding: '12px 18px',
+  cursor: 'pointer',
+}
 
 const getLogoWrapStyle = (isTablet) => ({
   display: 'flex',
   justifyContent: isTablet ? 'center' : 'flex-end',
-  alignItems: 'flex-start',
+  alignItems: 'center',
 })
 
 const getLogoStyle = (isMobile) => ({
   width: '100%',
-  maxWidth: isMobile ? '240px' : '320px',
+  maxWidth: isMobile ? '240px' : '340px',
   height: 'auto',
   objectFit: 'contain',
 })
 
 const cardsSectionStyle = {
-  marginTop: '24px',
+  marginTop: '28px',
 }
 
 const getCardsGridStyle = (isMobile) => ({
   display: 'grid',
-  gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(240px, 1fr))',
-  gap: '18px',
+  gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(260px, 1fr))',
+  gap: '22px',
 })
 
 const cardButtonStyle = {
   backgroundColor: '#ffffff',
-  borderRadius: '22px',
-  padding: '22px',
-  borderLeft: '1px solid #e2e8f0',
-  borderRight: '1px solid #e2e8f0',
-  borderBottom: '1px solid #e2e8f0',
-  boxShadow: '0 14px 35px rgba(15, 23, 42, 0.07)',
+  borderRadius: '26px',
+  padding: '26px 26px 24px',
+  borderLeft: '1px solid #dbe4f0',
+  borderRight: '1px solid #dbe4f0',
+  borderBottom: '1px solid #dbe4f0',
+  boxShadow: '0 16px 40px rgba(15, 23, 42, 0.07)',
   display: 'flex',
   flexDirection: 'column',
   alignItems: 'flex-start',
-  gap: '10px',
+  gap: '12px',
   textAlign: 'left',
   cursor: 'pointer',
+  minHeight: '280px',
+}
+
+const moduleTagStyle = {
+  fontWeight: '900',
+  fontSize: '0.82rem',
+  letterSpacing: '0.12em',
+  textTransform: 'uppercase',
 }
 
 const cardTitleStyle = {
   color: '#0f172a',
-  fontWeight: '800',
-  fontSize: '1.25rem',
+  fontWeight: '900',
+  fontSize: '1.42rem',
+  lineHeight: 1.25,
 }
 
 const cardDescriptionStyle = {
-  color: '#64748b',
-  fontSize: '0.95rem',
-  lineHeight: 1.55,
+  color: '#314e72',
+  fontSize: '0.98rem',
+  lineHeight: 1.65,
   flex: 1,
 }
 
 const cardLinkStyle = {
-  fontWeight: '800',
-  fontSize: '0.95rem',
+  fontWeight: '900',
+  fontSize: '0.96rem',
 }
 
 export default Home

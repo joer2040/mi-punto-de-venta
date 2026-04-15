@@ -50,7 +50,7 @@ const MaterialForm = ({ onMaterialAdded }) => {
       if (onMaterialAdded) onMaterialAdded()
     } catch (error) {
       console.error(error)
-      alert('Error al guardar')
+      alert(error?.message || 'Error al guardar')
     }
   }
 

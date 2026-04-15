@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { materialService } from '../api/materialService';
 import { providerService } from '../api/providerService';
+import { useAuth } from '../contexts/AuthContext';
+import { ACTION_KEYS, PAGE_PERMISSION_MAP } from '../lib/permissionConfig';
 import { useResponsive } from '../lib/useResponsive';
 
 const PurchaseEntry = () => {
@@ -10,6 +12,8 @@ const PurchaseEntry = () => {
   const [invoiceRef, setInvoiceRef] = useState('');
   const [loading, setLoading] = useState(true);
   const { isMobile } = useResponsive();
+  const { can } = useAuth();
+  const canProcessPurchases = can(PAGE_PERMISSION_MAP.purchases, ACTION_KEYS.CREATE);
 
   const [purchase, setPurchase] = useState({
     center_id: '',
@@ -50,6 +54,7 @@ const PurchaseEntry = () => {
   }, []);
 
   const handleAddToList = () => {
+    if (!canProcessPurchases) return;
     if (!currentEntry.material_id || !currentEntry.quantity || !currentEntry.unit_cost) {
       alert('Por favor completa SKU, cantidad y costo unitario');
       return;
@@ -70,6 +75,7 @@ const PurchaseEntry = () => {
 
   const handleSavePurchase = async (e) => {
     e?.preventDefault?.();
+    if (!canProcessPurchases) return;
 
     if (!selectedProvider || itemsList.length === 0) {
       alert('Por favor completa todos los campos de la compra');
@@ -91,7 +97,7 @@ const PurchaseEntry = () => {
       setCurrentEntry({ material_id: '', quantity: '', unit_cost: '' });
     } catch (error) {
       console.error('Error al registrar compra:', error);
-      alert('Error al guardar la transaccion.');
+      alert(error?.message || 'Error al guardar la transaccion.');
     }
   };
 
@@ -99,7 +105,10 @@ const PurchaseEntry = () => {
 
   return (
     <div style={{ padding: isMobile ? '12px' : '20px', maxWidth: '800px', fontFamily: 'sans-serif', margin: '0 auto' }}>
-      <h1>Entrada de Almacen (Compras)</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+        <h1>Entrada de Almacen (Compras)</h1>
+        {!canProcessPurchases && <span style={readOnlyBadgeStyle}>Solo lectura</span>}
+      </div>
 
       <form onSubmit={handleSavePurchase} style={formContainerStyle}>
         <section style={sectionStyle}>
@@ -110,6 +119,7 @@ const PurchaseEntry = () => {
               style={inputStyle}
               value={selectedProvider}
               onChange={(e) => setSelectedProvider(e.target.value)}
+              disabled={!canProcessPurchases}
               required
             >
               <option value="">Selecciona un proveedor...</option>
@@ -127,6 +137,7 @@ const PurchaseEntry = () => {
               placeholder="Ej: FAC-1234"
               value={invoiceRef}
               onChange={(e) => setInvoiceRef(e.target.value)}
+              disabled={!canProcessPurchases}
             />
           </div>
         </section>
@@ -138,6 +149,7 @@ const PurchaseEntry = () => {
             style={inputStyle}
             onChange={(e) => setCurrentEntry({ ...currentEntry, material_id: e.target.value })}
             value={currentEntry.material_id}
+            disabled={!canProcessPurchases}
           >
             <option value="">Selecciona producto...</option>
             {materials.map(m => (
@@ -160,6 +172,7 @@ const PurchaseEntry = () => {
                 placeholder="0.00"
                 value={currentEntry.quantity}
                 onChange={(e) => setCurrentEntry({ ...currentEntry, quantity: e.target.value })}
+                disabled={!canProcessPurchases}
               />
             </div>
             <div style={{ flex: 1 }}>
@@ -170,6 +183,7 @@ const PurchaseEntry = () => {
                 placeholder="0.00"
                 value={currentEntry.unit_cost}
                 onChange={(e) => setCurrentEntry({ ...currentEntry, unit_cost: e.target.value })}
+                disabled={!canProcessPurchases}
               />
             </div>
           </div>
@@ -178,6 +192,7 @@ const PurchaseEntry = () => {
             <button
               type="button"
               onClick={handleAddToList}
+              disabled={!canProcessPurchases}
               style={btnAddStyle}
             >
               Agregar a la lista
@@ -207,7 +222,7 @@ const PurchaseEntry = () => {
                 <td style={tdStyle}>${item.unit_cost}</td>
                 <td style={tdStyle}>${item.subtotal.toFixed(2)}</td>
                 <td style={tdStyle}>
-                  <button onClick={() => setItemsList(itemsList.filter((_, i) => i !== index))} style={{ color: 'red', border: 'none', background: 'none', cursor: 'pointer' }}>
+                  <button onClick={() => setItemsList(itemsList.filter((_, i) => i !== index))} disabled={!canProcessPurchases} style={{ color: canProcessPurchases ? 'red' : '#a0aec0', border: 'none', background: 'none', cursor: canProcessPurchases ? 'pointer' : 'not-allowed' }}>
                     Eliminar
                   </button>
                 </td>
@@ -222,7 +237,7 @@ const PurchaseEntry = () => {
       </div>
 
       <div style={{ marginTop: '20px' }}>
-        <button onClick={handleSavePurchase} style={btnStyle}>
+        <button onClick={handleSavePurchase} disabled={!canProcessPurchases} style={canProcessPurchases ? btnStyle : disabledBtnStyle}>
           Procesar Factura Completa
         </button>
       </div>
@@ -256,5 +271,7 @@ const btnAddStyle = {
 const tableWrapperStyle = { marginTop: '20px', backgroundColor: '#fff', borderRadius: '10px', overflowX: 'auto', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' };
 const thStyle = { padding: '15px', textAlign: 'left' };
 const tdStyle = { padding: '12px 15px' };
+const readOnlyBadgeStyle = { padding: '8px 12px', borderRadius: '999px', backgroundColor: '#edf2f7', color: '#4a5568', fontWeight: '700' };
+const disabledBtnStyle = { ...btnStyle, backgroundColor: '#94a3b8', cursor: 'not-allowed' };
 
 export default PurchaseEntry;

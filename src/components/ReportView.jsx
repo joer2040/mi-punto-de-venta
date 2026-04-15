@@ -62,7 +62,7 @@ const ReportView = ({
     <div style={getContainerStyle(isMobile)}>
       <h2 style={getTitleStyle(isMobile)}>{title}</h2>
 
-      <div style={controlsShellStyle}>
+      <div style={getControlsShellStyle(isMobile)}>
         <div style={filterCardStyle}>
           <div style={filterHeaderStyle}>
             <div>
@@ -98,13 +98,13 @@ const ReportView = ({
       </div>
 
       <div style={dataPanelStyle}>
-        <div style={tableWrapperStyle}>
-          <div style={tableScrollStyle}>
+        <div style={getTableWrapperStyle(isMobile)}>
+          <div style={getTableScrollStyle(isMobile)}>
             <table style={tableStyle}>
               <thead>
                 <tr style={theadStyle}>
                   {columns.map((column) => (
-                    <th key={column.key} style={thStyle}>
+                    <th key={column.key} style={getThStyle(isMobile)}>
                       {column.label}
                     </th>
                   ))}
@@ -184,13 +184,13 @@ const getTitleStyle = (isMobile) => ({
   fontSize: isMobile ? '1.35rem' : '1.75rem',
 })
 
-const controlsShellStyle = {
-  position: 'sticky',
-  top: 0,
-  zIndex: 5,
+const getControlsShellStyle = (isMobile) => ({
+  position: isMobile ? 'static' : 'sticky',
+  top: isMobile ? 'auto' : 0,
+  zIndex: isMobile ? 'auto' : 5,
   backgroundColor: '#f7fafc',
   paddingBottom: '12px',
-}
+})
 
 const filterCardStyle = {
   backgroundColor: '#ffffff',
@@ -289,15 +289,16 @@ const dataPanelStyle = {
   boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
 }
 
-const tableWrapperStyle = {
-  maxHeight: '56vh',
-  overflow: 'hidden',
-}
+const getTableWrapperStyle = (isMobile) => ({
+  maxHeight: isMobile ? 'none' : '56vh',
+  overflow: isMobile ? 'visible' : 'hidden',
+})
 
-const tableScrollStyle = {
-  overflow: 'auto',
-  maxHeight: '56vh',
-}
+const getTableScrollStyle = (isMobile) => ({
+  overflowX: 'auto',
+  overflowY: isMobile ? 'visible' : 'auto',
+  maxHeight: isMobile ? 'none' : '56vh',
+})
 
 const tableStyle = {
   width: '100%',
@@ -307,16 +308,16 @@ const tableStyle = {
 }
 
 const theadStyle = { backgroundColor: '#4a5568', color: '#ffffff' }
-const thStyle = {
+const getThStyle = (isMobile) => ({
   padding: '15px',
   textAlign: 'left',
   fontSize: '0.85rem',
-  position: 'sticky',
-  top: 0,
+  position: isMobile ? 'static' : 'sticky',
+  top: isMobile ? 'auto' : 0,
   zIndex: 1,
   backgroundColor: '#4a5568',
   color: '#ffffff',
-}
+})
 
 const emptyStateStyle = {
   padding: '18px',

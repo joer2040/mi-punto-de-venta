@@ -93,34 +93,57 @@ const ProviderMaster = () => {
       )}
 
       <div style={tableWrapperStyle}>
-        <div style={tableScrollStyle}>
-          <table style={tableStyle}>
-            <thead>
-              <tr style={{ backgroundColor: '#2d3748', color: 'white' }}>
-                <th style={thStyle}>Proveedor</th>
-                <th style={thStyle}>RFC</th>
-                <th style={thStyle}>Contacto</th>
-              </tr>
-            </thead>
-            <tbody>
-              {providers.map((provider, index) => (
-                <tr
-                  key={provider.id}
-                  style={{
-                    backgroundColor: index % 2 === 0 ? '#fff' : '#f8fafc',
-                    borderBottom: '1px solid #e2e8f0',
-                  }}
-                >
-                  <td style={tdStyle}>
-                    <strong>{provider.name}</strong>
-                  </td>
-                  <td style={tdStyle}>{provider.rfc}</td>
-                  <td style={tdStyle}>{provider.email || provider.phone || 'Sin datos'}</td>
+        {isMobile ? (
+          <div style={mobileCardsStyle}>
+            {providers.map((provider) => (
+              <article key={provider.id} style={mobileCardStyle}>
+                <div style={mobileCardLabelStyle}>Proveedor</div>
+                <div style={mobileCardTitleStyle}>{provider.name}</div>
+
+                <div style={mobileCardGridStyle}>
+                  <div style={mobileInfoBlockStyle}>
+                    <div style={mobileCardLabelStyle}>RFC</div>
+                    <div style={mobileInfoTextStyle}>{provider.rfc}</div>
+                  </div>
+
+                  <div style={mobileInfoBlockStyle}>
+                    <div style={mobileCardLabelStyle}>Contacto</div>
+                    <div style={mobileInfoTextStyle}>{provider.email || provider.phone || 'Sin datos'}</div>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div style={tableScrollStyle}>
+            <table style={tableStyle}>
+              <thead>
+                <tr style={{ backgroundColor: '#2d3748', color: 'white' }}>
+                  <th style={thStyle}>Proveedor</th>
+                  <th style={thStyle}>RFC</th>
+                  <th style={thStyle}>Contacto</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {providers.map((provider, index) => (
+                  <tr
+                    key={provider.id}
+                    style={{
+                      backgroundColor: index % 2 === 0 ? '#fff' : '#f8fafc',
+                      borderBottom: '1px solid #e2e8f0',
+                    }}
+                  >
+                    <td style={tdStyle}>
+                      <strong>{provider.name}</strong>
+                    </td>
+                    <td style={tdStyle}>{provider.rfc}</td>
+                    <td style={tdStyle}>{provider.email || provider.phone || 'Sin datos'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -177,6 +200,7 @@ const tableWrapperStyle = {
   borderRadius: '12px',
   overflow: 'hidden',
   boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+  padding: '0',
 }
 
 const tableScrollStyle = {
@@ -196,6 +220,53 @@ const readOnlyBadgeStyle = {
   borderRadius: '999px',
   backgroundColor: '#edf2f7',
   color: '#4a5568',
+  fontWeight: '700',
+}
+
+const mobileCardsStyle = {
+  display: 'grid',
+  gap: '12px',
+  padding: '12px',
+}
+
+const mobileCardStyle = {
+  borderRadius: '16px',
+  border: '1px solid #e2e8f0',
+  backgroundColor: '#f8fafc',
+  padding: '14px',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '12px',
+}
+
+const mobileCardGridStyle = {
+  display: 'grid',
+  gridTemplateColumns: '1fr',
+  gap: '12px',
+}
+
+const mobileInfoBlockStyle = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '4px',
+}
+
+const mobileCardLabelStyle = {
+  color: '#64748b',
+  fontSize: '0.78rem',
+  fontWeight: '800',
+  textTransform: 'uppercase',
+  letterSpacing: '0.05em',
+}
+
+const mobileCardTitleStyle = {
+  color: '#0f172a',
+  fontWeight: '900',
+  fontSize: '1rem',
+}
+
+const mobileInfoTextStyle = {
+  color: '#1e293b',
   fontWeight: '700',
 }
 

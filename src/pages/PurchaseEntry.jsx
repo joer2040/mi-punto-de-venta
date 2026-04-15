@@ -202,34 +202,82 @@ const PurchaseEntry = () => {
       </form>
 
       <div style={tableWrapperStyle}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '680px' }}>
-          <thead>
-            <tr style={{ backgroundColor: '#2d3748', color: 'white' }}>
-              <th style={thStyle}>SKU</th>
-              <th style={thStyle}>Producto</th>
-              <th style={thStyle}>Cant.</th>
-              <th style={thStyle}>Costo U.</th>
-              <th style={thStyle}>Subtotal</th>
-              <th style={thStyle}>Accion</th>
-            </tr>
-          </thead>
-          <tbody>
+        {isMobile ? (
+          <div style={mobileCardsListStyle}>
             {itemsList.map((item, index) => (
-              <tr key={index} style={{ borderBottom: '1px solid #eee' }}>
-                <td style={tdStyle}>{item.sku}</td>
-                <td style={tdStyle}>{item.name}</td>
-                <td style={tdStyle}>{item.quantity}</td>
-                <td style={tdStyle}>${item.unit_cost}</td>
-                <td style={tdStyle}>${item.subtotal.toFixed(2)}</td>
-                <td style={tdStyle}>
-                  <button onClick={() => setItemsList(itemsList.filter((_, i) => i !== index))} disabled={!canProcessPurchases} style={{ color: canProcessPurchases ? 'red' : '#a0aec0', border: 'none', background: 'none', cursor: canProcessPurchases ? 'pointer' : 'not-allowed' }}>
+              <article key={`${item.material_id}-${index}`} style={mobileItemCardStyle}>
+                <div style={mobileItemHeaderStyle}>
+                  <div>
+                    <div style={mobileItemLabelStyle}>SKU</div>
+                    <div style={mobileItemSkuStyle}>{item.sku}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setItemsList(itemsList.filter((_, i) => i !== index))}
+                    disabled={!canProcessPurchases}
+                    style={{
+                      ...mobileRemoveButtonStyle,
+                      ...(canProcessPurchases ? null : mobileRemoveButtonDisabledStyle),
+                    }}
+                  >
                     Eliminar
                   </button>
-                </td>
-              </tr>
+                </div>
+
+                <div>
+                  <div style={mobileItemLabelStyle}>Producto</div>
+                  <div style={mobileItemNameStyle}>{item.name}</div>
+                </div>
+
+                <div style={mobileMetricsGridStyle}>
+                  <div style={mobileMetricCardStyle}>
+                    <div style={mobileItemLabelStyle}>Cant.</div>
+                    <div style={mobileMetricValueStyle}>{item.quantity}</div>
+                  </div>
+
+                  <div style={mobileMetricCardStyle}>
+                    <div style={mobileItemLabelStyle}>Costo U.</div>
+                    <div style={mobileMetricValueStyle}>${item.unit_cost}</div>
+                  </div>
+
+                  <div style={mobileMetricCardStyle}>
+                    <div style={mobileItemLabelStyle}>Subtotal</div>
+                    <div style={mobileSubtotalStyle}>${item.subtotal.toFixed(2)}</div>
+                  </div>
+                </div>
+              </article>
             ))}
-          </tbody>
-        </table>
+          </div>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '680px' }}>
+            <thead>
+              <tr style={{ backgroundColor: '#2d3748', color: 'white' }}>
+                <th style={thStyle}>SKU</th>
+                <th style={thStyle}>Producto</th>
+                <th style={thStyle}>Cant.</th>
+                <th style={thStyle}>Costo U.</th>
+                <th style={thStyle}>Subtotal</th>
+                <th style={thStyle}>Accion</th>
+              </tr>
+            </thead>
+            <tbody>
+              {itemsList.map((item, index) => (
+                <tr key={index} style={{ borderBottom: '1px solid #eee' }}>
+                  <td style={tdStyle}>{item.sku}</td>
+                  <td style={tdStyle}>{item.name}</td>
+                  <td style={tdStyle}>{item.quantity}</td>
+                  <td style={tdStyle}>${item.unit_cost}</td>
+                  <td style={tdStyle}>${item.subtotal.toFixed(2)}</td>
+                  <td style={tdStyle}>
+                    <button onClick={() => setItemsList(itemsList.filter((_, i) => i !== index))} disabled={!canProcessPurchases} style={{ color: canProcessPurchases ? 'red' : '#a0aec0', border: 'none', background: 'none', cursor: canProcessPurchases ? 'pointer' : 'not-allowed' }}>
+                      Eliminar
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
 
         <div style={{ padding: '20px', textAlign: isMobile ? 'left' : 'right', fontWeight: 'bold', fontSize: '1.1rem' }}>
           Total Factura: ${itemsList.reduce((acc, item) => acc + item.subtotal, 0).toFixed(2)}
@@ -273,5 +321,17 @@ const thStyle = { padding: '15px', textAlign: 'left' };
 const tdStyle = { padding: '12px 15px' };
 const readOnlyBadgeStyle = { padding: '8px 12px', borderRadius: '999px', backgroundColor: '#edf2f7', color: '#4a5568', fontWeight: '700' };
 const disabledBtnStyle = { ...btnStyle, backgroundColor: '#94a3b8', cursor: 'not-allowed' };
+const mobileCardsListStyle = { display: 'grid', gap: '12px', padding: '12px' };
+const mobileItemCardStyle = { borderRadius: '16px', border: '1px solid #e2e8f0', backgroundColor: '#f8fafc', padding: '14px', display: 'flex', flexDirection: 'column', gap: '12px' };
+const mobileItemHeaderStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' };
+const mobileItemLabelStyle = { color: '#64748b', fontSize: '0.78rem', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' };
+const mobileItemSkuStyle = { color: '#1e3a5f', fontWeight: '800' };
+const mobileItemNameStyle = { color: '#0f172a', fontWeight: '900', fontSize: '1rem' };
+const mobileMetricsGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '10px' };
+const mobileMetricCardStyle = { borderRadius: '12px', border: '1px solid #e2e8f0', backgroundColor: '#ffffff', padding: '10px' };
+const mobileMetricValueStyle = { color: '#0f172a', fontWeight: '800' };
+const mobileSubtotalStyle = { color: '#16a34a', fontWeight: '900' };
+const mobileRemoveButtonStyle = { border: 'none', borderRadius: '10px', backgroundColor: '#fee2e2', color: '#b91c1c', fontWeight: '800', padding: '10px 12px', cursor: 'pointer' };
+const mobileRemoveButtonDisabledStyle = { backgroundColor: '#e2e8f0', color: '#94a3b8', cursor: 'not-allowed' };
 
 export default PurchaseEntry;

@@ -130,27 +130,19 @@ const Inventory = () => {
           )}
         </div>
 
-        <div style={tableWrapStyle}>
-          <table style={tableStyle}>
-            <thead>
-              <tr style={tableHeadRowStyle}>
-                <th style={headerCellStyle}>SKU</th>
-                <th style={headerCellStyle}>PRODUCTO</th>
-                <th style={headerCellStyle}>CATEGORIA</th>
-                <th style={headerCellStyle}>PRECIO VENTA</th>
-                <th style={headerCellStyle}>STOCK ACTUAL</th>
-              </tr>
-            </thead>
-            <tbody>
-              {groupedItems.map((item) => {
-                const skuSaveKey = `${item.rowKey}:sku`
-                const nameSaveKey = `${item.rowKey}:name`
-                const priceSaveKey = `${item.rowKey}:price`
-                const stockSaveKey = `${item.rowKey}:stock`
+        {isMobile ? (
+          <div style={mobileCardsGridStyle}>
+            {groupedItems.map((item) => {
+              const skuSaveKey = `${item.rowKey}:sku`
+              const nameSaveKey = `${item.rowKey}:name`
+              const priceSaveKey = `${item.rowKey}:price`
+              const stockSaveKey = `${item.rowKey}:stock`
 
-                return (
-                  <tr key={item.rowKey} style={bodyRowStyle}>
-                    <td style={bodyCellStyle}>
+              return (
+                <article key={item.rowKey} style={mobileCardStyle}>
+                  <div style={mobileCardTopStyle}>
+                    <div>
+                      <div style={mobileMetaLabelStyle}>SKU</div>
                       {manualEditUnlocked ? (
                         <input
                           value={item.sku}
@@ -160,26 +152,31 @@ const Inventory = () => {
                           disabled={savingKey === skuSaveKey}
                         />
                       ) : (
-                        item.sku
+                        <div style={mobileSkuTextStyle}>{item.sku || 'Sin SKU'}</div>
                       )}
-                    </td>
-                    <td style={{ ...bodyCellStyle, fontWeight: 800 }}>
-                      {manualEditUnlocked ? (
-                        <input
-                          value={item.name}
-                          onChange={(event) => handleFieldChange(item.rowKey, 'name', event.target.value)}
-                          onBlur={() => handleSaveField(item, 'name')}
-                          style={tableInputStyle}
-                          disabled={savingKey === nameSaveKey}
-                        />
-                      ) : (
-                        item.name
-                      )}
-                    </td>
-                    <td style={bodyCellStyle}>
-                      <span style={categoryPillStyle}>{item.categoryName}</span>
-                    </td>
-                    <td style={bodyCellStyle}>
+                    </div>
+
+                    <span style={categoryPillStyle}>{item.categoryName}</span>
+                  </div>
+
+                  <div style={mobileFieldBlockStyle}>
+                    <div style={mobileMetaLabelStyle}>Producto</div>
+                    {manualEditUnlocked ? (
+                      <input
+                        value={item.name}
+                        onChange={(event) => handleFieldChange(item.rowKey, 'name', event.target.value)}
+                        onBlur={() => handleSaveField(item, 'name')}
+                        style={tableInputStyle}
+                        disabled={savingKey === nameSaveKey}
+                      />
+                    ) : (
+                      <div style={mobileNameTextStyle}>{item.name}</div>
+                    )}
+                  </div>
+
+                  <div style={mobileMetricsGridStyle}>
+                    <div style={mobileMetricCardStyle}>
+                      <div style={mobileMetaLabelStyle}>Precio venta</div>
                       {manualEditUnlocked ? (
                         <div style={currencyInputWrapStyle}>
                           <span style={currencyMarkStyle}>$</span>
@@ -196,8 +193,10 @@ const Inventory = () => {
                       ) : (
                         <span style={priceTextStyle}>${Number(item.price || 0).toFixed(0)}</span>
                       )}
-                    </td>
-                    <td style={bodyCellStyle}>
+                    </div>
+
+                    <div style={mobileMetricCardStyle}>
+                      <div style={mobileMetaLabelStyle}>Stock actual</div>
                       {manualEditUnlocked ? (
                         <input
                           type="number"
@@ -209,15 +208,104 @@ const Inventory = () => {
                           disabled={savingKey === stockSaveKey}
                         />
                       ) : (
-                        Number(item.stock || 0)
+                        <div style={mobileStockTextStyle}>{Number(item.stock || 0)}</div>
                       )}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+                    </div>
+                  </div>
+                </article>
+              )
+            })}
+          </div>
+        ) : (
+          <div style={tableWrapStyle}>
+            <table style={tableStyle}>
+              <thead>
+                <tr style={tableHeadRowStyle}>
+                  <th style={headerCellStyle}>SKU</th>
+                  <th style={headerCellStyle}>PRODUCTO</th>
+                  <th style={headerCellStyle}>CATEGORIA</th>
+                  <th style={headerCellStyle}>PRECIO VENTA</th>
+                  <th style={headerCellStyle}>STOCK ACTUAL</th>
+                </tr>
+              </thead>
+              <tbody>
+                {groupedItems.map((item) => {
+                  const skuSaveKey = `${item.rowKey}:sku`
+                  const nameSaveKey = `${item.rowKey}:name`
+                  const priceSaveKey = `${item.rowKey}:price`
+                  const stockSaveKey = `${item.rowKey}:stock`
+
+                  return (
+                    <tr key={item.rowKey} style={bodyRowStyle}>
+                      <td style={bodyCellStyle}>
+                        {manualEditUnlocked ? (
+                          <input
+                            value={item.sku}
+                            onChange={(event) => handleFieldChange(item.rowKey, 'sku', event.target.value)}
+                            onBlur={() => handleSaveField(item, 'sku')}
+                            style={tableInputStyle}
+                            disabled={savingKey === skuSaveKey}
+                          />
+                        ) : (
+                          item.sku
+                        )}
+                      </td>
+                      <td style={{ ...bodyCellStyle, fontWeight: 800 }}>
+                        {manualEditUnlocked ? (
+                          <input
+                            value={item.name}
+                            onChange={(event) => handleFieldChange(item.rowKey, 'name', event.target.value)}
+                            onBlur={() => handleSaveField(item, 'name')}
+                            style={tableInputStyle}
+                            disabled={savingKey === nameSaveKey}
+                          />
+                        ) : (
+                          item.name
+                        )}
+                      </td>
+                      <td style={bodyCellStyle}>
+                        <span style={categoryPillStyle}>{item.categoryName}</span>
+                      </td>
+                      <td style={bodyCellStyle}>
+                        {manualEditUnlocked ? (
+                          <div style={currencyInputWrapStyle}>
+                            <span style={currencyMarkStyle}>$</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={item.price}
+                              onChange={(event) => handleFieldChange(item.rowKey, 'price', event.target.value)}
+                              onBlur={() => handleSaveField(item, 'price')}
+                              style={tableInputStyle}
+                              disabled={savingKey === priceSaveKey}
+                            />
+                          </div>
+                        ) : (
+                          <span style={priceTextStyle}>${Number(item.price || 0).toFixed(0)}</span>
+                        )}
+                      </td>
+                      <td style={bodyCellStyle}>
+                        {manualEditUnlocked ? (
+                          <input
+                            type="number"
+                            step="0.001"
+                            value={item.stock}
+                            onChange={(event) => handleFieldChange(item.rowKey, 'stock', event.target.value)}
+                            onBlur={() => handleSaveField(item, 'stock')}
+                            style={tableInputStyle}
+                            disabled={savingKey === stockSaveKey}
+                          />
+                        ) : (
+                          Number(item.stock || 0)
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
     </div>
   )
@@ -270,6 +358,72 @@ const lockButtonStyle = {
   borderRadius: '10px',
   padding: '10px 18px',
   cursor: 'pointer',
+}
+
+const mobileCardsGridStyle = {
+  display: 'grid',
+  gap: '14px',
+}
+
+const mobileCardStyle = {
+  background: '#ffffff',
+  borderRadius: '18px',
+  border: '1px solid rgba(203, 213, 225, 0.85)',
+  boxShadow: '0 14px 32px rgba(15, 23, 42, 0.08)',
+  padding: '16px',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '14px',
+}
+
+const mobileCardTopStyle = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'flex-start',
+  gap: '12px',
+}
+
+const mobileMetaLabelStyle = {
+  color: '#64748b',
+  fontSize: '0.78rem',
+  fontWeight: 800,
+  letterSpacing: '0.06em',
+  textTransform: 'uppercase',
+  marginBottom: '6px',
+}
+
+const mobileSkuTextStyle = {
+  color: '#1e3a5f',
+  fontWeight: 800,
+}
+
+const mobileNameTextStyle = {
+  color: '#0f172a',
+  fontWeight: 900,
+  fontSize: '1rem',
+}
+
+const mobileFieldBlockStyle = {
+  display: 'flex',
+  flexDirection: 'column',
+}
+
+const mobileMetricsGridStyle = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+  gap: '12px',
+}
+
+const mobileMetricCardStyle = {
+  borderRadius: '14px',
+  background: '#f8fafc',
+  border: '1px solid #e2e8f0',
+  padding: '12px',
+}
+
+const mobileStockTextStyle = {
+  color: '#0f172a',
+  fontWeight: 800,
 }
 
 const tableWrapStyle = {

@@ -1,9 +1,12 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react'
 import MaterialForm from '../components/MaterialForm'
 import { materialService } from '../api/materialService'
+import { providerService } from '../api/providerService'
 import { useResponsive } from '../lib/useResponsive'
 
 const EDITION_PIN = '2024'
+const normalizeCategoryName = (value) => (value || '').trim().toLowerCase()
+const isExtraCategoryName = (value) => normalizeCategoryName(value) === 'extras'
 
 const normalizeMaterials = (rows = []) =>
   rows.map((row, index) => {
@@ -17,6 +20,8 @@ const normalizeMaterials = (rows = []) =>
       centerId: center.id,
       sku: material.sku || '',
       name: material.name || '',
+      providerId: material.provider_id || '',
+      providerName: material.providers?.name || 'Sin proveedor',
       categoryName: category.name || 'Sin categoria',
       categoryId: material.cat_id || category.id || null,
       price: Number(row.precio_venta ?? row.price ?? 0),
@@ -27,6 +32,7 @@ const normalizeMaterials = (rows = []) =>
 const Inventory = () => {
   const { isMobile } = useResponsive()
   const [items, setItems] = useState([])
+  const [providers, setProviders] = useState([])
   const [loading, setLoading] = useState(true)
   const [manualEditUnlocked, setManualEditUnlocked] = useState(false)
   const [savingKey, setSavingKey] = useState('')
@@ -34,8 +40,12 @@ const Inventory = () => {
   const loadMaterials = async () => {
     setLoading(true)
     try {
-      const data = await materialService.getAllMaterials()
+      const [data, providerRows] = await Promise.all([
+        materialService.getAllMaterials(),
+        providerService.getProviders(),
+      ])
       setItems(normalizeMaterials(data))
+      setProviders(providerRows || [])
     } catch (error) {
       console.error('Error cargando maestro de materiales:', error)
       alert(error?.message || 'No se pudo cargar el maestro de materiales.')
@@ -81,8 +91,13 @@ const Inventory = () => {
     const saveKey = `${item.rowKey}:${field}`
     setSavingKey(saveKey)
     try {
-      if (field === 'sku' || field === 'name') {
-        await materialService.updateMaterialField(item.materialId, field, item[field])
+      if (field === 'sku' || field === 'name' || field === 'providerId') {
+        const nextField = field === 'providerId' ? 'provider_id' : field
+        const nextValue =
+          field === 'providerId' && isExtraCategoryName(item.categoryName)
+            ? ''
+            : item[field]
+        await materialService.updateMaterialField(item.materialId, nextField, nextValue)
       }
 
       if (field === 'price') {
@@ -137,6 +152,7 @@ const Inventory = () => {
               const nameSaveKey = `${item.rowKey}:name`
               const priceSaveKey = `${item.rowKey}:price`
               const stockSaveKey = `${item.rowKey}:stock`
+              const isExtraCategory = isExtraCategoryName(item.categoryName)
 
               return (
                 <article key={item.rowKey} style={mobileCardStyle}>
@@ -171,6 +187,29 @@ const Inventory = () => {
                       />
                     ) : (
                       <div style={mobileNameTextStyle}>{item.name}</div>
+                    )}
+                  </div>
+
+                  <div style={mobileFieldBlockStyle}>
+                    <div style={mobileMetaLabelStyle}>Proveedor</div>
+                    {manualEditUnlocked && !isExtraCategory ? (
+                      <select
+                        value={item.providerId}
+                        onChange={(event) => handleFieldChange(item.rowKey, 'providerId', event.target.value)}
+                        onBlur={() => handleSaveField(item, 'providerId')}
+                        style={tableInputStyle}
+                      >
+                        <option value="">Selecciona proveedor...</option>
+                        {providers.map((provider) => (
+                          <option key={provider.id} value={provider.id}>
+                            {provider.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div style={mobileSkuTextStyle}>
+                        {isExtraCategory ? 'Produccion interna' : item.providerName}
+                      </div>
                     )}
                   </div>
 
@@ -223,6 +262,7 @@ const Inventory = () => {
                 <tr style={tableHeadRowStyle}>
                   <th style={headerCellStyle}>SKU</th>
                   <th style={headerCellStyle}>PRODUCTO</th>
+                  <th style={headerCellStyle}>PROVEEDOR</th>
                   <th style={headerCellStyle}>CATEGORIA</th>
                   <th style={headerCellStyle}>PRECIO VENTA</th>
                   <th style={headerCellStyle}>STOCK ACTUAL</th>
@@ -234,6 +274,7 @@ const Inventory = () => {
                   const nameSaveKey = `${item.rowKey}:name`
                   const priceSaveKey = `${item.rowKey}:price`
                   const stockSaveKey = `${item.rowKey}:stock`
+                  const isExtraCategory = isExtraCategoryName(item.categoryName)
 
                   return (
                     <tr key={item.rowKey} style={bodyRowStyle}>
@@ -261,6 +302,25 @@ const Inventory = () => {
                           />
                         ) : (
                           item.name
+                        )}
+                      </td>
+                      <td style={bodyCellStyle}>
+                        {manualEditUnlocked && !isExtraCategory ? (
+                          <select
+                            value={item.providerId}
+                            onChange={(event) => handleFieldChange(item.rowKey, 'providerId', event.target.value)}
+                            onBlur={() => handleSaveField(item, 'providerId')}
+                            style={tableInputStyle}
+                          >
+                            <option value="">Selecciona proveedor...</option>
+                            {providers.map((provider) => (
+                              <option key={provider.id} value={provider.id}>
+                                {provider.name}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          isExtraCategory ? 'Produccion interna' : item.providerName
                         )}
                       </td>
                       <td style={bodyCellStyle}>

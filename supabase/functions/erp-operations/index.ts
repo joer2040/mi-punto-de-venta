@@ -20,6 +20,7 @@ const appError = (message: string, status = 400) => Object.assign(new Error(mess
 const normalizeRoleName = (value: string | null | undefined) => (value || '').trim().toLowerCase()
 const isManagerRoleName = (value: string | null | undefined) =>
   ['manager', 'administrador operativo'].includes(normalizeRoleName(value))
+const isExtrasCategoryName = (value: string | null | undefined) => normalizeRoleName(value) === 'extras'
 const toNumber = (value: unknown, fallback = 0) => {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : fallback
@@ -293,6 +294,7 @@ Deno.serve(async (req) => {
       const material = (body.material || {}) as Record<string, unknown>
       const sku = String(material.sku ?? '').trim()
       const name = String(material.name ?? '').trim()
+      const providerId = String(material.provider_id ?? '').trim()
       const catId = String(material.cat_id ?? '').trim()
       const buyUomId = String(material.buy_uom_id ?? '').trim()
       const sellUomId = String(material.sell_uom_id ?? '').trim()
@@ -302,12 +304,43 @@ Deno.serve(async (req) => {
         return json({ error: 'Todos los campos del material son obligatorios.' }, 400)
       }
 
+      const { data: categorySnapshot, error: categoryError } = await adminClient
+        .from('categories')
+        .select('id, name')
+        .eq('id', catId)
+        .maybeSingle()
+
+      if (categoryError) throw categoryError
+      if (!categorySnapshot) {
+        return json({ error: 'La categoria seleccionada no existe.' }, 400)
+      }
+
+      const isExtraCategory = isExtrasCategoryName(categorySnapshot.name)
+
+      if (!isExtraCategory) {
+        if (!providerId) {
+          return json({ error: 'Debes seleccionar un proveedor para este material.' }, 400)
+        }
+
+        const { data: providerSnapshot, error: providerError } = await adminClient
+          .from('providers')
+          .select('id')
+          .eq('id', providerId)
+          .maybeSingle()
+
+        if (providerError) throw providerError
+        if (!providerSnapshot) {
+          return json({ error: 'El proveedor seleccionado no existe.' }, 400)
+        }
+      }
+
       const { data: createdMaterial, error: materialError } = await adminClient
         .from('materials')
         .insert([
           {
             sku,
             name,
+            provider_id: isExtraCategory ? null : providerId,
             cat_id: catId,
             buy_uom_id: buyUomId,
             sell_uom_id: sellUomId,
@@ -478,17 +511,47 @@ Deno.serve(async (req) => {
       const materialId = String(body.material_id ?? '').trim()
       const field = String(body.field ?? '').trim()
       const value = body.value
-      const allowedFields = new Set(['sku', 'name'])
+      const allowedFields = new Set(['sku', 'name', 'provider_id'])
 
       if (!materialId || !allowedFields.has(field)) {
         return json({ error: 'Actualizacion de material no permitida.' }, 400)
+      }
+
+      if (field === 'provider_id') {
+        const providerId = String(value ?? '').trim()
+        const { data: categorySnapshot, error: categoryError } = await adminClient
+          .from('categories')
+          .select('id, name')
+          .eq('id', String(materialSnapshot.cat_id ?? '').trim())
+          .maybeSingle()
+
+        if (categoryError) throw categoryError
+
+        const isExtraCategory = isExtrasCategoryName(categorySnapshot?.name)
+
+        if (!providerId && !isExtraCategory) {
+          return json({ error: 'Debes seleccionar un proveedor valido.' }, 400)
+        }
+
+        if (providerId) {
+          const { data: providerSnapshot, error: providerError } = await adminClient
+            .from('providers')
+            .select('id')
+            .eq('id', providerId)
+            .maybeSingle()
+
+          if (providerError) throw providerError
+          if (!providerSnapshot) {
+            return json({ error: 'El proveedor seleccionado no existe.' }, 400)
+          }
+        }
       }
 
       const materialSnapshot = await getMaterialSnapshot(adminClient, materialId)
 
       const { data, error } = await adminClient
         .from('materials')
-        .update({ [field]: value })
+        .update({ [field]: field === 'provider_id' && String(value ?? '').trim() === '' ? null : value })
         .eq('id', materialId)
         .select()
         .single()

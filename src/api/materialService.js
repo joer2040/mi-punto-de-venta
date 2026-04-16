@@ -112,7 +112,13 @@ export const materialService = {
           id,
           sku,
           name,
+          provider_id,
           cat_id,
+          providers:provider_id (
+            id,
+            name,
+            rfc
+          ),
           uoms:buy_uom_id (
             abbr
           ),

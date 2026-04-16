@@ -29,7 +29,11 @@ const PurchaseEntry = () => {
     unit_cost: ''
   });
 
-  const selectedMaterial = materials.find(material => material.materials?.id === currentEntry.material_id);
+  const availableMaterials = selectedProvider
+    ? materials.filter((material) => material.materials?.provider_id === selectedProvider)
+    : [];
+
+  const selectedMaterial = availableMaterials.find(material => material.materials?.id === currentEntry.material_id);
 
   useEffect(() => {
     const loadData = async () => {
@@ -53,14 +57,32 @@ const PurchaseEntry = () => {
     loadData();
   }, []);
 
+  const handleProviderChange = (nextProviderId) => {
+    if (itemsList.length > 0 && nextProviderId !== selectedProvider) {
+      const confirmed = window.confirm(
+        'Cambiar de proveedor limpiara la lista actual de productos. ¿Deseas continuar?'
+      );
+
+      if (!confirmed) return;
+      setItemsList([]);
+    }
+
+    setSelectedProvider(nextProviderId);
+    setCurrentEntry({ material_id: '', quantity: '', unit_cost: '' });
+  };
+
   const handleAddToList = () => {
     if (!canProcessPurchases) return;
+    if (!selectedProvider) {
+      alert('Primero selecciona un proveedor');
+      return;
+    }
     if (!currentEntry.material_id || !currentEntry.quantity || !currentEntry.unit_cost) {
       alert('Por favor completa SKU, cantidad y costo unitario');
       return;
     }
 
-    const materialInfo = materials.find(m => m.materials.id === currentEntry.material_id);
+    const materialInfo = availableMaterials.find(m => m.materials.id === currentEntry.material_id);
 
     const newItem = {
       ...currentEntry,
@@ -118,7 +140,7 @@ const PurchaseEntry = () => {
             <select
               style={inputStyle}
               value={selectedProvider}
-              onChange={(e) => setSelectedProvider(e.target.value)}
+              onChange={(e) => handleProviderChange(e.target.value)}
               disabled={!canProcessPurchases}
               required
             >
@@ -149,10 +171,10 @@ const PurchaseEntry = () => {
             style={inputStyle}
             onChange={(e) => setCurrentEntry({ ...currentEntry, material_id: e.target.value })}
             value={currentEntry.material_id}
-            disabled={!canProcessPurchases}
+            disabled={!canProcessPurchases || !selectedProvider}
           >
-            <option value="">Selecciona producto...</option>
-            {materials.map(m => (
+            <option value="">{selectedProvider ? 'Selecciona producto...' : 'Primero selecciona un proveedor...'}</option>
+            {availableMaterials.map(m => (
               <option key={m.materials.id} value={m.materials.id}>
                 {m.materials.name} ({m.materials.sku})
               </option>

@@ -1,15 +1,20 @@
 import React, { useEffect, useState } from 'react'
 import { materialService } from '../api/materialService'
+import { providerService } from '../api/providerService'
 import { useResponsive } from '../lib/useResponsive'
+
+const normalizeCategoryName = (value) => (value || '').trim().toLowerCase()
 
 const MaterialForm = ({ onMaterialAdded }) => {
   const [categories, setCategories] = useState([])
   const [uoms, setUoms] = useState([])
+  const [providers, setProviders] = useState([])
   const { isMobile } = useResponsive()
 
   const [formData, setFormData] = useState({
     sku: '',
     name: '',
+    provider_id: '',
     cat_id: '',
     buy_uom_id: '',
     sell_uom_id: '',
@@ -18,10 +23,14 @@ const MaterialForm = ({ onMaterialAdded }) => {
 
   useEffect(() => {
     const loadData = async () => {
-      const cats = await materialService.getCategories()
-      const units = await materialService.getUoms()
+      const [cats, units, providersData] = await Promise.all([
+        materialService.getCategories(),
+        materialService.getUoms(),
+        providerService.getProviders(),
+      ])
       setCategories(cats)
       setUoms(units)
+      setProviders(providersData || [])
     }
 
     loadData()
@@ -30,18 +39,30 @@ const MaterialForm = ({ onMaterialAdded }) => {
   const handleSubmit = async (e) => {
     e.preventDefault()
 
-    const { sku, name, cat_id, buy_uom_id, sell_uom_id } = formData
+    const { sku, name, provider_id, cat_id, buy_uom_id, sell_uom_id } = formData
+    const selectedCategory = categories.find((c) => c.id === cat_id)
+    const isExtraCategory = normalizeCategoryName(selectedCategory?.name) === 'extras'
+
     if (!sku || !name || !cat_id || !buy_uom_id || !sell_uom_id) {
       alert('Todos los campos son obligatorios')
       return
     }
 
+    if (!isExtraCategory && !provider_id) {
+      alert('Debes seleccionar un proveedor para este material')
+      return
+    }
+
     try {
-      await materialService.createMaterial(formData)
+      await materialService.createMaterial({
+        ...formData,
+        provider_id: isExtraCategory ? '' : formData.provider_id,
+      })
       alert('Material creado con exito')
       setFormData({
         sku: '',
         name: '',
+        provider_id: '',
         cat_id: '',
         buy_uom_id: '',
         sell_uom_id: '',
@@ -55,6 +76,7 @@ const MaterialForm = ({ onMaterialAdded }) => {
   }
 
   const selectedCategory = categories.find((c) => c.id === formData.cat_id)
+  const isExtraCategory = normalizeCategoryName(selectedCategory?.name) === 'extras'
   const isBottleCategory = selectedCategory?.name === 'Botellas/Otros'
 
   return (
@@ -86,12 +108,38 @@ const MaterialForm = ({ onMaterialAdded }) => {
 
       <div style={getRowStyle(isMobile)}>
         <div style={groupStyle}>
+          <label style={labelStyle}>Proveedor:</label>
+          <select
+            style={inputStyle}
+            value={formData.provider_id}
+            onChange={(e) => setFormData({ ...formData, provider_id: e.target.value })}
+            disabled={isExtraCategory}
+          >
+            <option value="">{isExtraCategory ? 'Produccion interna (sin proveedor)...' : 'Selecciona un proveedor...'}</option>
+            {providers.map((provider) => (
+              <option key={provider.id} value={provider.id}>
+                {provider.name} ({provider.rfc})
+              </option>
+            ))}
+          </select>
+        </div>
+        <div style={groupStyle}>
           <label style={labelStyle}>Categoria:</label>
           <select
             required
             style={inputStyle}
             value={formData.cat_id}
-            onChange={(e) => setFormData({ ...formData, cat_id: e.target.value })}
+            onChange={(e) => {
+              const nextCategoryId = e.target.value
+              const nextCategory = categories.find((category) => category.id === nextCategoryId)
+              const nextIsExtraCategory = normalizeCategoryName(nextCategory?.name) === 'extras'
+
+              setFormData({
+                ...formData,
+                cat_id: nextCategoryId,
+                provider_id: nextIsExtraCategory ? '' : formData.provider_id,
+              })
+            }}
           >
             <option value="">Selecciona una...</option>
             {categories.map((c) => (
@@ -158,7 +206,21 @@ const MaterialForm = ({ onMaterialAdded }) => {
         </div>
       </div>
 
-      <button type="submit" style={btnStyle}>Guardar Material</button>
+      {isExtraCategory && (
+        <div style={helperInfoStyle}>
+          Los materiales de la categoria Extras se consideran de produccion interna y no llevan proveedor.
+        </div>
+      )}
+
+      {providers.length === 0 && (
+        <div style={helperWarningStyle}>
+          {isExtraCategory
+            ? 'Puedes registrar materiales Extras sin proveedor.'
+            : 'Primero debes crear al menos un proveedor para poder registrar materiales.'}
+        </div>
+      )}
+
+      <button type="submit" style={btnStyle} disabled={providers.length === 0 && !isExtraCategory}>Guardar Material</button>
     </form>
   )
 }
@@ -213,6 +275,26 @@ const btnStyle = {
   cursor: 'pointer',
   marginTop: '20px',
   boxShadow: '0 4px 12px rgba(26, 115, 232, 0.3)',
+}
+
+const helperWarningStyle = {
+  marginTop: '16px',
+  padding: '12px 14px',
+  borderRadius: '10px',
+  backgroundColor: '#fff7ed',
+  border: '1px solid #fdba74',
+  color: '#9a3412',
+  fontWeight: '700',
+}
+
+const helperInfoStyle = {
+  marginTop: '16px',
+  padding: '12px 14px',
+  borderRadius: '10px',
+  backgroundColor: '#eff6ff',
+  border: '1px solid #93c5fd',
+  color: '#1d4ed8',
+  fontWeight: '700',
 }
 
 export default MaterialForm

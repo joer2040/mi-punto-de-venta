@@ -1,18 +1,19 @@
-﻿import { useEffect, useMemo, useReducer } from 'react'
-import Inventory from './pages/Inventory'
-import ProviderMaster from './pages/ProviderMaster'
-import PurchaseEntry from './pages/PurchaseEntry'
-import ReportsHome from './pages/ReportsHome'
-import InventoryReport from './pages/InventoryReport'
-import PurchasesReport from './pages/PurchasesReport'
-import SalesReport from './pages/SalesReport'
-import POS from './pages/POS'
-import SecurityUsers from './pages/SecurityUsers'
-import Home from './pages/Home'
-import Login from './pages/Login'
-import AccessDenied from './pages/AccessDenied'
+import { Suspense, lazy, useEffect, useMemo, useReducer } from 'react'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { useResponsive } from './lib/useResponsive'
+
+const Inventory = lazy(() => import('./pages/Inventory'))
+const ProviderMaster = lazy(() => import('./pages/ProviderMaster'))
+const PurchaseEntry = lazy(() => import('./pages/PurchaseEntry'))
+const ReportsHome = lazy(() => import('./pages/ReportsHome'))
+const InventoryReport = lazy(() => import('./pages/InventoryReport'))
+const PurchasesReport = lazy(() => import('./pages/PurchasesReport'))
+const SalesReport = lazy(() => import('./pages/SalesReport'))
+const POS = lazy(() => import('./pages/POS'))
+const SecurityUsers = lazy(() => import('./pages/SecurityUsers'))
+const Home = lazy(() => import('./pages/Home'))
+const Login = lazy(() => import('./pages/Login'))
+const AccessDenied = lazy(() => import('./pages/AccessDenied'))
 
 const STORAGE_KEY = 'mi-punto-de-venta.current-page'
 
@@ -181,11 +182,19 @@ const AppShell = () => {
   }
 
   if (!isAuthenticated) {
-    return <Login />
+    return (
+      <Suspense fallback={<div style={loadingStyle}>Cargando acceso...</div>}>
+        <Login />
+      </Suspense>
+    )
   }
 
   if (!isActive) {
-    return <AccessDenied />
+    return (
+      <Suspense fallback={<div style={loadingStyle}>Cargando acceso...</div>}>
+        <AccessDenied />
+      </Suspense>
+    )
   }
 
   const hideNavigation = currentPage === 'home' || (isWaiter && currentPage === 'pos' && isPosEditing)
@@ -282,7 +291,11 @@ const AppShell = () => {
         </>
       )}
 
-      <main style={mainStyle}>{renderPage()}</main>
+      <main style={mainStyle}>
+        <Suspense fallback={<div style={pageLoadingStyle}>Cargando modulo...</div>}>
+          {renderPage()}
+        </Suspense>
+      </main>
     </div>
   )
 }
@@ -481,6 +494,16 @@ const mobileDrawerActiveButtonStyle = {
 
 const loadingStyle = {
   minHeight: '100vh',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  color: '#0f172a',
+  fontWeight: 800,
+  background: '#f8fafc',
+}
+
+const pageLoadingStyle = {
+  minHeight: '40vh',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',

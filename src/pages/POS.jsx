@@ -1,5 +1,4 @@
 ﻿import React, { useEffect, useRef, useState } from 'react'
-import { jsPDF } from 'jspdf'
 import { materialService } from '../api/materialService'
 import { posService } from '../api/posService'
 import { useAuth } from '../contexts/AuthContext'
@@ -9,6 +8,15 @@ import { useResponsive } from '../lib/useResponsive'
 import logoCarreta from '../assets/la_carreta_sin_fondo.png'
 
 const TICKET_WIDTH_MM = 80
+let jsPdfModulePromise = null
+
+const loadJsPdf = async () => {
+  if (!jsPdfModulePromise) {
+    jsPdfModulePromise = import('jspdf')
+  }
+
+  return jsPdfModulePromise
+}
 
 const POS = ({ onEditingStateChange = () => {} }) => {
   const [inventory, setInventory] = useState([])
@@ -658,6 +666,7 @@ const TicketModal = ({ ticket, onClose }) => {
   }
 
   const buildTicketPdf = async () => {
+    const { jsPDF } = await loadJsPdf()
     const pageWidth = TICKET_WIDTH_MM
     const margin = 6
     const lineHeight = 4.3

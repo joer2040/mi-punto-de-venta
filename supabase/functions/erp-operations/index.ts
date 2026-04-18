@@ -80,6 +80,18 @@ const MATERIAL_MOVEMENT_DEFINITIONS = {
       },
     },
   },
+  invoice_adjustment: {
+    label: 'Ajuste Factura',
+    direction: 'adjust',
+    options: {
+      invoice_adjustment: {
+        label: 'Ajuste Factura',
+        movementType: 'manual_adjustment',
+        reasonCode: 'invoice_adjustment',
+        notes: 'Ajuste de inventario asociado a factura de compra',
+      },
+    },
+  },
 } as const
 
 const readRoleName = (roleLink: RoleLinkRow) => {
@@ -193,7 +205,7 @@ const validateMaterialMovement = async (
   const materialId = String(payload.material_id ?? '').trim()
   const centerId = String(payload.center_id ?? '').trim()
   const movementCode = String(payload.movement_code ?? '').trim()
-  const movementOption = String(payload.movement_option ?? '').trim()
+  const movementOption = String(payload.movement_option ?? '').trim() || (movementCode === 'invoice_adjustment' ? 'invoice_adjustment' : '')
   const quantity = toNumber(payload.quantity, NaN)
 
   if (!materialId || !centerId || !movementCode || !movementOption || Number.isNaN(quantity) || quantity <= 0) {
@@ -201,6 +213,115 @@ const validateMaterialMovement = async (
   }
 
   const movementDefinition = getMaterialMovementDefinition(movementCode, movementOption)
+
+  if (movementCode === 'invoice_adjustment') {
+    const purchaseItemId = String(payload.purchase_item_id ?? '').trim()
+    const invoiceRef = String(payload.invoice_ref ?? '').trim()
+
+    if (!purchaseItemId || !invoiceRef) {
+      throw appError('Debes seleccionar una factura y un producto valido para el ajuste.', 400)
+    }
+
+    const { data: purchaseItemRow, error: purchaseItemError } = await adminClient
+      .from('purchase_items')
+      .select(`
+        id,
+        purchase_id,
+        material_id,
+        quantity,
+        unit_cost,
+        purchases!inner (
+          id,
+          center_id,
+          invoice_ref,
+          created_at,
+          providers:provider_id (
+            id,
+            name
+          )
+        ),
+        materials!inner (
+          id,
+          sku,
+          name,
+          categories:cat_id (
+            name,
+            is_inventoried
+          ),
+          uoms:buy_uom_id (
+            abbr
+          )
+        )
+      `)
+      .eq('id', purchaseItemId)
+      .eq('material_id', materialId)
+      .single()
+
+    if (purchaseItemError || !purchaseItemRow) {
+      throw appError('No se encontro el producto seleccionado dentro de la factura.', 404)
+    }
+
+    if (String(purchaseItemRow.purchases?.invoice_ref ?? '').trim() !== invoiceRef) {
+      throw appError('La factura seleccionada ya no coincide con el producto elegido.', 400)
+    }
+
+    if (String(purchaseItemRow.purchases?.center_id ?? '').trim() !== centerId) {
+      throw appError('La factura seleccionada no pertenece al centro de inventario indicado.', 400)
+    }
+
+    if (purchaseItemRow.materials?.categories?.is_inventoried !== true) {
+      throw appError('Solo puedes ajustar facturas de materiales inventariables.', 400)
+    }
+
+    const inventorySnapshot = await getInventorySnapshot(adminClient, materialId, centerId)
+    const currentStock = Number(inventorySnapshot.stock_actual ?? 0)
+    const originalQuantity = Number(purchaseItemRow.quantity ?? 0)
+    const differenceQty = quantity - originalQuantity
+
+    if (differenceQty === 0) {
+      throw appError('La nueva cantidad es igual a la cantidad original de la factura.', 400)
+    }
+
+    const projectedStock = currentStock + differenceQty
+    const valid = projectedStock >= 0
+    const message = valid
+      ? 'Verificacion correcta. El ajuste de factura puede postearse.'
+      : 'Stock insuficiente. El ajuste de factura no puede dejar inventario negativo.'
+
+    return {
+      valid,
+      message,
+      materialId,
+      centerId,
+      quantity: Math.abs(differenceQty),
+      requestedQuantity: quantity,
+      originalQuantity,
+      differenceQty,
+      currentStock,
+      projectedStock,
+      costoPromedio: Number(inventorySnapshot.costo_promedio ?? 0),
+      precioVenta: Number(inventorySnapshot.precio_venta ?? 0),
+      productName: purchaseItemRow.materials?.name || 'Producto',
+      productSku: purchaseItemRow.materials?.sku || '',
+      unitAbbr: purchaseItemRow.materials?.uoms?.abbr || 'pz',
+      direction: differenceQty > 0 ? 'in' : 'out',
+      movementType: movementDefinition.movementType,
+      reasonCode: movementDefinition.reasonCode,
+      movementCode: movementDefinition.movementCode,
+      movementOption: movementDefinition.movementOption,
+      movementLabel: movementDefinition.movementLabel,
+      optionLabel: movementDefinition.optionLabel,
+      notes: movementDefinition.notes,
+      purchaseId: purchaseItemRow.purchase_id,
+      purchaseItemId,
+      invoiceRef,
+      providerName: purchaseItemRow.purchases?.providers?.name || 'Proveedor no identificado',
+      purchaseCreatedAt: purchaseItemRow.purchases?.created_at || null,
+      unitCost: Number(purchaseItemRow.unit_cost ?? 0),
+      previousLineTotal: originalQuantity * Number(purchaseItemRow.unit_cost ?? 0),
+      nextLineTotal: quantity * Number(purchaseItemRow.unit_cost ?? 0),
+    }
+  }
 
   const { data: inventoryRow, error: inventoryError } = await adminClient
     .from('inventory')
@@ -574,6 +695,13 @@ Deno.serve(async (req) => {
           unit_abbr: validation.unitAbbr,
           product_name: validation.productName,
           product_sku: validation.productSku,
+          original_quantity: validation.originalQuantity ?? null,
+          requested_quantity: validation.requestedQuantity ?? null,
+          invoice_ref: validation.invoiceRef ?? null,
+          provider_name: validation.providerName ?? null,
+          purchase_created_at: validation.purchaseCreatedAt ?? null,
+          previous_line_total: validation.previousLineTotal ?? null,
+          next_line_total: validation.nextLineTotal ?? null,
         },
       })
     }
@@ -586,6 +714,17 @@ Deno.serve(async (req) => {
       }
 
       const documentNumber = await getNextInventoryMovementDocumentNumber(adminClient)
+
+      if (validation.purchaseItemId) {
+        const { error: purchaseItemUpdateError } = await adminClient
+          .from('purchase_items')
+          .update({
+            quantity: validation.requestedQuantity,
+          })
+          .eq('id', validation.purchaseItemId)
+
+        if (purchaseItemUpdateError) throw purchaseItemUpdateError
+      }
 
       const { data: inventory, error: inventoryError } = await adminClient
         .from('inventory')
@@ -629,10 +768,15 @@ Deno.serve(async (req) => {
           center_id: validation.centerId,
           stock_actual: validation.projectedStock,
           quantity: validation.quantity,
+          requested_quantity: validation.requestedQuantity ?? validation.quantity,
+          original_quantity: validation.originalQuantity ?? null,
           movement_code: validation.movementCode,
           movement_option: validation.movementOption,
           reason_code: validation.reasonCode,
           document_number: documentNumber,
+          invoice_ref: validation.invoiceRef ?? null,
+          purchase_id: validation.purchaseId ?? null,
+          purchase_item_id: validation.purchaseItemId ?? null,
         },
         notes: `Movimiento de materiales ${validation.optionLabel}`,
         performedBy: caller.performedBy,
@@ -649,6 +793,9 @@ Deno.serve(async (req) => {
           current_stock: validation.currentStock,
           projected_stock: validation.projectedStock,
           unit_abbr: validation.unitAbbr,
+          original_quantity: validation.originalQuantity ?? null,
+          requested_quantity: validation.requestedQuantity ?? null,
+          invoice_ref: validation.invoiceRef ?? null,
         },
       })
     }

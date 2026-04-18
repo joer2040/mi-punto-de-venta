@@ -26,7 +26,7 @@ const PurchaseEntry = () => {
   const [currentEntry, setCurrentEntry] = useState({
     material_id: '',
     quantity: '',
-    unit_cost: ''
+    total_cost: ''
   });
 
   const availableMaterials = selectedProvider
@@ -34,6 +34,12 @@ const PurchaseEntry = () => {
     : [];
 
   const selectedMaterial = availableMaterials.find(material => material.materials?.id === currentEntry.material_id);
+  const quantityValue = parseFloat(currentEntry.quantity);
+  const totalCostValue = parseFloat(currentEntry.total_cost);
+  const computedUnitCost =
+    Number.isFinite(quantityValue) && quantityValue > 0 && Number.isFinite(totalCostValue)
+      ? totalCostValue / quantityValue
+      : 0;
 
   useEffect(() => {
     const loadData = async () => {
@@ -68,7 +74,7 @@ const PurchaseEntry = () => {
     }
 
     setSelectedProvider(nextProviderId);
-    setCurrentEntry({ material_id: '', quantity: '', unit_cost: '' });
+    setCurrentEntry({ material_id: '', quantity: '', total_cost: '' });
   };
 
   const handleAddToList = () => {
@@ -77,22 +83,28 @@ const PurchaseEntry = () => {
       alert('Primero selecciona un proveedor');
       return;
     }
-    if (!currentEntry.material_id || !currentEntry.quantity || !currentEntry.unit_cost) {
-      alert('Por favor completa SKU, cantidad y costo unitario');
+    if (!currentEntry.material_id || !currentEntry.quantity || !currentEntry.total_cost) {
+      alert('Por favor completa SKU, cantidad y costo');
       return;
     }
 
     const materialInfo = availableMaterials.find(m => m.materials.id === currentEntry.material_id);
+    const quantity = parseFloat(currentEntry.quantity);
+    const totalCost = parseFloat(currentEntry.total_cost);
+    const unitCost = quantity > 0 ? totalCost / quantity : 0;
 
     const newItem = {
       ...currentEntry,
+      quantity,
+      total_cost: totalCost,
+      unit_cost: unitCost,
       name: materialInfo.materials.name,
       sku: materialInfo.materials.sku,
-      subtotal: parseFloat(currentEntry.quantity) * parseFloat(currentEntry.unit_cost)
+      subtotal: totalCost
     };
 
     setItemsList([...itemsList, newItem]);
-    setCurrentEntry({ material_id: '', quantity: '', unit_cost: '' });
+    setCurrentEntry({ material_id: '', quantity: '', total_cost: '' });
   };
 
   const handleSavePurchase = async (e) => {
@@ -116,7 +128,7 @@ const PurchaseEntry = () => {
       setSelectedProvider('');
       setInvoiceRef('');
       setItemsList([]);
-      setCurrentEntry({ material_id: '', quantity: '', unit_cost: '' });
+      setCurrentEntry({ material_id: '', quantity: '', total_cost: '' });
     } catch (error) {
       console.error('Error al registrar compra:', error);
       alert(error?.message || 'Error al guardar la transaccion.');
@@ -198,14 +210,24 @@ const PurchaseEntry = () => {
               />
             </div>
             <div style={{ flex: 1 }}>
-              <label style={labelStyle}>Costo Unitario ($):</label>
+              <label style={labelStyle}>Costo ($):</label>
               <input
                 type="number"
                 style={inputStyle}
                 placeholder="0.00"
-                value={currentEntry.unit_cost}
-                onChange={(e) => setCurrentEntry({ ...currentEntry, unit_cost: e.target.value })}
+                value={currentEntry.total_cost}
+                onChange={(e) => setCurrentEntry({ ...currentEntry, total_cost: e.target.value })}
                 disabled={!canProcessPurchases}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>Costo Unitario ($):</label>
+              <input
+                type="number"
+                style={{ ...inputStyle, ...readOnlyInputStyle }}
+                value={Number.isFinite(computedUnitCost) ? computedUnitCost.toFixed(2) : '0.00'}
+                readOnly
+                disabled
               />
             </div>
           </div>
@@ -259,11 +281,11 @@ const PurchaseEntry = () => {
 
                   <div style={mobileMetricCardStyle}>
                     <div style={mobileItemLabelStyle}>Costo U.</div>
-                    <div style={mobileMetricValueStyle}>${item.unit_cost}</div>
+                    <div style={mobileMetricValueStyle}>${Number(item.unit_cost || 0).toFixed(2)}</div>
                   </div>
 
                   <div style={mobileMetricCardStyle}>
-                    <div style={mobileItemLabelStyle}>Subtotal</div>
+                    <div style={mobileItemLabelStyle}>Costo</div>
                     <div style={mobileSubtotalStyle}>${item.subtotal.toFixed(2)}</div>
                   </div>
                 </div>
@@ -277,8 +299,8 @@ const PurchaseEntry = () => {
                 <th style={thStyle}>SKU</th>
                 <th style={thStyle}>Producto</th>
                 <th style={thStyle}>Cant.</th>
+                <th style={thStyle}>Costo</th>
                 <th style={thStyle}>Costo U.</th>
-                <th style={thStyle}>Subtotal</th>
                 <th style={thStyle}>Accion</th>
               </tr>
             </thead>
@@ -288,8 +310,8 @@ const PurchaseEntry = () => {
                   <td style={tdStyle}>{item.sku}</td>
                   <td style={tdStyle}>{item.name}</td>
                   <td style={tdStyle}>{item.quantity}</td>
-                  <td style={tdStyle}>${item.unit_cost}</td>
                   <td style={tdStyle}>${item.subtotal.toFixed(2)}</td>
+                  <td style={tdStyle}>${Number(item.unit_cost || 0).toFixed(2)}</td>
                   <td style={tdStyle}>
                     <button onClick={() => setItemsList(itemsList.filter((_, i) => i !== index))} disabled={!canProcessPurchases} style={{ color: canProcessPurchases ? 'red' : '#a0aec0', border: 'none', background: 'none', cursor: canProcessPurchases ? 'pointer' : 'not-allowed' }}>
                       Eliminar
@@ -319,6 +341,7 @@ const formContainerStyle = { backgroundColor: '#f4f7f6', padding: '20px', border
 const sectionStyle = { marginBottom: '20px', padding: '15px', backgroundColor: '#fff', borderRadius: '8px' };
 const labelStyle = { display: 'block', fontSize: '0.9em', color: '#555', marginBottom: '5px' };
 const inputStyle = { width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #ddd', boxSizing: 'border-box' };
+const readOnlyInputStyle = { backgroundColor: '#f8fafc', color: '#0f172a', WebkitTextFillColor: '#0f172a', fontWeight: '700' };
 const btnStyle = { width: '100%', padding: '12px', backgroundColor: '#2980b9', color: 'white', border: 'none', borderRadius: '5px', fontWeight: 'bold', cursor: 'pointer' };
 const entryRowStyle = {
   marginTop: '20px',

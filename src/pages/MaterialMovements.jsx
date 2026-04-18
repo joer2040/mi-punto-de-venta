@@ -26,6 +26,12 @@ const MOVEMENT_TYPES = [
       { code: 'adjustment_out', label: 'Ajuste de inventario (salida)' },
     ],
   },
+  {
+    code: 'invoice_adjustment',
+    label: 'Ajuste Factura',
+    accent: '#7c3aed',
+    options: [{ code: 'invoice_adjustment', label: 'Ajuste Factura' }],
+  },
 ]
 
 const normalizeMaterials = (rows = []) =>
@@ -53,6 +59,9 @@ const MaterialMovements = () => {
   const [loading, setLoading] = useState(true)
   const [movementCode, setMovementCode] = useState('')
   const [movementOption, setMovementOption] = useState('')
+  const [invoiceRef, setInvoiceRef] = useState('')
+  const [invoiceDetails, setInvoiceDetails] = useState(null)
+  const [invoiceLoading, setInvoiceLoading] = useState(false)
   const [productQuery, setProductQuery] = useState('')
   const [selectedMaterial, setSelectedMaterial] = useState(null)
   const [quantity, setQuantity] = useState('')
@@ -60,6 +69,8 @@ const MaterialMovements = () => {
   const [checkedKey, setCheckedKey] = useState('')
   const [checking, setChecking] = useState(false)
   const [posting, setPosting] = useState(false)
+
+  const isInvoiceAdjustment = movementCode === 'invoice_adjustment'
 
   const loadMaterials = async () => {
     setLoading(true)
@@ -90,11 +101,21 @@ const MaterialMovements = () => {
       JSON.stringify({
         movementCode,
         movementOption,
+        invoiceRef,
+        purchaseItemId: selectedMaterial?.purchaseItemId || '',
         materialId: selectedMaterial?.materialId || '',
         centerId: selectedMaterial?.centerId || '',
         quantity: String(quantity || ''),
       }),
-    [movementCode, movementOption, quantity, selectedMaterial?.centerId, selectedMaterial?.materialId]
+    [
+      invoiceRef,
+      movementCode,
+      movementOption,
+      quantity,
+      selectedMaterial?.centerId,
+      selectedMaterial?.materialId,
+      selectedMaterial?.purchaseItemId,
+    ]
   )
 
   const isCurrentFormChecked = checkedKey === currentFormKey
@@ -103,34 +124,72 @@ const MaterialMovements = () => {
   const suggestions = useMemo(() => {
     if (!movementCode || !movementOption || !trimmedQuery) return []
 
-    return materials
+    const sourceMaterials = isInvoiceAdjustment ? invoiceDetails?.items || [] : materials
+
+    return sourceMaterials
       .filter((material) => {
-        const haystack = `${material.name} ${material.sku}`.toLowerCase()
+        const haystack = isInvoiceAdjustment
+          ? `${material.material_name} ${material.material_sku}`.toLowerCase()
+          : `${material.name} ${material.sku}`.toLowerCase()
+
         return haystack.includes(trimmedQuery)
       })
       .slice(0, 8)
-  }, [materials, movementCode, movementOption, trimmedQuery])
+  }, [invoiceDetails?.items, isInvoiceAdjustment, materials, movementCode, movementOption, trimmedQuery])
 
   const resetValidation = () => {
     setCheckResult(null)
     setCheckedKey('')
   }
 
-  const handleMovementTypeChange = (value) => {
-    setMovementCode(value)
-    setMovementOption('')
+  const clearProductState = () => {
     setProductQuery('')
     setSelectedMaterial(null)
     setQuantity('')
     resetValidation()
   }
 
+  const handleMovementTypeChange = (value) => {
+    setMovementCode(value)
+    setMovementOption(value === 'invoice_adjustment' ? 'invoice_adjustment' : '')
+    setInvoiceRef('')
+    setInvoiceDetails(null)
+    clearProductState()
+  }
+
   const handleMovementOptionChange = (value) => {
+    if (isInvoiceAdjustment) return
     setMovementOption(value)
-    setProductQuery('')
-    setSelectedMaterial(null)
-    setQuantity('')
-    resetValidation()
+    clearProductState()
+  }
+
+  const handleInvoiceRefChange = (value) => {
+    setInvoiceRef(value)
+    setInvoiceDetails(null)
+    clearProductState()
+  }
+
+  const handleLoadInvoice = async () => {
+    if (!isInvoiceAdjustment || !invoiceRef.trim()) return
+
+    setInvoiceLoading(true)
+    try {
+      const details = await materialService.getPurchaseInvoiceDetails(invoiceRef)
+      if (!details) {
+        setInvoiceDetails(null)
+        clearProductState()
+        window.alert('No se encontro una factura con ese folio.')
+        return
+      }
+
+      setInvoiceDetails(details)
+      clearProductState()
+    } catch (error) {
+      console.error('Error al cargar factura para ajuste:', error)
+      window.alert(error?.message || 'No se pudo cargar la factura seleccionada.')
+    } finally {
+      setInvoiceLoading(false)
+    }
   }
 
   const handleProductQueryChange = (value) => {
@@ -144,8 +203,29 @@ const MaterialMovements = () => {
   }
 
   const handleSelectMaterial = (material) => {
-    setSelectedMaterial(material)
-    setProductQuery(material.displayLabel)
+    const normalizedMaterial = isInvoiceAdjustment
+      ? {
+          rowKey: material.rowKey,
+          purchaseItemId: material.purchase_item_id,
+          materialId: material.material_id,
+          centerId: invoiceDetails?.center_id || '',
+          sku: material.material_sku,
+          name: material.material_name,
+          uomAbbr: material.unit_abbr,
+          displayLabel: material.displayLabel,
+          originalQuantity: Number(material.quantity || 0),
+          unitCost: Number(material.unit_cost || 0),
+          totalCost: Number(material.total_cost || 0),
+        }
+      : material
+
+    setSelectedMaterial(normalizedMaterial)
+    setProductQuery(normalizedMaterial.displayLabel)
+
+    if (isInvoiceAdjustment) {
+      setQuantity(String(normalizedMaterial.originalQuantity || ''))
+    }
+
     resetValidation()
   }
 
@@ -157,6 +237,7 @@ const MaterialMovements = () => {
   const isFormReady =
     Boolean(movementCode) &&
     Boolean(movementOption) &&
+    (!isInvoiceAdjustment || Boolean(invoiceDetails?.id)) &&
     Boolean(selectedMaterial?.materialId) &&
     Number(quantity) > 0
 
@@ -166,6 +247,8 @@ const MaterialMovements = () => {
     movement_code: movementCode,
     movement_option: movementOption,
     quantity: Number(quantity),
+    invoice_ref: isInvoiceAdjustment ? invoiceDetails?.invoice_ref || invoiceRef.trim() : undefined,
+    purchase_item_id: isInvoiceAdjustment ? selectedMaterial?.purchaseItemId || '' : undefined,
   })
 
   const handleCheck = async () => {
@@ -188,6 +271,8 @@ const MaterialMovements = () => {
   const clearForm = () => {
     setMovementCode('')
     setMovementOption('')
+    setInvoiceRef('')
+    setInvoiceDetails(null)
     setProductQuery('')
     setSelectedMaterial(null)
     setQuantity('')
@@ -217,6 +302,9 @@ const MaterialMovements = () => {
 
   const selectedUnit = selectedMaterial?.uomAbbr || '--'
   const showSuggestions = !selectedMaterial && suggestions.length > 0
+  const invoiceLineAmount = isInvoiceAdjustment && selectedMaterial
+    ? Number(quantity || 0) * Number(selectedMaterial.unitCost || 0)
+    : 0
 
   return (
     <div style={getPageStyle(isMobile)}>
@@ -266,11 +354,11 @@ const MaterialMovements = () => {
               onChange={(event) => handleMovementOptionChange(event.target.value)}
               style={{
                 ...inputStyle,
-                ...(movementCode ? null : disabledInputStyle),
+                ...((movementCode && !isInvoiceAdjustment) ? null : disabledInputStyle),
               }}
-              disabled={!canCreateMovements || !movementCode}
+              disabled={!canCreateMovements || !movementCode || isInvoiceAdjustment}
             >
-              <option value="">{movementCode ? 'Selecciona una opcion...' : 'Primero elige el tipo...'}</option>
+              <option value="">{movementCode && !isInvoiceAdjustment ? 'Selecciona una opcion...' : 'No aplica para este tipo...'}</option>
               {movementOptions.map((option) => (
                 <option key={option.code} value={option.code}>
                   {option.label}
@@ -279,6 +367,58 @@ const MaterialMovements = () => {
             </select>
           </div>
         </div>
+
+        {isInvoiceAdjustment && (
+          <div style={invoiceLookupRowStyle(isTablet)}>
+            <div style={{ ...fieldBlockStyle, flex: 1 }}>
+              <label htmlFor="movement-invoice" style={labelStyle}>
+                Factura existente
+              </label>
+              <input
+                id="movement-invoice"
+                type="text"
+                value={invoiceRef}
+                onChange={(event) => handleInvoiceRefChange(event.target.value)}
+                placeholder="Escribe el folio exacto de la factura..."
+                style={inputStyle}
+                disabled={!canCreateMovements}
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={handleLoadInvoice}
+              disabled={!canCreateMovements || !invoiceRef.trim() || invoiceLoading}
+              style={{
+                ...checkButtonStyle,
+                alignSelf: isTablet ? 'stretch' : 'flex-end',
+                ...((!canCreateMovements || !invoiceRef.trim() || invoiceLoading) ? disabledButtonStyle : null),
+              }}
+            >
+              {invoiceLoading ? 'Buscando...' : 'Buscar Factura'}
+            </button>
+          </div>
+        )}
+
+        {isInvoiceAdjustment && invoiceDetails && (
+          <section style={invoiceCardStyle}>
+            <div style={invoiceHeaderStyle}>
+              <div style={invoiceTitleStyle}>Factura encontrada</div>
+              <span style={invoiceRefPillStyle}>{invoiceDetails.invoice_ref}</span>
+            </div>
+
+            <div style={invoiceInfoGridStyle}>
+              <div style={invoiceInfoItemStyle}>
+                <span style={invoiceInfoLabelStyle}>Proveedor</span>
+                <strong>{invoiceDetails.provider_name}</strong>
+              </div>
+              <div style={invoiceInfoItemStyle}>
+                <span style={invoiceInfoLabelStyle}>Fecha</span>
+                <strong>{new Date(invoiceDetails.created_at).toLocaleString('es-MX')}</strong>
+              </div>
+            </div>
+          </section>
+        )}
 
         <div style={dividerStyle} />
 
@@ -292,13 +432,17 @@ const MaterialMovements = () => {
               type="text"
               value={productQuery}
               onChange={(event) => handleProductQueryChange(event.target.value)}
-              placeholder={movementCode && movementOption ? 'Escribe nombre o SKU...' : 'Primero elige tipo y opcion...'}
+              placeholder={
+                isInvoiceAdjustment
+                  ? (invoiceDetails ? 'Busca un producto de la factura...' : 'Primero carga una factura...')
+                  : (movementCode && movementOption ? 'Escribe nombre o SKU...' : 'Primero elige tipo y opcion...')
+              }
               style={{
                 ...inputStyle,
                 ...autocompleteInputStyle,
-                ...(movementCode && movementOption ? null : disabledInputStyle),
+                ...((movementCode && movementOption && (!isInvoiceAdjustment || invoiceDetails)) ? null : disabledInputStyle),
               }}
-              disabled={!canCreateMovements || !movementCode || !movementOption}
+              disabled={!canCreateMovements || !movementCode || !movementOption || (isInvoiceAdjustment && !invoiceDetails)}
               autoComplete="off"
             />
 
@@ -306,14 +450,16 @@ const MaterialMovements = () => {
               <div style={suggestionsPanelStyle}>
                 {suggestions.map((material) => (
                   <button
-                    key={material.rowKey}
+                    key={material.rowKey || material.purchase_item_id}
                     type="button"
                     onClick={() => handleSelectMaterial(material)}
                     style={suggestionButtonStyle}
                   >
-                    <span style={suggestionTitleStyle}>{material.name}</span>
+                    <span style={suggestionTitleStyle}>{isInvoiceAdjustment ? material.material_name : material.name}</span>
                     <span style={suggestionMetaStyle}>
-                      {material.sku} · Stock {material.currentStock} {material.uomAbbr}
+                      {isInvoiceAdjustment
+                        ? `${material.material_sku} · Factura ${material.quantity} ${material.unit_abbr} · $${material.total_cost.toFixed(2)}`
+                        : `${material.sku} · Stock ${material.currentStock} ${material.uomAbbr}`}
                     </span>
                   </button>
                 ))}
@@ -336,9 +482,9 @@ const MaterialMovements = () => {
                 placeholder="0.000"
                 style={{
                   ...inputStyle,
-                  ...(movementCode && movementOption ? null : disabledInputStyle),
+                  ...((movementCode && movementOption && (!isInvoiceAdjustment || selectedMaterial)) ? null : disabledInputStyle),
                 }}
-                disabled={!canCreateMovements || !movementCode || !movementOption}
+                disabled={!canCreateMovements || !movementCode || !movementOption || (isInvoiceAdjustment && !selectedMaterial)}
               />
             </div>
 
@@ -350,6 +496,29 @@ const MaterialMovements = () => {
             </div>
           </div>
         </div>
+
+        {isInvoiceAdjustment && selectedMaterial && (
+          <section style={invoiceLineCardStyle}>
+            <div style={invoiceLineGridStyle}>
+              <div style={invoiceInfoItemStyle}>
+                <span style={invoiceInfoLabelStyle}>Producto</span>
+                <strong>{selectedMaterial.name}</strong>
+              </div>
+              <div style={invoiceInfoItemStyle}>
+                <span style={invoiceInfoLabelStyle}>Cantidad original</span>
+                <strong>{Number(selectedMaterial.originalQuantity || 0)} {selectedMaterial.uomAbbr}</strong>
+              </div>
+              <div style={invoiceInfoItemStyle}>
+                <span style={invoiceInfoLabelStyle}>Monto original</span>
+                <strong>${Number(selectedMaterial.totalCost || 0).toFixed(2)}</strong>
+              </div>
+              <div style={invoiceInfoItemStyle}>
+                <span style={invoiceInfoLabelStyle}>Monto ajustado</span>
+                <strong>${Number(invoiceLineAmount || 0).toFixed(2)}</strong>
+              </div>
+            </div>
+          </section>
+        )}
 
         <div style={buttonRowStyle}>
           <button
@@ -410,6 +579,12 @@ const MaterialMovements = () => {
                 <span style={validationMetricLabelStyle}>Movimiento</span>
                 <strong>{checkResult.movement_label || '--'}</strong>
               </div>
+              {isInvoiceAdjustment && (
+                <div style={validationMetricStyle}>
+                  <span style={validationMetricLabelStyle}>Factura</span>
+                  <strong>{checkResult.invoice_ref || invoiceDetails?.invoice_ref || '--'}</strong>
+                </div>
+              )}
               <div style={validationMetricStyle}>
                 <span style={validationMetricLabelStyle}>Stock actual</span>
                 <strong>
@@ -422,6 +597,18 @@ const MaterialMovements = () => {
                   {Number(checkResult.projected_stock ?? 0)} {checkResult.unit_abbr || selectedUnit}
                 </strong>
               </div>
+              {isInvoiceAdjustment && (
+                <>
+                  <div style={validationMetricStyle}>
+                    <span style={validationMetricLabelStyle}>Cantidad factura</span>
+                    <strong>{Number(checkResult.original_quantity ?? selectedMaterial?.originalQuantity ?? 0)} {checkResult.unit_abbr || selectedUnit}</strong>
+                  </div>
+                  <div style={validationMetricStyle}>
+                    <span style={validationMetricLabelStyle}>Cantidad nueva</span>
+                    <strong>{Number((checkResult.requested_quantity ?? quantity) || 0)} {checkResult.unit_abbr || selectedUnit}</strong>
+                  </div>
+                </>
+              )}
             </div>
           </section>
         )}
@@ -595,6 +782,79 @@ const quantityWrapStyle = {
 const dividerStyle = {
   height: '1px',
   background: '#e2e8f0',
+}
+
+const invoiceLookupRowStyle = (isTablet) => ({
+  display: 'flex',
+  gap: '14px',
+  flexDirection: isTablet ? 'column' : 'row',
+  alignItems: isTablet ? 'stretch' : 'flex-end',
+})
+
+const invoiceCardStyle = {
+  borderRadius: '18px',
+  border: '1px solid #ddd6fe',
+  background: '#faf5ff',
+  padding: '16px',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '12px',
+}
+
+const invoiceHeaderStyle = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  gap: '12px',
+  flexWrap: 'wrap',
+}
+
+const invoiceTitleStyle = {
+  color: '#4c1d95',
+  fontWeight: 900,
+}
+
+const invoiceRefPillStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  padding: '8px 12px',
+  borderRadius: '999px',
+  background: '#ede9fe',
+  color: '#5b21b6',
+  fontWeight: 800,
+}
+
+const invoiceInfoGridStyle = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+  gap: '12px',
+}
+
+const invoiceInfoItemStyle = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '4px',
+}
+
+const invoiceInfoLabelStyle = {
+  color: '#7c3aed',
+  fontSize: '0.8rem',
+  fontWeight: 800,
+  textTransform: 'uppercase',
+  letterSpacing: '0.05em',
+}
+
+const invoiceLineCardStyle = {
+  borderRadius: '18px',
+  border: '1px solid #ddd6fe',
+  background: '#ffffff',
+  padding: '16px',
+}
+
+const invoiceLineGridStyle = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+  gap: '12px',
 }
 
 const buttonRowStyle = {

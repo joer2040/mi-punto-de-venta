@@ -105,6 +105,10 @@ const MATERIAL_MOVEMENT_REASON_LABELS = {
     movement_type_label: 'Salida (mov 261)',
     movement_option_label: 'Ajuste de inventario (salida)',
   },
+  invoice_adjustment: {
+    movement_type_label: 'Ajuste Factura',
+    movement_option_label: 'Ajuste Factura',
+  },
 }
 
 export const materialService = {
@@ -347,6 +351,67 @@ export const materialService = {
         unit_abbr: movement.materials?.uoms?.abbr || 'pz',
       }
     })
+  },
+
+  async getPurchaseInvoiceDetails(invoiceRef) {
+    const normalizedInvoiceRef = String(invoiceRef || '').trim()
+    if (!normalizedInvoiceRef) return null
+
+    const { data, error } = await supabase
+      .from('purchases')
+      .select(`
+        id,
+        created_at,
+        invoice_ref,
+        center_id,
+        providers:provider_id (
+          id,
+          name,
+          rfc
+        ),
+        purchase_items (
+          id,
+          material_id,
+          quantity,
+          unit_cost,
+          materials (
+            id,
+            sku,
+            name,
+            uoms:buy_uom_id (
+              abbr
+            )
+          )
+        )
+      `)
+      .eq('invoice_ref', normalizedInvoiceRef)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (error) throw error
+    if (!data) return null
+
+    return {
+      id: data.id,
+      created_at: data.created_at,
+      invoice_ref: data.invoice_ref || normalizedInvoiceRef,
+      center_id: data.center_id,
+      provider_name: data.providers?.name || 'Proveedor no identificado',
+      provider_rfc: data.providers?.rfc || '',
+      items: (data.purchase_items || []).map((item, index) => ({
+        rowKey: `${item.id || item.material_id || index}`,
+        purchase_item_id: item.id,
+        material_id: item.material_id,
+        quantity: Number(item.quantity || 0),
+        unit_cost: Number(item.unit_cost || 0),
+        total_cost: Number(item.quantity || 0) * Number(item.unit_cost || 0),
+        material_name: item.materials?.name || 'Material no identificado',
+        material_sku: item.materials?.sku || '',
+        unit_abbr: item.materials?.uoms?.abbr || 'pz',
+        displayLabel: `${item.materials?.name || 'Producto'} (${item.materials?.sku || 'Sin SKU'})`,
+      })),
+    }
   },
 
   async updateManualStock(materialId, centerId, newStock, options = {}) {

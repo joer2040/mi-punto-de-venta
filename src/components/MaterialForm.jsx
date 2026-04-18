@@ -18,7 +18,6 @@ const MaterialForm = ({ onMaterialAdded }) => {
     cat_id: '',
     buy_uom_id: '',
     sell_uom_id: '',
-    conversion_factor: 1,
   })
 
   useEffect(() => {
@@ -66,7 +65,6 @@ const MaterialForm = ({ onMaterialAdded }) => {
         cat_id: '',
         buy_uom_id: '',
         sell_uom_id: '',
-        conversion_factor: 1,
       })
       if (onMaterialAdded) onMaterialAdded()
     } catch (error) {
@@ -148,16 +146,6 @@ const MaterialForm = ({ onMaterialAdded }) => {
               </option>
             ))}
           </select>
-        </div>
-        <div style={groupStyle}>
-          <label style={labelStyle}>Factor de conversion:</label>
-          <input
-            type="number"
-            required
-            style={inputStyle}
-            value={formData.conversion_factor}
-            onChange={(e) => setFormData({ ...formData, conversion_factor: e.target.value })}
-          />
         </div>
       </div>
 

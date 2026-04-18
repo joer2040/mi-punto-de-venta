@@ -151,7 +151,6 @@ const Inventory = () => {
               const skuSaveKey = `${item.rowKey}:sku`
               const nameSaveKey = `${item.rowKey}:name`
               const priceSaveKey = `${item.rowKey}:price`
-              const stockSaveKey = `${item.rowKey}:stock`
               const isExtraCategory = isExtraCategoryName(item.categoryName)
 
               return (
@@ -236,18 +235,9 @@ const Inventory = () => {
 
                     <div style={mobileMetricCardStyle}>
                       <div style={mobileMetaLabelStyle}>Stock actual</div>
-                      {manualEditUnlocked ? (
-                        <input
-                          type="number"
-                          step="0.001"
-                          value={item.stock}
-                          onChange={(event) => handleFieldChange(item.rowKey, 'stock', event.target.value)}
-                          onBlur={() => handleSaveField(item, 'stock')}
-                          style={tableInputStyle}
-                          disabled={savingKey === stockSaveKey}
-                        />
-                      ) : (
-                        <div style={mobileStockTextStyle}>{Number(item.stock || 0)}</div>
+                      <div style={mobileStockTextStyle}>{Number(item.stock || 0)}</div>
+                      {manualEditUnlocked && (
+                        <div style={stockHintStyle}>El stock solo se ajusta desde Movimiento de Materiales.</div>
                       )}
                     </div>
                   </div>
@@ -273,7 +263,6 @@ const Inventory = () => {
                   const skuSaveKey = `${item.rowKey}:sku`
                   const nameSaveKey = `${item.rowKey}:name`
                   const priceSaveKey = `${item.rowKey}:price`
-                  const stockSaveKey = `${item.rowKey}:stock`
                   const isExtraCategory = isExtraCategoryName(item.categoryName)
 
                   return (
@@ -345,19 +334,8 @@ const Inventory = () => {
                         )}
                       </td>
                       <td style={bodyCellStyle}>
-                        {manualEditUnlocked ? (
-                          <input
-                            type="number"
-                            step="0.001"
-                            value={item.stock}
-                            onChange={(event) => handleFieldChange(item.rowKey, 'stock', event.target.value)}
-                            onBlur={() => handleSaveField(item, 'stock')}
-                            style={tableInputStyle}
-                            disabled={savingKey === stockSaveKey}
-                          />
-                        ) : (
-                          Number(item.stock || 0)
-                        )}
+                        <div>{Number(item.stock || 0)}</div>
+                        {manualEditUnlocked && <div style={stockHintStyle}>Ajusta desde Movimiento de Materiales.</div>}
                       </td>
                     </tr>
                   )
@@ -484,6 +462,13 @@ const mobileMetricCardStyle = {
 const mobileStockTextStyle = {
   color: '#0f172a',
   fontWeight: 800,
+}
+
+const stockHintStyle = {
+  marginTop: '6px',
+  color: '#64748b',
+  fontSize: '0.78rem',
+  lineHeight: 1.45,
 }
 
 const tableWrapStyle = {

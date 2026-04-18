@@ -85,4 +85,12 @@ export const erpService = {
       value,
     })
   },
+
+  async checkMaterialMovement(payload) {
+    return invokeErpOperation('check_material_movement', payload)
+  },
+
+  async postMaterialMovement(payload) {
+    return invokeErpOperation('post_material_movement', payload)
+  },
 }

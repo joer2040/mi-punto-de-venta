@@ -23,6 +23,12 @@ const sections = [
     accent: '#0f766e',
   },
   {
+    id: 'movements',
+    label: 'Movimiento de Materiales',
+    description: 'Registra entradas y salidas controladas de inventario con verificacion previa.',
+    accent: '#0f766e',
+  },
+  {
     id: 'reports',
     label: 'Reportes',
     description: 'Accede a existencias, compras y ventas desde un solo lugar.',

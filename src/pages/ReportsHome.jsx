@@ -21,6 +21,12 @@ const reportCards = [
     description: 'Revisa fecha, folio de venta y monto total de cada cobro.',
     accent: '#be123c',
   },
+  {
+    id: 'report-movements',
+    title: 'Movimiento de Materiales',
+    description: 'Consulta documento, material, tipo, opcion, cantidad y unidad de cada movimiento.',
+    accent: '#0f766e',
+  },
 ]
 
 const ReportsHome = ({ onNavigate }) => {
@@ -36,7 +42,7 @@ const ReportsHome = ({ onNavigate }) => {
           <h2 style={getTitleStyle(isMobile)}>Reportes</h2>
           <p style={subtitleStyle}>
             Aqui se agrupan los reportes operativos del sistema. En esta primera etapa dejamos
-            disponibles existencias, compras y ventas.
+            disponibles existencias, compras, ventas y movimientos de materiales.
           </p>
         </div>
       </section>

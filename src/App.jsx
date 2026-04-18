@@ -5,10 +5,12 @@ import { useResponsive } from './lib/useResponsive'
 const Inventory = lazy(() => import('./pages/Inventory'))
 const ProviderMaster = lazy(() => import('./pages/ProviderMaster'))
 const PurchaseEntry = lazy(() => import('./pages/PurchaseEntry'))
+const MaterialMovements = lazy(() => import('./pages/MaterialMovements'))
 const ReportsHome = lazy(() => import('./pages/ReportsHome'))
 const InventoryReport = lazy(() => import('./pages/InventoryReport'))
 const PurchasesReport = lazy(() => import('./pages/PurchasesReport'))
 const SalesReport = lazy(() => import('./pages/SalesReport'))
+const MaterialMovementsReport = lazy(() => import('./pages/MaterialMovementsReport'))
 const POS = lazy(() => import('./pages/POS'))
 const SecurityUsers = lazy(() => import('./pages/SecurityUsers'))
 const Home = lazy(() => import('./pages/Home'))
@@ -22,15 +24,17 @@ const PAGE_LABELS = {
   master: 'Materiales',
   providers: 'Proveedores',
   purchases: 'Compras',
+  movements: 'Movimiento de materiales',
   reports: 'Reportes',
   'report-inventory': 'Existencias',
   'report-purchases': 'Reporte compras',
   'report-sales': 'Reporte ventas',
+  'report-movements': 'Reporte movimientos',
   pos: 'Punto de venta',
   security: 'Usuarios',
 }
 
-const PRIMARY_NAV_PAGES = ['home', 'master', 'providers', 'purchases', 'reports', 'pos', 'security']
+const PRIMARY_NAV_PAGES = ['home', 'master', 'providers', 'purchases', 'movements', 'reports', 'pos', 'security']
 
 const getInitialUiState = () => ({
   currentPage: typeof window === 'undefined' ? 'home' : localStorage.getItem(STORAGE_KEY) || 'home',
@@ -160,6 +164,8 @@ const AppShell = () => {
         return <ProviderMaster />
       case 'purchases':
         return <PurchaseEntry />
+      case 'movements':
+        return <MaterialMovements />
       case 'reports':
         return <ReportsHome onNavigate={handleNavigate} />
       case 'report-inventory':
@@ -168,6 +174,8 @@ const AppShell = () => {
         return <PurchasesReport />
       case 'report-sales':
         return <SalesReport />
+      case 'report-movements':
+        return <MaterialMovementsReport />
       case 'pos':
         return <POS onEditingStateChange={handlePosEditingStateChange} />
       case 'security':

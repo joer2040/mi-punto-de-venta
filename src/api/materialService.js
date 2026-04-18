@@ -80,6 +80,33 @@ const getPurchaseItemsTotals = async () => {
   }, {})
 }
 
+const MATERIAL_MOVEMENT_REASON_LABELS = {
+  opening_balance: {
+    movement_type_label: 'Entradas (mov 101)',
+    movement_option_label: 'Inventario Inicial',
+  },
+  adjustment_in: {
+    movement_type_label: 'Entradas (mov 101)',
+    movement_option_label: 'Ajuste de inventario (ingreso)',
+  },
+  promo_gift: {
+    movement_type_label: 'Salida (mov 261)',
+    movement_option_label: 'Promo/Regalo',
+  },
+  internal_use: {
+    movement_type_label: 'Salida (mov 261)',
+    movement_option_label: 'Consumo propio',
+  },
+  waste: {
+    movement_type_label: 'Salida (mov 261)',
+    movement_option_label: 'Desperdicio',
+  },
+  adjustment_out: {
+    movement_type_label: 'Salida (mov 261)',
+    movement_option_label: 'Ajuste de inventario (salida)',
+  },
+}
+
 export const materialService = {
   async getCategories() {
     const { data, error } = await supabase
@@ -277,6 +304,49 @@ export const materialService = {
       invoice_ref: purchase.invoice_ref || 'Sin folio',
       total_amount: parseFloat(purchaseTotals[purchase.id] || 0),
     }))
+  },
+
+  async getMaterialMovementsReport() {
+    const { data, error } = await supabase
+      .from('inventory_movements')
+      .select(`
+        id,
+        created_at,
+        quantity,
+        reference_number,
+        reason_code,
+        materials:material_id (
+          id,
+          sku,
+          name,
+          uoms:buy_uom_id (
+            abbr
+          )
+        )
+      `)
+      .eq('reference_table', 'material_movements')
+      .order('created_at', { ascending: false })
+
+    if (error) throw error
+
+    return (data || []).map((movement) => {
+      const labels = MATERIAL_MOVEMENT_REASON_LABELS[movement.reason_code] || {
+        movement_type_label: 'Movimiento de materiales',
+        movement_option_label: movement.reason_code || 'Sin opcion',
+      }
+
+      return {
+        id: movement.id,
+        created_at: movement.created_at,
+        document_number: movement.reference_number || '',
+        material_name: movement.materials?.name || 'Material no identificado',
+        material_sku: movement.materials?.sku || '',
+        movement_type_label: labels.movement_type_label,
+        movement_option_label: labels.movement_option_label,
+        quantity: Number(movement.quantity || 0),
+        unit_abbr: movement.materials?.uoms?.abbr || 'pz',
+      }
+    })
   },
 
   async updateManualStock(materialId, centerId, newStock, options = {}) {

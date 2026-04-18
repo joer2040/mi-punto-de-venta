@@ -31,6 +31,57 @@ type RoleLinkRow = {
   app_roles: { name: string | null } | { name: string | null }[] | null
 }
 
+const MATERIAL_MOVEMENT_DEFINITIONS = {
+  '101': {
+    label: 'Entradas (mov 101)',
+    direction: 'in',
+    options: {
+      opening_balance: {
+        label: 'Inventario Inicial',
+        movementType: 'initial_stock',
+        reasonCode: 'opening_balance',
+        notes: 'Entrada por inventario inicial',
+      },
+      adjustment_in: {
+        label: 'Ajuste de inventario (ingreso)',
+        movementType: 'manual_adjustment',
+        reasonCode: 'adjustment_in',
+        notes: 'Entrada por ajuste manual de inventario',
+      },
+    },
+  },
+  '261': {
+    label: 'Salida (mov 261)',
+    direction: 'out',
+    options: {
+      promo_gift: {
+        label: 'Promo/Regalo',
+        movementType: 'manual_adjustment',
+        reasonCode: 'promo_gift',
+        notes: 'Salida por promocion o regalo',
+      },
+      internal_use: {
+        label: 'Consumo propio',
+        movementType: 'manual_adjustment',
+        reasonCode: 'internal_use',
+        notes: 'Salida por consumo propio',
+      },
+      waste: {
+        label: 'Desperdicio',
+        movementType: 'manual_adjustment',
+        reasonCode: 'waste',
+        notes: 'Salida por desperdicio',
+      },
+      adjustment_out: {
+        label: 'Ajuste de inventario (salida)',
+        movementType: 'manual_adjustment',
+        reasonCode: 'adjustment_out',
+        notes: 'Salida por ajuste manual de inventario',
+      },
+    },
+  },
+} as const
+
 const readRoleName = (roleLink: RoleLinkRow) => {
   if (Array.isArray(roleLink.app_roles)) {
     return roleLink.app_roles[0]?.name ?? null
@@ -100,6 +151,123 @@ const getMaterialSnapshot = async (adminClient: ReturnType<typeof createClient>,
 
   if (error) throw error
   return data
+}
+
+const getMaterialMovementDefinition = (movementCode: string, movementOption: string) => {
+  const movementGroup = MATERIAL_MOVEMENT_DEFINITIONS[movementCode as keyof typeof MATERIAL_MOVEMENT_DEFINITIONS]
+  const movementOptionDefinition = movementGroup?.options?.[movementOption as keyof typeof movementGroup.options]
+
+  if (!movementGroup || !movementOptionDefinition) {
+    throw appError('El tipo de movimiento seleccionado no es valido.', 400)
+  }
+
+  return {
+    movementCode,
+    movementOption,
+    movementLabel: movementGroup.label,
+    optionLabel: movementOptionDefinition.label,
+    direction: movementGroup.direction,
+    movementType: movementOptionDefinition.movementType,
+    reasonCode: movementOptionDefinition.reasonCode,
+    notes: movementOptionDefinition.notes,
+  }
+}
+
+const getNextInventoryMovementDocumentNumber = async (adminClient: ReturnType<typeof createClient>) => {
+  const { data, error } = await adminClient.rpc('next_inventory_movement_document_number')
+
+  if (error) throw error
+
+  const documentNumber = String(data ?? '').trim()
+  if (!documentNumber) {
+    throw appError('No se pudo generar el numero de documento del movimiento.', 500)
+  }
+
+  return documentNumber
+}
+
+const validateMaterialMovement = async (
+  adminClient: ReturnType<typeof createClient>,
+  payload: Record<string, unknown>
+) => {
+  const materialId = String(payload.material_id ?? '').trim()
+  const centerId = String(payload.center_id ?? '').trim()
+  const movementCode = String(payload.movement_code ?? '').trim()
+  const movementOption = String(payload.movement_option ?? '').trim()
+  const quantity = toNumber(payload.quantity, NaN)
+
+  if (!materialId || !centerId || !movementCode || !movementOption || Number.isNaN(quantity) || quantity <= 0) {
+    throw appError('Debes completar tipo, opcion, producto y cantidad valida.', 400)
+  }
+
+  const movementDefinition = getMaterialMovementDefinition(movementCode, movementOption)
+
+  const { data: inventoryRow, error: inventoryError } = await adminClient
+    .from('inventory')
+    .select(`
+      material_id,
+      center_id,
+      stock_actual,
+      costo_promedio,
+      precio_venta,
+      materials!inner (
+        id,
+        sku,
+        name,
+        categories:cat_id (
+          name,
+          is_inventoried
+        ),
+        uoms:buy_uom_id (
+          abbr
+        )
+      )
+    `)
+    .eq('material_id', materialId)
+    .eq('center_id', centerId)
+    .single()
+
+  if (inventoryError || !inventoryRow) {
+    throw appError('No se encontro inventario para el producto seleccionado.', 404)
+  }
+
+  if (inventoryRow.materials?.categories?.is_inventoried !== true) {
+    throw appError('Solo puedes mover materiales inventariables.', 400)
+  }
+
+  const currentStock = Number(inventoryRow.stock_actual ?? 0)
+  const projectedStock =
+    movementDefinition.direction === 'in'
+      ? currentStock + quantity
+      : currentStock - quantity
+
+  const valid = projectedStock >= 0
+  const message = valid
+    ? 'Verificacion correcta. El movimiento puede postearse.'
+    : 'Stock insuficiente. El movimiento no puede dejar inventario negativo.'
+
+  return {
+    valid,
+    message,
+    materialId,
+    centerId,
+    quantity,
+    currentStock,
+    projectedStock,
+    costoPromedio: Number(inventoryRow.costo_promedio ?? 0),
+    precioVenta: Number(inventoryRow.precio_venta ?? 0),
+    productName: inventoryRow.materials?.name || 'Producto',
+    productSku: inventoryRow.materials?.sku || '',
+    unitAbbr: inventoryRow.materials?.uoms?.abbr || 'pz',
+    direction: movementDefinition.direction,
+    movementType: movementDefinition.movementType,
+    reasonCode: movementDefinition.reasonCode,
+    movementCode: movementDefinition.movementCode,
+    movementOption: movementDefinition.movementOption,
+    movementLabel: movementDefinition.movementLabel,
+    optionLabel: movementDefinition.optionLabel,
+    notes: movementDefinition.notes,
+  }
 }
 
 const loadCallerContext = async (adminClient: ReturnType<typeof createClient>, userId: string) => {
@@ -392,6 +560,99 @@ Deno.serve(async (req) => {
       return json({ material: createdMaterial })
     }
 
+    if (action === 'check_material_movement') {
+      const validation = await validateMaterialMovement(adminClient, body)
+      return json({
+        validation: {
+          valid: validation.valid,
+          message: validation.message,
+          movement_label: `${validation.movementLabel} / ${validation.optionLabel}`,
+          current_stock: validation.currentStock,
+          projected_stock: validation.projectedStock,
+          quantity: validation.quantity,
+          direction: validation.direction,
+          unit_abbr: validation.unitAbbr,
+          product_name: validation.productName,
+          product_sku: validation.productSku,
+        },
+      })
+    }
+
+    if (action === 'post_material_movement') {
+      const validation = await validateMaterialMovement(adminClient, body)
+
+      if (!validation.valid) {
+        return json({ error: validation.message }, 400)
+      }
+
+      const documentNumber = await getNextInventoryMovementDocumentNumber(adminClient)
+
+      const { data: inventory, error: inventoryError } = await adminClient
+        .from('inventory')
+        .update({
+          stock_actual: validation.projectedStock,
+        })
+        .eq('material_id', validation.materialId)
+        .eq('center_id', validation.centerId)
+        .select()
+        .single()
+
+      if (inventoryError) throw inventoryError
+
+      await logInventoryMovement(adminClient, {
+        center_id: validation.centerId,
+        material_id: validation.materialId,
+        movement_type: validation.movementType,
+        direction: validation.direction,
+        quantity: validation.quantity,
+        before_stock: validation.currentStock,
+        after_stock: validation.projectedStock,
+        unit_cost: validation.costoPromedio,
+        unit_price: validation.precioVenta,
+        reference_table: 'material_movements',
+        reference_id: null,
+        reference_number: documentNumber,
+        reason_code: validation.reasonCode,
+        notes: validation.notes,
+        performed_by: caller.performedBy,
+      })
+
+      await logAuditEvent(adminClient, {
+        entityType: 'material',
+        entityId: validation.materialId,
+        eventType: 'inventory_adjusted',
+        oldValues: {
+          center_id: validation.centerId,
+          stock_actual: validation.currentStock,
+        },
+        newValues: {
+          center_id: validation.centerId,
+          stock_actual: validation.projectedStock,
+          quantity: validation.quantity,
+          movement_code: validation.movementCode,
+          movement_option: validation.movementOption,
+          reason_code: validation.reasonCode,
+          document_number: documentNumber,
+        },
+        notes: `Movimiento de materiales ${validation.optionLabel}`,
+        performedBy: caller.performedBy,
+      })
+
+      return json({
+        document_number: documentNumber,
+        inventory,
+        movement: {
+          product_name: validation.productName,
+          product_sku: validation.productSku,
+          movement_label: `${validation.movementLabel} / ${validation.optionLabel}`,
+          quantity: validation.quantity,
+          current_stock: validation.currentStock,
+          projected_stock: validation.projectedStock,
+          unit_abbr: validation.unitAbbr,
+        },
+      })
+    }
+
     if (action === 'update_price') {
       const materialId = String(body.material_id ?? '').trim()
       const centerId = String(body.center_id ?? '').trim()
@@ -517,6 +778,8 @@ Deno.serve(async (req) => {
         return json({ error: 'Actualizacion de material no permitida.' }, 400)
       }
 
+      const materialSnapshot = await getMaterialSnapshot(adminClient, materialId)
+
       if (field === 'provider_id') {
         const providerId = String(value ?? '').trim()
         const { data: categorySnapshot, error: categoryError } = await adminClient
@@ -546,8 +809,6 @@ Deno.serve(async (req) => {
           }
         }
       }
-
-      const materialSnapshot = await getMaterialSnapshot(adminClient, materialId)
 
       const { data, error } = await adminClient
         .from('materials')

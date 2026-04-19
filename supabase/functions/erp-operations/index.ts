@@ -36,13 +36,42 @@ const resolveAuthenticatedUser = async (supabaseUrl: string, authApiKey: string,
 
 const appError = (message: string, status = 400) => Object.assign(new Error(message), { status })
 const normalizeRoleName = (value: string | null | undefined) => (value || '').trim().toLowerCase()
+const normalizeText = (value: unknown) => String(value ?? '').trim().toLowerCase()
 const isManagerRoleName = (value: string | null | undefined) =>
   ['manager', 'administrador operativo'].includes(normalizeRoleName(value))
 const isExtrasCategoryName = (value: string | null | undefined) => normalizeRoleName(value) === 'extras'
+const GENERAL_PROVIDER_NAME = 'Proveedor General'
+const PURCHASE_DUPLICATE_WINDOW_SECONDS = 120
 const toNumber = (value: unknown, fallback = 0) => {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : fallback
 }
+
+const buildPurchaseItemFingerprint = (item: {
+  material_id: string | null
+  item_description: string
+  quantity: number
+  unit_cost: number
+}) =>
+  JSON.stringify({
+    material_id: item.material_id ?? null,
+    item_description: String(item.item_description ?? '').trim().toLowerCase(),
+    quantity: Number(item.quantity ?? 0),
+    unit_cost: Number(item.unit_cost ?? 0),
+  })
+
+const buildPurchaseFingerprint = (
+  items: Array<{
+    material_id: string | null
+    item_description: string
+    quantity: number
+    unit_cost: number
+  }>
+) =>
+  items
+    .map(buildPurchaseItemFingerprint)
+    .sort()
+    .join('|')
 
 type RoleLinkRow = {
   role_id: string
@@ -511,20 +540,128 @@ Deno.serve(async (req) => {
     if (action === 'record_purchase') {
       const purchaseHeader = (body.purchase_header || {}) as Record<string, unknown>
       const rawItems = Array.isArray(body.items) ? body.items : []
-      const items = rawItems
-        .map((item) => ({
-          material_id: String(item?.material_id ?? '').trim(),
-          quantity: toNumber(item?.quantity, 0),
-          unit_cost: toNumber(item?.unit_cost, 0),
-        }))
-        .filter((item) => item.material_id && item.quantity > 0 && item.unit_cost >= 0)
-
       const centerId = String(purchaseHeader.center_id ?? '').trim()
       const providerId = String(purchaseHeader.provider_id ?? '').trim()
       const invoiceRef = String(purchaseHeader.invoice_ref ?? '').trim()
 
-      if (!centerId || !providerId || items.length === 0) {
+      if (!centerId || !providerId || rawItems.length === 0) {
         return json({ error: 'La compra debe incluir centro, proveedor y al menos un item.' }, 400)
+      }
+
+      const { data: providerSnapshot, error: providerError } = await adminClient
+        .from('providers')
+        .select('id, name, rfc')
+        .eq('id', providerId)
+        .maybeSingle()
+
+      if (providerError) throw providerError
+      if (!providerSnapshot) {
+        return json({ error: 'El proveedor seleccionado no existe.' }, 400)
+      }
+
+      const isGeneralProviderPurchase = normalizeText(providerSnapshot.name) === normalizeText(GENERAL_PROVIDER_NAME)
+      const items = rawItems.map((item, index) => {
+        const materialId = String(item?.material_id ?? '').trim()
+        const itemDescription = String(item?.item_description ?? '').trim()
+        const quantity = toNumber(item?.quantity, NaN)
+        const unitCost = toNumber(item?.unit_cost, NaN)
+
+        if (Number.isNaN(quantity) || quantity <= 0) {
+          throw appError(`El item ${index + 1} debe incluir una cantidad valida.`, 400)
+        }
+
+        if (Number.isNaN(unitCost) || unitCost < 0) {
+          throw appError(`El item ${index + 1} debe incluir un costo valido.`, 400)
+        }
+
+        if (isGeneralProviderPurchase) {
+          if (materialId) {
+            throw appError('Proveedor General solo acepta renglones libres sin material asociado.', 400)
+          }
+
+          if (!itemDescription) {
+            throw appError(`El item ${index + 1} debe incluir una descripcion libre.`, 400)
+          }
+
+          return {
+            material_id: null,
+            item_description: itemDescription,
+            quantity,
+            unit_cost: unitCost,
+          }
+        }
+
+        if (!materialId) {
+          throw appError(`El item ${index + 1} debe incluir un material valido.`, 400)
+        }
+
+        return {
+          material_id: materialId,
+          item_description: '',
+          quantity,
+          unit_cost: unitCost,
+        }
+      })
+
+      const totalAmount = items.reduce(
+        (sum, item) => sum + (Number(item.quantity ?? 0) * Number(item.unit_cost ?? 0)),
+        0
+      )
+
+      const recentDuplicateThreshold = new Date(
+        Date.now() - PURCHASE_DUPLICATE_WINDOW_SECONDS * 1000
+      ).toISOString()
+      const currentPurchaseFingerprint = buildPurchaseFingerprint(items)
+
+      const { data: recentPurchases, error: duplicateLookupError } = await adminClient
+        .from('purchases')
+        .select(`
+          id,
+          center_id,
+          provider_id,
+          invoice_ref,
+          total_amount,
+          created_at,
+          purchase_items (
+            material_id,
+            item_description,
+            quantity,
+            unit_cost
+          )
+        `)
+        .eq('center_id', centerId)
+        .eq('provider_id', providerId)
+        .gte('created_at', recentDuplicateThreshold)
+        .order('created_at', { ascending: false })
+        .limit(10)
+
+      if (duplicateLookupError) throw duplicateLookupError
+
+      const normalizedInvoiceRef = invoiceRef || null
+      const duplicatedPurchase = (recentPurchases || []).find((candidate) => {
+        const candidateInvoiceRef = String(candidate.invoice_ref ?? '').trim() || null
+        const candidateTotal = Number(candidate.total_amount ?? 0)
+        const candidateFingerprint = buildPurchaseFingerprint(
+          (candidate.purchase_items || []).map((item) => ({
+            material_id: item.material_id ?? null,
+            item_description: String(item.item_description ?? ''),
+            quantity: Number(item.quantity ?? 0),
+            unit_cost: Number(item.unit_cost ?? 0),
+          }))
+        )
+
+        return (
+          candidateInvoiceRef === normalizedInvoiceRef &&
+          Math.abs(candidateTotal - totalAmount) < 0.0001 &&
+          candidateFingerprint === currentPurchaseFingerprint
+        )
+      })
+
+      if (duplicatedPurchase) {
+        throw appError(
+          `Parece que esta compra ya fue registrada hace unos instantes (folio ${duplicatedPurchase.invoice_ref || 'sin folio'}). Evitamos duplicarla por seguridad.`,
+          409
+        )
       }
 
       const { data: purchase, error: purchaseError } = await adminClient
@@ -534,6 +671,7 @@ Deno.serve(async (req) => {
             center_id: centerId,
             provider_id: providerId,
             invoice_ref: invoiceRef || null,
+            total_amount: totalAmount,
           },
         ])
         .select()
@@ -543,6 +681,7 @@ Deno.serve(async (req) => {
 
       const itemsWithId = items.map((item) => ({
         material_id: item.material_id,
+        item_description: item.item_description,
         quantity: item.quantity,
         unit_cost: item.unit_cost,
         purchase_id: purchase.id,
@@ -551,7 +690,7 @@ Deno.serve(async (req) => {
       const { error: itemsError } = await adminClient.from('purchase_items').insert(itemsWithId)
       if (itemsError) throw itemsError
 
-      for (const item of itemsWithId) {
+      for (const item of itemsWithId.filter((row) => row.material_id)) {
         const inventorySnapshot = await getInventorySnapshot(adminClient, item.material_id, centerId)
         const afterStock = parseFloat(inventorySnapshot.stock_actual)
         const beforeStock = afterStock - parseFloat(item.quantity)
@@ -582,7 +721,11 @@ Deno.serve(async (req) => {
         newValues: {
           center_id: centerId,
           provider_id: providerId,
+          provider_name: providerSnapshot.name,
+          provider_mode: isGeneralProviderPurchase ? 'general' : 'standard',
           invoice_ref: invoiceRef || null,
+          total_amount: totalAmount,
+          freeform_item_count: itemsWithId.filter((item) => !item.material_id).length,
           items: itemsWithId,
         },
         notes: 'Compra registrada desde entradas por compra',

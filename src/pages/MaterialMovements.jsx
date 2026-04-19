@@ -621,7 +621,9 @@ const MaterialMovements = () => {
   const suggestions = useMemo(() => {
     if (!movementCode || !movementOption || !trimmedQuery) return []
 
-    const sourceMaterials = isInvoiceAdjustment ? invoiceDetails?.items || [] : materials
+    const sourceMaterials = isInvoiceAdjustment
+      ? (invoiceDetails?.items || []).filter((item) => item.material_id)
+      : materials
 
     return sourceMaterials
       .filter((material) => {

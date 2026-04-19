@@ -223,6 +223,7 @@ export const materialService = {
         purchase_items (
           id,
           material_id,
+          item_description,
           quantity,
           unit_cost,
           materials (
@@ -254,13 +255,16 @@ export const materialService = {
         rowKey: `${item.id || item.material_id || index}`,
         purchase_item_id: item.id,
         material_id: item.material_id,
+        item_description: item.item_description || '',
         quantity: Number(item.quantity || 0),
         unit_cost: Number(item.unit_cost || 0),
         total_cost: Number(item.quantity || 0) * Number(item.unit_cost || 0),
-        material_name: item.materials?.name || 'Material no identificado',
+        material_name: item.materials?.name || item.item_description || 'Material no identificado',
         material_sku: item.materials?.sku || '',
         unit_abbr: item.materials?.uoms?.abbr || 'pz',
-        displayLabel: `${item.materials?.name || 'Producto'} (${item.materials?.sku || 'Sin SKU'})`,
+        displayLabel: item.materials
+          ? `${item.materials?.name || 'Producto'} (${item.materials?.sku || 'Sin SKU'})`
+          : item.item_description || 'Concepto libre',
       })),
     }
   },

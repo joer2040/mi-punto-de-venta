@@ -115,13 +115,18 @@ if (-not $psqlCommand -and (Test-Path -LiteralPath $localPsqlPath)) {
 }
 
 if (-not $psqlCommand) {
-  throw 'No se encontro psql en PATH ni en .tools\\psql\\psql.exe. Instala Postgres client tools para ejecutar SQL remoto desde terminal.'
+  throw 'No se encontro psql en PATH ni en .tools\psql\psql.exe. Instala Postgres client tools para ejecutar SQL remoto desde terminal.'
 }
 
 Write-Host "Aplicando SQL a $Environment usando $($resolvedFile.Path)..."
 $psqlExecutable = if ($psqlCommand.PSObject.Properties['Source']) { $psqlCommand.Source } else { $psqlCommand.FullName }
+$psqlArgs = @(
+  "--dbname=$dbUrl",
+  '-v', 'ON_ERROR_STOP=1',
+  '-f', $resolvedFile.Path
+)
 
-& $psqlExecutable $dbUrl -v ON_ERROR_STOP=1 -f $resolvedFile.Path
+& $psqlExecutable @psqlArgs
 
 if ($LASTEXITCODE -ne 0) {
   exit $LASTEXITCODE

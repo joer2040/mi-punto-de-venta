@@ -18,6 +18,7 @@ dist-ssr
 .idea
 .DS_Store
 *.suo
+*.code-workspace
 *.ntvs*
 *.njsproj
 *.sln
@@ -32,3 +33,6 @@ dist-ssr
 
 .vercel
 .env*.local
+.tools/
+sql/reset_*.sql
+sql/dev/generated/

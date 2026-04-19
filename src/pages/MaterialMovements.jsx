@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useReducer } from 'react'
 import { erpService } from '../api/erpService'
 import { materialService } from '../api/materialService'
 import { useAuth } from '../contexts/AuthContext'
@@ -50,38 +50,535 @@ const normalizeMaterials = (rows = []) =>
     }))
     .sort((left, right) => left.name.localeCompare(right.name, 'es', { sensitivity: 'base' }))
 
+const resetValidationFields = {
+  checkResult: null,
+  checkedKey: '',
+}
+
+const resetProductFields = {
+  productQuery: '',
+  selectedMaterial: null,
+  quantity: '',
+  ...resetValidationFields,
+}
+
+const createInitialMovementState = () => ({
+  materials: [],
+  loading: true,
+  movementCode: '',
+  movementOption: '',
+  invoiceRef: '',
+  invoiceDetails: null,
+  invoiceLoading: false,
+  productQuery: '',
+  selectedMaterial: null,
+  quantity: '',
+  checkResult: null,
+  checkedKey: '',
+  checking: false,
+  posting: false,
+})
+
+const movementReducer = (state, action) => {
+  switch (action.type) {
+    case 'set-loading':
+      return { ...state, loading: action.value }
+    case 'set-materials':
+      return { ...state, materials: action.value }
+    case 'set-movement-type':
+      return {
+        ...state,
+        movementCode: action.value,
+        movementOption: action.value === 'invoice_adjustment' ? 'invoice_adjustment' : '',
+        invoiceRef: '',
+        invoiceDetails: null,
+        ...resetProductFields,
+      }
+    case 'set-movement-option':
+      return {
+        ...state,
+        movementOption: action.value,
+        ...resetProductFields,
+      }
+    case 'set-invoice-ref':
+      return {
+        ...state,
+        invoiceRef: action.value,
+        invoiceDetails: null,
+        ...resetProductFields,
+      }
+    case 'set-invoice-loading':
+      return { ...state, invoiceLoading: action.value }
+    case 'set-invoice-details':
+      return {
+        ...state,
+        invoiceDetails: action.value,
+        ...resetProductFields,
+      }
+    case 'set-product-query': {
+      const shouldClearSelection =
+        !state.selectedMaterial || action.value !== state.selectedMaterial.displayLabel
+
+      return {
+        ...state,
+        productQuery: action.value,
+        selectedMaterial: shouldClearSelection ? null : state.selectedMaterial,
+        ...resetValidationFields,
+      }
+    }
+    case 'select-material':
+      return {
+        ...state,
+        selectedMaterial: action.value,
+        productQuery: action.value.displayLabel,
+        quantity: action.quantity,
+        ...resetValidationFields,
+      }
+    case 'set-quantity':
+      return {
+        ...state,
+        quantity: action.value,
+        ...resetValidationFields,
+      }
+    case 'reset-validation':
+      return { ...state, ...resetValidationFields }
+    case 'set-checking':
+      return { ...state, checking: action.value }
+    case 'set-check-success':
+      return {
+        ...state,
+        checkResult: action.value,
+        checkedKey: action.key,
+      }
+    case 'set-posting':
+      return { ...state, posting: action.value }
+    case 'clear-form':
+      return {
+        ...state,
+        movementCode: '',
+        movementOption: '',
+        invoiceRef: '',
+        invoiceDetails: null,
+        invoiceLoading: false,
+        checking: false,
+        posting: false,
+        ...resetProductFields,
+      }
+    default:
+      return state
+  }
+}
+
+const MovementHero = ({ canCreateMovements }) => (
+  <section style={heroCardStyle}>
+    <div style={heroHeaderStyle}>
+      <div>
+        <div style={eyebrowStyle}>ERP / INVENTARIO</div>
+        <h1 style={titleStyle}>Movimiento de Materiales</h1>
+        <p style={subtitleStyle}>
+          Registra entradas y salidas controladas con validacion previa. El sistema revisa stock suficiente antes de postear y asigna un documento interno consecutivo.
+        </p>
+      </div>
+
+      {!canCreateMovements && <span style={readOnlyBadgeStyle}>Solo lectura</span>}
+    </div>
+  </section>
+)
+
+const MovementSelectors = ({
+  isTablet,
+  canCreateMovements,
+  movementCode,
+  movementOption,
+  isInvoiceAdjustment,
+  movementOptions,
+  onMovementTypeChange,
+  onMovementOptionChange,
+}) => (
+  <div style={getControlsGridStyle(isTablet)}>
+    <div style={fieldBlockStyle}>
+      <label htmlFor="movement-type" style={labelStyle}>
+        Tipos de movimiento
+      </label>
+      <select
+        id="movement-type"
+        value={movementCode}
+        onChange={(event) => onMovementTypeChange(event.target.value)}
+        style={inputStyle}
+        disabled={!canCreateMovements}
+      >
+        <option value="">Selecciona un tipo...</option>
+        {MOVEMENT_TYPES.map((movement) => (
+          <option key={movement.code} value={movement.code}>
+            {movement.label}
+          </option>
+        ))}
+      </select>
+    </div>
+
+    <div style={fieldBlockStyle}>
+      <label htmlFor="movement-option" style={labelStyle}>
+        Opcion de movimiento
+      </label>
+      <select
+        id="movement-option"
+        value={movementOption}
+        onChange={(event) => onMovementOptionChange(event.target.value)}
+        style={{
+          ...inputStyle,
+          ...((movementCode && !isInvoiceAdjustment) ? null : disabledInputStyle),
+        }}
+        disabled={!canCreateMovements || !movementCode || isInvoiceAdjustment}
+      >
+        <option value="">{movementCode && !isInvoiceAdjustment ? 'Selecciona una opcion...' : 'No aplica para este tipo...'}</option>
+        {movementOptions.map((option) => (
+          <option key={option.code} value={option.code}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  </div>
+)
+
+const InvoiceLookup = ({
+  isInvoiceAdjustment,
+  isTablet,
+  canCreateMovements,
+  invoiceRef,
+  invoiceLoading,
+  invoiceDetails,
+  onInvoiceRefChange,
+  onLoadInvoice,
+}) => {
+  if (!isInvoiceAdjustment) return null
+
+  return (
+    <>
+      <div style={invoiceLookupRowStyle(isTablet)}>
+        <div style={{ ...fieldBlockStyle, flex: 1 }}>
+          <label htmlFor="movement-invoice" style={labelStyle}>
+            Factura existente
+          </label>
+          <input
+            id="movement-invoice"
+            type="text"
+            value={invoiceRef}
+            onChange={(event) => onInvoiceRefChange(event.target.value)}
+            placeholder="Escribe el folio exacto de la factura..."
+            style={inputStyle}
+            disabled={!canCreateMovements}
+          />
+        </div>
+
+        <button
+          type="button"
+          onClick={onLoadInvoice}
+          disabled={!canCreateMovements || !invoiceRef.trim() || invoiceLoading}
+          style={{
+            ...checkButtonStyle,
+            alignSelf: isTablet ? 'stretch' : 'flex-end',
+            ...((!canCreateMovements || !invoiceRef.trim() || invoiceLoading) ? disabledButtonStyle : null),
+          }}
+        >
+          {invoiceLoading ? 'Buscando...' : 'Buscar Factura'}
+        </button>
+      </div>
+
+      {invoiceDetails && (
+        <section style={invoiceCardStyle}>
+          <div style={invoiceHeaderStyle}>
+            <div style={invoiceTitleStyle}>Factura encontrada</div>
+            <span style={invoiceRefPillStyle}>{invoiceDetails.invoice_ref}</span>
+          </div>
+
+          <div style={invoiceInfoGridStyle}>
+            <div style={invoiceInfoItemStyle}>
+              <span style={invoiceInfoLabelStyle}>Proveedor</span>
+              <strong>{invoiceDetails.provider_name}</strong>
+            </div>
+            <div style={invoiceInfoItemStyle}>
+              <span style={invoiceInfoLabelStyle}>Fecha</span>
+              <strong>{new Date(invoiceDetails.created_at).toLocaleString('es-MX')}</strong>
+            </div>
+          </div>
+        </section>
+      )}
+    </>
+  )
+}
+
+const ProductSelection = ({
+  isTablet,
+  isMobile,
+  canCreateMovements,
+  movementCode,
+  movementOption,
+  isInvoiceAdjustment,
+  invoiceDetails,
+  productQuery,
+  suggestions,
+  selectedMaterial,
+  quantity,
+  selectedUnit,
+  showSuggestions,
+  invoiceLineAmount,
+  onProductQueryChange,
+  onSelectMaterial,
+  onQuantityChange,
+}) => (
+  <>
+    <div style={dividerStyle} />
+
+    <div style={getFormGridStyle(isTablet)}>
+      <div style={{ ...fieldBlockStyle, position: 'relative' }}>
+        <label htmlFor="movement-product" style={labelStyle}>
+          Producto
+        </label>
+        <input
+          id="movement-product"
+          type="text"
+          value={productQuery}
+          onChange={(event) => onProductQueryChange(event.target.value)}
+          placeholder={
+            isInvoiceAdjustment
+              ? (invoiceDetails ? 'Busca un producto de la factura...' : 'Primero carga una factura...')
+              : (movementCode && movementOption ? 'Escribe nombre o SKU...' : 'Primero elige tipo y opcion...')
+          }
+          style={{
+            ...inputStyle,
+            ...autocompleteInputStyle,
+            ...((movementCode && movementOption && (!isInvoiceAdjustment || invoiceDetails)) ? null : disabledInputStyle),
+          }}
+          disabled={!canCreateMovements || !movementCode || !movementOption || (isInvoiceAdjustment && !invoiceDetails)}
+          autoComplete="off"
+        />
+
+        {showSuggestions && (
+          <div style={suggestionsPanelStyle}>
+            {suggestions.map((material) => (
+              <button
+                key={material.rowKey || material.purchase_item_id}
+                type="button"
+                onClick={() => onSelectMaterial(material)}
+                style={suggestionButtonStyle}
+              >
+                <span style={suggestionTitleStyle}>{isInvoiceAdjustment ? material.material_name : material.name}</span>
+                <span style={suggestionMetaStyle}>
+                  {isInvoiceAdjustment
+                    ? `${material.material_sku} · Factura ${material.quantity} ${material.unit_abbr} · $${material.total_cost.toFixed(2)}`
+                    : `${material.sku} · Stock ${material.currentStock} ${material.uomAbbr}`}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div style={quantityWrapStyle}>
+        <div style={{ ...fieldBlockStyle, flex: 1 }}>
+          <label htmlFor="movement-quantity" style={labelStyle}>
+            Cantidad
+          </label>
+          <input
+            id="movement-quantity"
+            type="number"
+            min="0"
+            step="0.001"
+            value={quantity}
+            onChange={(event) => onQuantityChange(event.target.value)}
+            placeholder="0.000"
+            style={{
+              ...inputStyle,
+              ...((movementCode && movementOption && (!isInvoiceAdjustment || selectedMaterial)) ? null : disabledInputStyle),
+            }}
+            disabled={!canCreateMovements || !movementCode || !movementOption || (isInvoiceAdjustment && !selectedMaterial)}
+          />
+        </div>
+
+        <div style={{ ...fieldBlockStyle, width: isMobile ? '100%' : '160px' }}>
+          <label htmlFor="movement-unit" style={labelStyle}>
+            Unidad
+          </label>
+          <input id="movement-unit" value={selectedUnit} readOnly style={{ ...inputStyle, ...readOnlyInputStyle }} />
+        </div>
+      </div>
+    </div>
+
+    {isInvoiceAdjustment && selectedMaterial && (
+      <section style={invoiceLineCardStyle}>
+        <div style={invoiceLineGridStyle}>
+          <div style={invoiceInfoItemStyle}>
+            <span style={invoiceInfoLabelStyle}>Producto</span>
+            <strong>{selectedMaterial.name}</strong>
+          </div>
+          <div style={invoiceInfoItemStyle}>
+            <span style={invoiceInfoLabelStyle}>Cantidad original</span>
+            <strong>{Number(selectedMaterial.originalQuantity || 0)} {selectedMaterial.uomAbbr}</strong>
+          </div>
+          <div style={invoiceInfoItemStyle}>
+            <span style={invoiceInfoLabelStyle}>Monto original</span>
+            <strong>${Number(selectedMaterial.totalCost || 0).toFixed(2)}</strong>
+          </div>
+          <div style={invoiceInfoItemStyle}>
+            <span style={invoiceInfoLabelStyle}>Monto ajustado</span>
+            <strong>${Number(invoiceLineAmount || 0).toFixed(2)}</strong>
+          </div>
+        </div>
+      </section>
+    )}
+  </>
+)
+
+const MovementActions = ({
+  canCreateMovements,
+  isFormReady,
+  checking,
+  posting,
+  checkResult,
+  isCurrentFormChecked,
+  onCheck,
+  onPost,
+}) => (
+  <div style={buttonRowStyle}>
+    <button
+      type="button"
+      onClick={onCheck}
+      disabled={!canCreateMovements || !isFormReady || checking}
+      style={{
+        ...checkButtonStyle,
+        ...((!canCreateMovements || !isFormReady || checking) ? disabledButtonStyle : null),
+      }}
+    >
+      {checking ? 'Verificando...' : 'Check'}
+    </button>
+
+    <button
+      type="button"
+      onClick={onPost}
+      disabled={!canCreateMovements || !checkResult?.valid || !isCurrentFormChecked || posting}
+      style={{
+        ...postButtonStyle,
+        ...((!canCreateMovements || !checkResult?.valid || !isCurrentFormChecked || posting) ? disabledButtonStyle : null),
+      }}
+    >
+      {posting ? 'Posteando...' : 'Postear'}
+    </button>
+  </div>
+)
+
+const ValidationSummary = ({
+  checkResult,
+  isInvoiceAdjustment,
+  selectedMaterial,
+  selectedUnit,
+  invoiceDetails,
+  quantity,
+}) => {
+  if (!checkResult) return null
+
+  return (
+    <section
+      style={{
+        ...validationCardStyle,
+        borderColor: checkResult.valid ? '#86efac' : '#fca5a5',
+        background: checkResult.valid ? '#f0fdf4' : '#fef2f2',
+      }}
+    >
+      <div style={validationHeaderStyle}>
+        <div>
+          <div style={validationTitleStyle}>{checkResult.valid ? 'Validacion correcta' : 'Validacion rechazada'}</div>
+          <div style={validationMessageStyle}>{checkResult.message}</div>
+        </div>
+        <span
+          style={{
+            ...statusPillStyle,
+            background: checkResult.valid ? '#dcfce7' : '#fee2e2',
+            color: checkResult.valid ? '#166534' : '#b91c1c',
+          }}
+        >
+          {checkResult.valid ? 'OK' : 'Error'}
+        </span>
+      </div>
+
+      <div style={validationGridStyle}>
+        <div style={validationMetricStyle}>
+          <span style={validationMetricLabelStyle}>Producto</span>
+          <strong>{checkResult.product_name || selectedMaterial?.name || '--'}</strong>
+        </div>
+        <div style={validationMetricStyle}>
+          <span style={validationMetricLabelStyle}>Movimiento</span>
+          <strong>{checkResult.movement_label || '--'}</strong>
+        </div>
+        {isInvoiceAdjustment && (
+          <div style={validationMetricStyle}>
+            <span style={validationMetricLabelStyle}>Factura</span>
+            <strong>{checkResult.invoice_ref || invoiceDetails?.invoice_ref || '--'}</strong>
+          </div>
+        )}
+        <div style={validationMetricStyle}>
+          <span style={validationMetricLabelStyle}>Stock actual</span>
+          <strong>
+            {Number(checkResult.current_stock ?? 0)} {checkResult.unit_abbr || selectedUnit}
+          </strong>
+        </div>
+        <div style={validationMetricStyle}>
+          <span style={validationMetricLabelStyle}>Stock proyectado</span>
+          <strong>
+            {Number(checkResult.projected_stock ?? 0)} {checkResult.unit_abbr || selectedUnit}
+          </strong>
+        </div>
+        {isInvoiceAdjustment && (
+          <>
+            <div style={validationMetricStyle}>
+              <span style={validationMetricLabelStyle}>Cantidad factura</span>
+              <strong>{Number(checkResult.original_quantity ?? selectedMaterial?.originalQuantity ?? 0)} {checkResult.unit_abbr || selectedUnit}</strong>
+            </div>
+            <div style={validationMetricStyle}>
+              <span style={validationMetricLabelStyle}>Cantidad nueva</span>
+              <strong>{Number((checkResult.requested_quantity ?? quantity) || 0)} {checkResult.unit_abbr || selectedUnit}</strong>
+            </div>
+          </>
+        )}
+      </div>
+    </section>
+  )
+}
+
 const MaterialMovements = () => {
   const { isMobile, isTablet } = useResponsive()
   const { can } = useAuth()
   const canCreateMovements = can(PAGE_PERMISSION_MAP.movements, ACTION_KEYS.CREATE)
-
-  const [materials, setMaterials] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [movementCode, setMovementCode] = useState('')
-  const [movementOption, setMovementOption] = useState('')
-  const [invoiceRef, setInvoiceRef] = useState('')
-  const [invoiceDetails, setInvoiceDetails] = useState(null)
-  const [invoiceLoading, setInvoiceLoading] = useState(false)
-  const [productQuery, setProductQuery] = useState('')
-  const [selectedMaterial, setSelectedMaterial] = useState(null)
-  const [quantity, setQuantity] = useState('')
-  const [checkResult, setCheckResult] = useState(null)
-  const [checkedKey, setCheckedKey] = useState('')
-  const [checking, setChecking] = useState(false)
-  const [posting, setPosting] = useState(false)
+  const [state, dispatch] = useReducer(movementReducer, undefined, createInitialMovementState)
+  const {
+    materials,
+    loading,
+    movementCode,
+    movementOption,
+    invoiceRef,
+    invoiceDetails,
+    invoiceLoading,
+    productQuery,
+    selectedMaterial,
+    quantity,
+    checkResult,
+    checkedKey,
+    checking,
+    posting,
+  } = state
 
   const isInvoiceAdjustment = movementCode === 'invoice_adjustment'
 
   const loadMaterials = async () => {
-    setLoading(true)
+    dispatch({ type: 'set-loading', value: true })
     try {
       const rows = await materialService.getAllMaterials()
-      setMaterials(normalizeMaterials(rows))
+      dispatch({ type: 'set-materials', value: normalizeMaterials(rows) })
     } catch (error) {
       console.error('Error al cargar materiales para movimientos:', error)
       window.alert(error?.message || 'No se pudieron cargar los materiales.')
     } finally {
-      setLoading(false)
+      dispatch({ type: 'set-loading', value: false })
     }
   }
 
@@ -138,68 +635,45 @@ const MaterialMovements = () => {
   }, [invoiceDetails?.items, isInvoiceAdjustment, materials, movementCode, movementOption, trimmedQuery])
 
   const resetValidation = () => {
-    setCheckResult(null)
-    setCheckedKey('')
-  }
-
-  const clearProductState = () => {
-    setProductQuery('')
-    setSelectedMaterial(null)
-    setQuantity('')
-    resetValidation()
+    dispatch({ type: 'reset-validation' })
   }
 
   const handleMovementTypeChange = (value) => {
-    setMovementCode(value)
-    setMovementOption(value === 'invoice_adjustment' ? 'invoice_adjustment' : '')
-    setInvoiceRef('')
-    setInvoiceDetails(null)
-    clearProductState()
+    dispatch({ type: 'set-movement-type', value })
   }
 
   const handleMovementOptionChange = (value) => {
     if (isInvoiceAdjustment) return
-    setMovementOption(value)
-    clearProductState()
+    dispatch({ type: 'set-movement-option', value })
   }
 
   const handleInvoiceRefChange = (value) => {
-    setInvoiceRef(value)
-    setInvoiceDetails(null)
-    clearProductState()
+    dispatch({ type: 'set-invoice-ref', value })
   }
 
   const handleLoadInvoice = async () => {
     if (!isInvoiceAdjustment || !invoiceRef.trim()) return
 
-    setInvoiceLoading(true)
+    dispatch({ type: 'set-invoice-loading', value: true })
     try {
       const details = await materialService.getPurchaseInvoiceDetails(invoiceRef)
       if (!details) {
-        setInvoiceDetails(null)
-        clearProductState()
+        dispatch({ type: 'set-invoice-details', value: null })
         window.alert('No se encontro una factura con ese folio.')
         return
       }
 
-      setInvoiceDetails(details)
-      clearProductState()
+      dispatch({ type: 'set-invoice-details', value: details })
     } catch (error) {
       console.error('Error al cargar factura para ajuste:', error)
       window.alert(error?.message || 'No se pudo cargar la factura seleccionada.')
     } finally {
-      setInvoiceLoading(false)
+      dispatch({ type: 'set-invoice-loading', value: false })
     }
   }
 
   const handleProductQueryChange = (value) => {
-    setProductQuery(value)
-
-    if (!selectedMaterial || value !== selectedMaterial.displayLabel) {
-      setSelectedMaterial(null)
-    }
-
-    resetValidation()
+    dispatch({ type: 'set-product-query', value })
   }
 
   const handleSelectMaterial = (material) => {
@@ -219,19 +693,15 @@ const MaterialMovements = () => {
         }
       : material
 
-    setSelectedMaterial(normalizedMaterial)
-    setProductQuery(normalizedMaterial.displayLabel)
-
-    if (isInvoiceAdjustment) {
-      setQuantity(String(normalizedMaterial.originalQuantity || ''))
-    }
-
-    resetValidation()
+    dispatch({
+      type: 'select-material',
+      value: normalizedMaterial,
+      quantity: isInvoiceAdjustment ? String(normalizedMaterial.originalQuantity || '') : quantity,
+    })
   }
 
   const handleQuantityChange = (value) => {
-    setQuantity(value)
-    resetValidation()
+    dispatch({ type: 'set-quantity', value })
   }
 
   const isFormReady =
@@ -254,35 +724,31 @@ const MaterialMovements = () => {
   const handleCheck = async () => {
     if (!canCreateMovements || !isFormReady) return
 
-    setChecking(true)
+    dispatch({ type: 'set-checking', value: true })
     try {
       const response = await erpService.checkMaterialMovement(buildPayload())
-      setCheckResult(response.validation || response)
-      setCheckedKey(currentFormKey)
+      dispatch({
+        type: 'set-check-success',
+        value: response.validation || response,
+        key: currentFormKey,
+      })
     } catch (error) {
       console.error('Error al verificar movimiento:', error)
       resetValidation()
       window.alert(error?.message || 'No se pudo verificar el movimiento.')
     } finally {
-      setChecking(false)
+      dispatch({ type: 'set-checking', value: false })
     }
   }
 
   const clearForm = () => {
-    setMovementCode('')
-    setMovementOption('')
-    setInvoiceRef('')
-    setInvoiceDetails(null)
-    setProductQuery('')
-    setSelectedMaterial(null)
-    setQuantity('')
-    resetValidation()
+    dispatch({ type: 'clear-form' })
   }
 
   const handlePost = async () => {
     if (!canCreateMovements || !isFormReady || !checkResult?.valid || !isCurrentFormChecked) return
 
-    setPosting(true)
+    dispatch({ type: 'set-posting', value: true })
     try {
       const response = await erpService.postMaterialMovement(buildPayload())
       await loadMaterials()
@@ -292,7 +758,7 @@ const MaterialMovements = () => {
       console.error('Error al postear movimiento:', error)
       window.alert(error?.message || 'No se pudo postear el movimiento.')
     } finally {
-      setPosting(false)
+      dispatch({ type: 'set-posting', value: false })
     }
   }
 
@@ -308,310 +774,70 @@ const MaterialMovements = () => {
 
   return (
     <div style={getPageStyle(isMobile)}>
-      <section style={heroCardStyle}>
-        <div style={heroHeaderStyle}>
-          <div>
-            <div style={eyebrowStyle}>ERP / INVENTARIO</div>
-            <h1 style={titleStyle}>Movimiento de Materiales</h1>
-            <p style={subtitleStyle}>
-              Registra entradas y salidas controladas con validacion previa. El sistema revisa stock suficiente antes de postear y asigna un documento interno consecutivo.
-            </p>
-          </div>
-
-          {!canCreateMovements && <span style={readOnlyBadgeStyle}>Solo lectura</span>}
-        </div>
-      </section>
+      <MovementHero canCreateMovements={canCreateMovements} />
 
       <section style={panelStyle}>
-        <div style={getControlsGridStyle(isTablet)}>
-          <div style={fieldBlockStyle}>
-            <label htmlFor="movement-type" style={labelStyle}>
-              Tipos de movimiento
-            </label>
-            <select
-              id="movement-type"
-              value={movementCode}
-              onChange={(event) => handleMovementTypeChange(event.target.value)}
-              style={inputStyle}
-              disabled={!canCreateMovements}
-            >
-              <option value="">Selecciona un tipo...</option>
-              {MOVEMENT_TYPES.map((movement) => (
-                <option key={movement.code} value={movement.code}>
-                  {movement.label}
-                </option>
-              ))}
-            </select>
-          </div>
+        <MovementSelectors
+          isTablet={isTablet}
+          canCreateMovements={canCreateMovements}
+          movementCode={movementCode}
+          movementOption={movementOption}
+          isInvoiceAdjustment={isInvoiceAdjustment}
+          movementOptions={movementOptions}
+          onMovementTypeChange={handleMovementTypeChange}
+          onMovementOptionChange={handleMovementOptionChange}
+        />
 
-          <div style={fieldBlockStyle}>
-            <label htmlFor="movement-option" style={labelStyle}>
-              Opcion de movimiento
-            </label>
-            <select
-              id="movement-option"
-              value={movementOption}
-              onChange={(event) => handleMovementOptionChange(event.target.value)}
-              style={{
-                ...inputStyle,
-                ...((movementCode && !isInvoiceAdjustment) ? null : disabledInputStyle),
-              }}
-              disabled={!canCreateMovements || !movementCode || isInvoiceAdjustment}
-            >
-              <option value="">{movementCode && !isInvoiceAdjustment ? 'Selecciona una opcion...' : 'No aplica para este tipo...'}</option>
-              {movementOptions.map((option) => (
-                <option key={option.code} value={option.code}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
+        <InvoiceLookup
+          isInvoiceAdjustment={isInvoiceAdjustment}
+          isTablet={isTablet}
+          canCreateMovements={canCreateMovements}
+          invoiceRef={invoiceRef}
+          invoiceLoading={invoiceLoading}
+          invoiceDetails={invoiceDetails}
+          onInvoiceRefChange={handleInvoiceRefChange}
+          onLoadInvoice={handleLoadInvoice}
+        />
 
-        {isInvoiceAdjustment && (
-          <div style={invoiceLookupRowStyle(isTablet)}>
-            <div style={{ ...fieldBlockStyle, flex: 1 }}>
-              <label htmlFor="movement-invoice" style={labelStyle}>
-                Factura existente
-              </label>
-              <input
-                id="movement-invoice"
-                type="text"
-                value={invoiceRef}
-                onChange={(event) => handleInvoiceRefChange(event.target.value)}
-                placeholder="Escribe el folio exacto de la factura..."
-                style={inputStyle}
-                disabled={!canCreateMovements}
-              />
-            </div>
+        <ProductSelection
+          isTablet={isTablet}
+          isMobile={isMobile}
+          canCreateMovements={canCreateMovements}
+          movementCode={movementCode}
+          movementOption={movementOption}
+          isInvoiceAdjustment={isInvoiceAdjustment}
+          invoiceDetails={invoiceDetails}
+          productQuery={productQuery}
+          suggestions={suggestions}
+          selectedMaterial={selectedMaterial}
+          quantity={quantity}
+          selectedUnit={selectedUnit}
+          showSuggestions={showSuggestions}
+          invoiceLineAmount={invoiceLineAmount}
+          onProductQueryChange={handleProductQueryChange}
+          onSelectMaterial={handleSelectMaterial}
+          onQuantityChange={handleQuantityChange}
+        />
 
-            <button
-              type="button"
-              onClick={handleLoadInvoice}
-              disabled={!canCreateMovements || !invoiceRef.trim() || invoiceLoading}
-              style={{
-                ...checkButtonStyle,
-                alignSelf: isTablet ? 'stretch' : 'flex-end',
-                ...((!canCreateMovements || !invoiceRef.trim() || invoiceLoading) ? disabledButtonStyle : null),
-              }}
-            >
-              {invoiceLoading ? 'Buscando...' : 'Buscar Factura'}
-            </button>
-          </div>
-        )}
+        <MovementActions
+          canCreateMovements={canCreateMovements}
+          isFormReady={isFormReady}
+          checking={checking}
+          posting={posting}
+          checkResult={checkResult}
+          isCurrentFormChecked={isCurrentFormChecked}
+          onCheck={handleCheck}
+          onPost={handlePost}
+        />
 
-        {isInvoiceAdjustment && invoiceDetails && (
-          <section style={invoiceCardStyle}>
-            <div style={invoiceHeaderStyle}>
-              <div style={invoiceTitleStyle}>Factura encontrada</div>
-              <span style={invoiceRefPillStyle}>{invoiceDetails.invoice_ref}</span>
-            </div>
-
-            <div style={invoiceInfoGridStyle}>
-              <div style={invoiceInfoItemStyle}>
-                <span style={invoiceInfoLabelStyle}>Proveedor</span>
-                <strong>{invoiceDetails.provider_name}</strong>
-              </div>
-              <div style={invoiceInfoItemStyle}>
-                <span style={invoiceInfoLabelStyle}>Fecha</span>
-                <strong>{new Date(invoiceDetails.created_at).toLocaleString('es-MX')}</strong>
-              </div>
-            </div>
-          </section>
-        )}
-
-        <div style={dividerStyle} />
-
-        <div style={getFormGridStyle(isTablet)}>
-          <div style={{ ...fieldBlockStyle, position: 'relative' }}>
-            <label htmlFor="movement-product" style={labelStyle}>
-              Producto
-            </label>
-            <input
-              id="movement-product"
-              type="text"
-              value={productQuery}
-              onChange={(event) => handleProductQueryChange(event.target.value)}
-              placeholder={
-                isInvoiceAdjustment
-                  ? (invoiceDetails ? 'Busca un producto de la factura...' : 'Primero carga una factura...')
-                  : (movementCode && movementOption ? 'Escribe nombre o SKU...' : 'Primero elige tipo y opcion...')
-              }
-              style={{
-                ...inputStyle,
-                ...autocompleteInputStyle,
-                ...((movementCode && movementOption && (!isInvoiceAdjustment || invoiceDetails)) ? null : disabledInputStyle),
-              }}
-              disabled={!canCreateMovements || !movementCode || !movementOption || (isInvoiceAdjustment && !invoiceDetails)}
-              autoComplete="off"
-            />
-
-            {showSuggestions && (
-              <div style={suggestionsPanelStyle}>
-                {suggestions.map((material) => (
-                  <button
-                    key={material.rowKey || material.purchase_item_id}
-                    type="button"
-                    onClick={() => handleSelectMaterial(material)}
-                    style={suggestionButtonStyle}
-                  >
-                    <span style={suggestionTitleStyle}>{isInvoiceAdjustment ? material.material_name : material.name}</span>
-                    <span style={suggestionMetaStyle}>
-                      {isInvoiceAdjustment
-                        ? `${material.material_sku} · Factura ${material.quantity} ${material.unit_abbr} · $${material.total_cost.toFixed(2)}`
-                        : `${material.sku} · Stock ${material.currentStock} ${material.uomAbbr}`}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div style={quantityWrapStyle}>
-            <div style={{ ...fieldBlockStyle, flex: 1 }}>
-              <label htmlFor="movement-quantity" style={labelStyle}>
-                Cantidad
-              </label>
-              <input
-                id="movement-quantity"
-                type="number"
-                min="0"
-                step="0.001"
-                value={quantity}
-                onChange={(event) => handleQuantityChange(event.target.value)}
-                placeholder="0.000"
-                style={{
-                  ...inputStyle,
-                  ...((movementCode && movementOption && (!isInvoiceAdjustment || selectedMaterial)) ? null : disabledInputStyle),
-                }}
-                disabled={!canCreateMovements || !movementCode || !movementOption || (isInvoiceAdjustment && !selectedMaterial)}
-              />
-            </div>
-
-            <div style={{ ...fieldBlockStyle, width: isMobile ? '100%' : '160px' }}>
-              <label htmlFor="movement-unit" style={labelStyle}>
-                Unidad
-              </label>
-              <input id="movement-unit" value={selectedUnit} readOnly style={{ ...inputStyle, ...readOnlyInputStyle }} />
-            </div>
-          </div>
-        </div>
-
-        {isInvoiceAdjustment && selectedMaterial && (
-          <section style={invoiceLineCardStyle}>
-            <div style={invoiceLineGridStyle}>
-              <div style={invoiceInfoItemStyle}>
-                <span style={invoiceInfoLabelStyle}>Producto</span>
-                <strong>{selectedMaterial.name}</strong>
-              </div>
-              <div style={invoiceInfoItemStyle}>
-                <span style={invoiceInfoLabelStyle}>Cantidad original</span>
-                <strong>{Number(selectedMaterial.originalQuantity || 0)} {selectedMaterial.uomAbbr}</strong>
-              </div>
-              <div style={invoiceInfoItemStyle}>
-                <span style={invoiceInfoLabelStyle}>Monto original</span>
-                <strong>${Number(selectedMaterial.totalCost || 0).toFixed(2)}</strong>
-              </div>
-              <div style={invoiceInfoItemStyle}>
-                <span style={invoiceInfoLabelStyle}>Monto ajustado</span>
-                <strong>${Number(invoiceLineAmount || 0).toFixed(2)}</strong>
-              </div>
-            </div>
-          </section>
-        )}
-
-        <div style={buttonRowStyle}>
-          <button
-            type="button"
-            onClick={handleCheck}
-            disabled={!canCreateMovements || !isFormReady || checking}
-            style={{
-              ...checkButtonStyle,
-              ...((!canCreateMovements || !isFormReady || checking) ? disabledButtonStyle : null),
-            }}
-          >
-            {checking ? 'Verificando...' : 'Check'}
-          </button>
-
-          <button
-            type="button"
-            onClick={handlePost}
-            disabled={!canCreateMovements || !checkResult?.valid || !isCurrentFormChecked || posting}
-            style={{
-              ...postButtonStyle,
-              ...((!canCreateMovements || !checkResult?.valid || !isCurrentFormChecked || posting) ? disabledButtonStyle : null),
-            }}
-          >
-            {posting ? 'Posteando...' : 'Postear'}
-          </button>
-        </div>
-
-        {checkResult && (
-          <section
-            style={{
-              ...validationCardStyle,
-              borderColor: checkResult.valid ? '#86efac' : '#fca5a5',
-              background: checkResult.valid ? '#f0fdf4' : '#fef2f2',
-            }}
-          >
-            <div style={validationHeaderStyle}>
-              <div>
-                <div style={validationTitleStyle}>{checkResult.valid ? 'Validacion correcta' : 'Validacion rechazada'}</div>
-                <div style={validationMessageStyle}>{checkResult.message}</div>
-              </div>
-              <span
-                style={{
-                  ...statusPillStyle,
-                  background: checkResult.valid ? '#dcfce7' : '#fee2e2',
-                  color: checkResult.valid ? '#166534' : '#b91c1c',
-                }}
-              >
-                {checkResult.valid ? 'OK' : 'Error'}
-              </span>
-            </div>
-
-            <div style={validationGridStyle}>
-              <div style={validationMetricStyle}>
-                <span style={validationMetricLabelStyle}>Producto</span>
-                <strong>{checkResult.product_name || selectedMaterial?.name || '--'}</strong>
-              </div>
-              <div style={validationMetricStyle}>
-                <span style={validationMetricLabelStyle}>Movimiento</span>
-                <strong>{checkResult.movement_label || '--'}</strong>
-              </div>
-              {isInvoiceAdjustment && (
-                <div style={validationMetricStyle}>
-                  <span style={validationMetricLabelStyle}>Factura</span>
-                  <strong>{checkResult.invoice_ref || invoiceDetails?.invoice_ref || '--'}</strong>
-                </div>
-              )}
-              <div style={validationMetricStyle}>
-                <span style={validationMetricLabelStyle}>Stock actual</span>
-                <strong>
-                  {Number(checkResult.current_stock ?? 0)} {checkResult.unit_abbr || selectedUnit}
-                </strong>
-              </div>
-              <div style={validationMetricStyle}>
-                <span style={validationMetricLabelStyle}>Stock proyectado</span>
-                <strong>
-                  {Number(checkResult.projected_stock ?? 0)} {checkResult.unit_abbr || selectedUnit}
-                </strong>
-              </div>
-              {isInvoiceAdjustment && (
-                <>
-                  <div style={validationMetricStyle}>
-                    <span style={validationMetricLabelStyle}>Cantidad factura</span>
-                    <strong>{Number(checkResult.original_quantity ?? selectedMaterial?.originalQuantity ?? 0)} {checkResult.unit_abbr || selectedUnit}</strong>
-                  </div>
-                  <div style={validationMetricStyle}>
-                    <span style={validationMetricLabelStyle}>Cantidad nueva</span>
-                    <strong>{Number((checkResult.requested_quantity ?? quantity) || 0)} {checkResult.unit_abbr || selectedUnit}</strong>
-                  </div>
-                </>
-              )}
-            </div>
-          </section>
-        )}
+        <ValidationSummary
+          checkResult={checkResult}
+          isInvoiceAdjustment={isInvoiceAdjustment}
+          selectedMaterial={selectedMaterial}
+          selectedUnit={selectedUnit}
+          invoiceDetails={invoiceDetails}
+          quantity={quantity}
+        />
       </section>
     </div>
   )

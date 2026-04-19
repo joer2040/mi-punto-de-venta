@@ -36,8 +36,9 @@ const Login = () => {
 
         <form onSubmit={handleSubmit} style={formStyle}>
           <div>
-            <label style={labelStyle}>Usuario</label>
+            <label htmlFor="login-username" style={labelStyle}>Usuario</label>
             <input
+              id="login-username"
               type="text"
               value={formData.username}
               onChange={(event) => setFormData((prev) => ({ ...prev, username: event.target.value }))}
@@ -50,8 +51,9 @@ const Login = () => {
           </div>
 
           <div>
-            <label style={labelStyle}>Contrasena</label>
+            <label htmlFor="login-password" style={labelStyle}>Contrasena</label>
             <input
+              id="login-password"
               type="password"
               value={formData.password}
               onChange={(event) => setFormData((prev) => ({ ...prev, password: event.target.value }))}

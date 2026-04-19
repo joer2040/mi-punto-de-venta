@@ -28,7 +28,12 @@ const InventoryReport = () => {
   }, [])
 
   const categoryOptions = Array.from(
-    new Set(items.map((item) => item.materials?.categories?.name).filter(Boolean))
+    new Set(
+      items.flatMap((item) => {
+        const categoryName = item.materials?.categories?.name
+        return categoryName ? [categoryName] : []
+      })
+    )
   ).sort((a, b) => a.localeCompare(b, 'es'))
 
   const filteredItems = items.filter((item) => {
@@ -43,7 +48,10 @@ const InventoryReport = () => {
   })
 
   const totalInventoryValue = useMemo(
-    () => filteredItems.reduce((acc, item) => acc + Number(item.stock_actual || 0) * Number(item.costo_promedio || 0), 0),
+    () => filteredItems.reduce(
+      (acc, item) => acc + Number(item.stock_actual || 0) * Number(item.costo_promedio || 0),
+      0
+    ),
     [filteredItems]
   )
 
@@ -65,8 +73,9 @@ const InventoryReport = () => {
       filters={
         <div style={getFilterGridStyle(isMobile)}>
           <div>
-            <label style={filterLabelStyle}>Producto</label>
+            <label htmlFor="inventory-report-product" style={filterLabelStyle}>Producto</label>
             <input
+              id="inventory-report-product"
               type="text"
               value={productQuery}
               onChange={(event) => setProductQuery(event.target.value)}
@@ -75,8 +84,9 @@ const InventoryReport = () => {
             />
           </div>
           <div>
-            <label style={filterLabelStyle}>Categoria</label>
+            <label htmlFor="inventory-report-category" style={filterLabelStyle}>Categoria</label>
             <select
+              id="inventory-report-category"
               value={selectedCategory}
               onChange={(event) => setSelectedCategory(event.target.value)}
               style={filterInputStyle}
@@ -100,9 +110,9 @@ const InventoryReport = () => {
         { key: 'costo_promedio', label: 'Costo Promedio' },
         { key: 'valor_inventario', label: 'Valor del Inventario' },
       ]}
-      renderRow={(item, index) => (
+      renderRow={(item) => (
         <tr
-          key={`${item.materials?.id || item.materials?.sku || 'item'}-${index}`}
+          key={item.materials?.id || item.materials?.sku || item.id}
           style={{
             borderBottom: '1px solid #e2e8f0',
             backgroundColor: item.stock_actual <= 0 ? '#fff5f5' : 'transparent',

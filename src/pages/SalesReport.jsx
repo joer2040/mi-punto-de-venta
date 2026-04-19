@@ -48,12 +48,12 @@ const SalesReport = () => {
       filters={
         <div style={getFilterGridStyle(isMobile)}>
           <div>
-            <label style={filterLabelStyle}>Fecha desde</label>
-            <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} style={filterInputStyle} />
+            <label htmlFor="sales-report-date-from" style={filterLabelStyle}>Fecha desde</label>
+            <input id="sales-report-date-from" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} style={filterInputStyle} />
           </div>
           <div>
-            <label style={filterLabelStyle}>Fecha hasta</label>
-            <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} style={filterInputStyle} />
+            <label htmlFor="sales-report-date-to" style={filterLabelStyle}>Fecha hasta</label>
+            <input id="sales-report-date-to" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} style={filterInputStyle} />
           </div>
         </div>
       }

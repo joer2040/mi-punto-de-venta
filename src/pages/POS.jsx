@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useRef, useState } from 'react'
+﻿import React, { useEffect, useReducer, useRef, useState } from 'react'
 import { materialService } from '../api/materialService'
 import { posService } from '../api/posService'
 import { useAuth } from '../contexts/AuthContext'
@@ -18,17 +18,433 @@ const loadJsPdf = async () => {
   return jsPdfModulePromise
 }
 
-const POS = ({ onEditingStateChange = () => {} }) => {
-  const [inventory, setInventory] = useState([])
-  const [tables, setTables] = useState([])
-  const [selectedTable, setSelectedTable] = useState(null)
-  const [cart, setCart] = useState([])
-  const [ticketData, setTicketData] = useState(null)
-  const [notice, setNotice] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [isHydratingTable, setIsHydratingTable] = useState(false)
-  const [waiterEditLocked, setWaiterEditLocked] = useState(false)
-  const [showFinalizeConfirm, setShowFinalizeConfirm] = useState(false)
+const sortTablesForDisplay = (rows = []) =>
+  [...rows].sort((left, right) =>
+    String(left?.number || '').localeCompare(String(right?.number || ''), 'es', {
+      numeric: true,
+      sensitivity: 'base',
+    })
+  )
+
+const isBarStation = (table) => /^barra\b/i.test(String(table?.number || '').trim())
+
+const getStationDisplayName = (table) => {
+  const rawValue = String(table?.number || '').trim()
+  if (!rawValue) return 'General'
+  if (/^(barra|mesa)\b/i.test(rawValue)) return rawValue
+  return `Mesa ${rawValue}`
+}
+
+const getStationTypeName = (table) => (isBarStation(table) ? 'Barra' : 'Mesa')
+
+const getStationShortName = (table) => {
+  const rawValue = String(table?.number || '').trim()
+  const prefixedMatch = rawValue.match(/^(?:barra|mesa)\s+(.+)$/i)
+  if (prefixedMatch) return prefixedMatch[1]
+  return rawValue || 'General'
+}
+
+const createInitialPosState = () => ({
+  inventory: [],
+  tables: [],
+  selectedTable: null,
+  cart: [],
+  ticketData: null,
+  notice: null,
+  loading: true,
+  isHydratingTable: false,
+  waiterEditLocked: false,
+  showFinalizeConfirm: false,
+})
+
+const posReducer = (state, action) => {
+  switch (action.type) {
+    case 'bootstrap_data':
+      return {
+        ...state,
+        inventory: action.inventory,
+        tables: action.tables,
+        loading: false,
+      }
+    case 'set_loading':
+      return {
+        ...state,
+        loading: action.value,
+      }
+    case 'set_inventory':
+      return {
+        ...state,
+        inventory: action.inventory,
+      }
+    case 'set_tables':
+      return {
+        ...state,
+        tables: action.tables,
+      }
+    case 'set_notice':
+      return {
+        ...state,
+        notice: action.notice,
+      }
+    case 'set_ticket_data':
+      return {
+        ...state,
+        ticketData: action.ticketData,
+      }
+    case 'set_show_finalize_confirm':
+      return {
+        ...state,
+        showFinalizeConfirm: action.value,
+      }
+    case 'set_selected_table':
+      return {
+        ...state,
+        selectedTable: action.table,
+      }
+    case 'set_cart':
+      return {
+        ...state,
+        cart: action.cart,
+      }
+    case 'set_waiter_edit_locked':
+      return {
+        ...state,
+        waiterEditLocked: action.value,
+      }
+    case 'hydrate_table_start':
+      return {
+        ...state,
+        isHydratingTable: true,
+        selectedTable: action.table,
+        waiterEditLocked: false,
+      }
+    case 'hydrate_table_ready':
+      return {
+        ...state,
+        cart: action.cart,
+        waiterEditLocked: action.waiterEditLocked,
+        isHydratingTable: false,
+      }
+    case 'hydrate_table_finish':
+      return {
+        ...state,
+        isHydratingTable: false,
+      }
+    case 'leave_selected_table':
+      return {
+        ...state,
+        selectedTable: null,
+        cart: [],
+        waiterEditLocked: false,
+      }
+    default:
+      return state
+  }
+}
+
+const ServiceMapView = ({
+  notice,
+  isMobile,
+  canOperatePOS,
+  meseroLockedTable,
+  freeBars,
+  occupiedBars,
+  freeDiningTables,
+  occupiedDiningTables,
+  barTables,
+  diningTables,
+  onNoticeClose,
+  onSelectTable,
+  ticketData,
+  onCloseTicket,
+}) => (
+  <>
+    {notice && <NoticeBanner notice={notice} onClose={onNoticeClose} />}
+    <div style={getContainerStyle(isMobile)}>
+      <div style={heroCardStyle}>
+        <div>
+          <h2 style={{ color: '#1f2937', margin: 0, fontSize: isMobile ? '1.5rem' : '1.9rem' }}>Mapa de Servicio</h2>
+          <p style={{ ...mutedTextStyle, margin: '8px 0 0 0' }}>
+            Elige una barra o una mesa para abrir su cuenta y seguir tomando pedidos.
+          </p>
+          {!canOperatePOS && (
+            <div style={readOnlyHintStyle}>
+              Tu usuario puede consultar estaciones, pero no modificar pedidos.
+            </div>
+          )}
+          {meseroLockedTable && (
+            <div style={warningHintStyle}>
+              Cuenta ocupada: como mesero solo puedes agregar productos o aumentar cantidades.
+            </div>
+          )}
+        </div>
+
+        <div style={getStatsGridStyle(isMobile)}>
+          <div style={statCardStyle}>
+            <span style={statLabelStyle}>Barras libres</span>
+            <strong style={statValueStyle}>{freeBars}</strong>
+          </div>
+          <div style={statCardStyle}>
+            <span style={statLabelStyle}>Barras ocupadas</span>
+            <strong style={statValueStyle}>{occupiedBars}</strong>
+          </div>
+          <div style={statCardStyle}>
+            <span style={statLabelStyle}>Mesas libres</span>
+            <strong style={statValueStyle}>{freeDiningTables}</strong>
+          </div>
+          <div style={statCardStyle}>
+            <span style={statLabelStyle}>Mesas ocupadas</span>
+            <strong style={statValueStyle}>{occupiedDiningTables}</strong>
+          </div>
+        </div>
+      </div>
+
+      <div style={stationSectionsStyle}>
+        <StationSection
+          title="Barras"
+          description="Acceso rapido para consumo en barra."
+          stations={barTables}
+          isMobile={isMobile}
+          emptyMessage="Aun no hay barras configuradas."
+          onSelect={onSelectTable}
+        />
+        <StationSection
+          title="Mesas"
+          description="Mesas disponibles para servicio en piso."
+          stations={diningTables}
+          isMobile={isMobile}
+          emptyMessage="Aun no hay mesas configuradas."
+          onSelect={onSelectTable}
+        />
+      </div>
+    </div>
+    {ticketData && <TicketModal ticket={ticketData} onClose={onCloseTicket} />}
+  </>
+)
+
+const ProductCatalog = ({
+  isMobile,
+  canOperatePOS,
+  availableProducts,
+  totalItems,
+  onAddToCart,
+}) => (
+  <>
+    <div style={heroCardStyle}>
+      <div>
+        <h2 style={{ color: '#1f2937', margin: 0, fontSize: isMobile ? '1.35rem' : '1.65rem' }}>Productos Disponibles</h2>
+        <p style={{ ...mutedTextStyle, margin: '8px 0 0 0' }}>
+          Toca un producto para agregarlo a la cuenta activa.
+        </p>
+        {!canOperatePOS && (
+          <div style={readOnlyHintStyle}>
+            Modo solo lectura. Puedes revisar el contenido de la cuenta, pero no cambiarlo.
+          </div>
+        )}
+      </div>
+
+      <div style={getStatsGridStyle(isMobile)}>
+        <div style={statCardStyle}>
+          <span style={statLabelStyle}>Productos</span>
+          <strong style={statValueStyle}>{availableProducts.length}</strong>
+        </div>
+        <div style={statCardStyle}>
+          <span style={statLabelStyle}>Articulos</span>
+          <strong style={statValueStyle}>{totalItems}</strong>
+        </div>
+      </div>
+    </div>
+
+    <div style={getProductGridStyle(isMobile)}>
+      {availableProducts.map((item) => {
+        const isExtra = item.materials?.categories?.name === 'Extras'
+        const isOutOfStock = !isExtra && item.stock_actual <= 0
+        const isProductDisabled = !canOperatePOS || isOutOfStock
+
+        return (
+          <button
+            key={item.materials?.id || item.id}
+            type="button"
+            onClick={() => onAddToCart(item)}
+            disabled={isProductDisabled}
+            style={{
+              ...getProductCardStyle(isMobile),
+              opacity: isOutOfStock ? 0.52 : 1,
+              cursor: isProductDisabled ? 'not-allowed' : 'pointer',
+              textAlign: 'left',
+              width: '100%',
+            }}
+          >
+            <div style={productCategoryPillStyle}>{item.materials.categories.name}</div>
+            <div style={{ fontWeight: 'bold', color: '#1f2937', fontSize: isMobile ? '0.95rem' : '1rem' }}>
+              {item.materials.name}
+            </div>
+            <div style={{ color: '#0f766e', fontWeight: 'bold', marginTop: '10px', fontSize: isMobile ? '1.1rem' : '1.2rem' }}>
+              ${item.precio_venta}
+            </div>
+
+            {item.materials.categories.is_inventoried ? (
+              <div style={{ fontSize: '0.78rem', color: item.stock_actual <= 0 ? '#b91c1c' : '#475569', marginTop: '10px' }}>
+                Stock: {item.stock_actual}
+              </div>
+            ) : (
+              <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '10px' }}>
+                Venta sin inventario fisico
+              </div>
+            )}
+          </button>
+        )
+      })}
+    </div>
+  </>
+)
+
+const CartPanel = ({
+  isTablet,
+  isMobile,
+  cart,
+  total,
+  totalItems,
+  canOperatePOS,
+  canDecreaseOrRemoveFromOccupiedTable,
+  onChangeQuantity,
+  onRemoveFromCart,
+  onRequestFinalizeSale,
+}) => (
+  <section style={getCartContainerStyle(isTablet, isMobile)}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+      <div>
+        <h3 style={{ margin: 0, color: '#1f2937' }}>Cuenta Actual</h3>
+        <p style={{ ...mutedTextStyle, margin: '6px 0 0 0' }}>{totalItems} articulos en la cuenta</p>
+      </div>
+      <div style={cartBadgeStyle}>${total.toFixed(2)}</div>
+    </div>
+
+    <div style={cartListStyle}>
+      {cart.length === 0 ? (
+        <div style={emptyCartStyle}>
+          <strong style={{ color: '#334155' }}>Aun no hay productos</strong>
+          <span style={{ ...mutedTextStyle, marginTop: '6px' }}>Agrega articulos para comenzar la cuenta.</span>
+        </div>
+      ) : (
+        cart.map((item) => (
+          <div key={item.material_id} style={cartItemStyle}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: '0.95rem', color: '#0f172a', fontWeight: '700' }}>{item.name}</div>
+              <div style={{ fontSize: '0.82rem', color: '#64748b', marginTop: '4px' }}>
+                ${item.unit_price} c/u
+              </div>
+            </div>
+
+            <div style={cartActionsStyle}>
+              <div style={quantityControlStyle}>
+                <button onClick={() => onChangeQuantity(item.material_id, -1)} disabled={!canOperatePOS || !canDecreaseOrRemoveFromOccupiedTable} style={canOperatePOS && canDecreaseOrRemoveFromOccupiedTable ? qtyBtnStyle : disabledQtyBtnStyle} type="button">
+                  -
+                </button>
+                <span style={qtyValueStyle}>{item.quantity}</span>
+                <button onClick={() => onChangeQuantity(item.material_id, 1)} disabled={!canOperatePOS} style={canOperatePOS ? qtyBtnStyle : disabledQtyBtnStyle} type="button">
+                  +
+                </button>
+              </div>
+
+              <button onClick={() => onRemoveFromCart(item.material_id)} disabled={!canOperatePOS || !canDecreaseOrRemoveFromOccupiedTable} style={canOperatePOS && canDecreaseOrRemoveFromOccupiedTable ? deleteBtnStyle : disabledDeleteBtnStyle} type="button">
+                Quitar
+              </button>
+            </div>
+          </div>
+        ))
+      )}
+    </div>
+
+    <div style={checkoutPanelStyle}>
+      <div style={checkoutRowStyle}>
+        <span>Total</span>
+        <strong>${total.toFixed(2)}</strong>
+      </div>
+      <button onClick={onRequestFinalizeSale} disabled={cart.length === 0 || !canOperatePOS} style={cart.length === 0 || !canOperatePOS ? disabledCheckoutBtnStyle : checkoutBtnStyle}>
+        Finalizar Venta
+      </button>
+    </div>
+  </section>
+)
+
+const ActiveOrderView = ({
+  notice,
+  isTablet,
+  isMobile,
+  canOperatePOS,
+  selectedTable,
+  selectedStationLabel,
+  availableProducts,
+  totalItems,
+  total,
+  cart,
+  canDecreaseOrRemoveFromOccupiedTable,
+  showFinalizeConfirm,
+  ticketData,
+  onNoticeClose,
+  onSaveAndExit,
+  onAddToCart,
+  onChangeQuantity,
+  onRemoveFromCart,
+  onRequestFinalizeSale,
+  onCloseTicket,
+  onCloseFinalizeConfirm,
+  onConfirmFinalizeSale,
+}) => (
+  <>
+    {notice && <NoticeBanner notice={notice} onClose={onNoticeClose} />}
+    <div style={getWorkspaceStyle(isTablet, isMobile)}>
+      <section>
+        <div style={topBarStyle(isMobile)}>
+          <button onClick={onSaveAndExit} disabled={!canOperatePOS} style={canOperatePOS ? btnSecondaryStyle : disabledSecondaryBtnStyle}>
+            Volver a Barras y Mesas
+          </button>
+          <div style={tableInfoCardStyle}>
+            <span style={tableInfoLabelStyle}>Atendiendo</span>
+            <strong style={{ color: '#1f2937', fontSize: isMobile ? '1rem' : '1.15rem' }}>
+              {selectedStationLabel}
+            </strong>
+          </div>
+        </div>
+
+        <ProductCatalog
+          isMobile={isMobile}
+          canOperatePOS={canOperatePOS}
+          availableProducts={availableProducts}
+          totalItems={totalItems}
+          onAddToCart={onAddToCart}
+        />
+      </section>
+
+      <CartPanel
+        isTablet={isTablet}
+        isMobile={isMobile}
+        cart={cart}
+        total={total}
+        totalItems={totalItems}
+        canOperatePOS={canOperatePOS}
+        canDecreaseOrRemoveFromOccupiedTable={canDecreaseOrRemoveFromOccupiedTable}
+        onChangeQuantity={onChangeQuantity}
+        onRemoveFromCart={onRemoveFromCart}
+        onRequestFinalizeSale={onRequestFinalizeSale}
+      />
+    </div>
+    {ticketData && <TicketModal ticket={ticketData} onClose={onCloseTicket} />}
+    {showFinalizeConfirm && (
+      <FinalizeSaleModal
+        table={selectedTable}
+        total={total}
+        totalItems={totalItems}
+        onCancel={onCloseFinalizeConfirm}
+        onConfirm={onConfirmFinalizeSale}
+      />
+    )}
+  </>
+)
+
+const usePosController = ({ onEditingStateChange = () => {} }) => {
+  const [state, dispatch] = useReducer(posReducer, undefined, createInitialPosState)
   const { isMobile, isTablet } = useResponsive()
   const { can, isManager, isSuperadmin, isWaiter } = useAuth()
   const canCreateSale = can(PAGE_PERMISSION_MAP.pos, ACTION_KEYS.CREATE)
@@ -37,13 +453,37 @@ const POS = ({ onEditingStateChange = () => {} }) => {
   const canFullyEditOccupiedTable = isSuperadmin || isManager
   const latestTableRef = useRef(null)
   const latestCartRef = useRef([])
+  const {
+    inventory,
+    tables,
+    selectedTable,
+    cart,
+    ticketData,
+    notice,
+    loading,
+    isHydratingTable,
+    waiterEditLocked,
+    showFinalizeConfirm,
+  } = state
 
   useEffect(() => {
     const loadData = async () => {
       try {
-        await Promise.all([loadInventory(), loadTables()])
-      } finally {
-        setLoading(false)
+        const [inventoryData, tablesResult] = await Promise.all([
+          materialService.getAllMaterials(),
+          supabase.from('tables').select('*').order('number'),
+        ])
+
+        if (tablesResult.error) throw tablesResult.error
+
+        dispatch({
+          type: 'bootstrap_data',
+          inventory: inventoryData || [],
+          tables: sortTablesForDisplay(tablesResult.data || []),
+        })
+      } catch (error) {
+        console.error('Error al iniciar POS:', error)
+        dispatch({ type: 'set_loading', value: false })
       }
     }
 
@@ -54,7 +494,7 @@ const POS = ({ onEditingStateChange = () => {} }) => {
     if (!notice) return undefined
 
     const timer = window.setTimeout(() => {
-      setNotice(null)
+      dispatch({ type: 'set_notice', notice: null })
     }, 3200)
 
     return () => window.clearTimeout(timer)
@@ -102,7 +542,7 @@ const POS = ({ onEditingStateChange = () => {} }) => {
             persistedTable.status !== selectedTable.status
           )
         ) {
-          setSelectedTable(persistedTable)
+          dispatch({ type: 'set_selected_table', table: persistedTable })
         }
         await loadTables()
       } catch (error) {
@@ -133,13 +573,13 @@ const POS = ({ onEditingStateChange = () => {} }) => {
   }, [isWaiter])
 
   const showNotice = (message, type = 'info') => {
-    setNotice({ message, type })
+    dispatch({ type: 'set_notice', notice: { message, type } })
   }
 
   const loadInventory = async () => {
     try {
       const data = await materialService.getAllMaterials()
-      setInventory(data || [])
+      dispatch({ type: 'set_inventory', inventory: data || [] })
     } catch (error) {
       console.error('Error al cargar inventario para POS:', error)
     }
@@ -153,7 +593,7 @@ const POS = ({ onEditingStateChange = () => {} }) => {
         .order('number')
 
       if (error) throw error
-      setTables(data || [])
+      dispatch({ type: 'set_tables', tables: sortTablesForDisplay(data || []) })
     } catch (error) {
       console.error('Error al cargar mesas:', error)
     }
@@ -161,13 +601,14 @@ const POS = ({ onEditingStateChange = () => {} }) => {
 
   const handleSelectTable = async (table) => {
     try {
-      setIsHydratingTable(true)
-      setSelectedTable(table)
-      setWaiterEditLocked(false)
+      dispatch({ type: 'hydrate_table_start', table })
 
       if (!table.current_order_id) {
-        setCart([])
-        setIsHydratingTable(false)
+        dispatch({
+          type: 'hydrate_table_ready',
+          cart: [],
+          waiterEditLocked: false,
+        })
         return
       }
 
@@ -178,13 +619,16 @@ const POS = ({ onEditingStateChange = () => {} }) => {
         .maybeSingle()
 
       if (error) throw error
-      setCart(order?.items || [])
-      setWaiterEditLocked(Boolean(order?.waiter_edit_locked))
+      dispatch({
+        type: 'hydrate_table_ready',
+        cart: order?.items || [],
+        waiterEditLocked: Boolean(order?.waiter_edit_locked),
+      })
     } catch (error) {
       console.error('Error al cargar la mesa:', error)
       alert('No se pudo abrir la mesa.')
     } finally {
-      setIsHydratingTable(false)
+      dispatch({ type: 'hydrate_table_finish' })
     }
   }
 
@@ -195,7 +639,7 @@ const POS = ({ onEditingStateChange = () => {} }) => {
       lock_waiter_editing: Boolean(options.lockWaiterEditing),
     })
 
-    setWaiterEditLocked(Boolean(order?.waiter_edit_locked))
+    dispatch({ type: 'set_waiter_edit_locked', value: Boolean(order?.waiter_edit_locked) })
     return persistedTable
   }
 
@@ -207,15 +651,14 @@ const POS = ({ onEditingStateChange = () => {} }) => {
         lockWaiterEditing: isWaiter && cart.length > 0,
       })
       if (persistedTable) {
-        setSelectedTable(persistedTable)
+        dispatch({ type: 'set_selected_table', table: persistedTable })
       }
-      setSelectedTable(null)
-      setWaiterEditLocked(false)
-      setCart([])
+      dispatch({ type: 'leave_selected_table' })
       await loadTables()
     } catch (error) {
       console.error('Error al guardar la mesa:', error)
-      alert('Error al guardar la mesa')
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido'
+      alert(`Error al guardar la mesa: ${errorMessage}`)
     }
   }
 
@@ -241,22 +684,26 @@ const POS = ({ onEditingStateChange = () => {} }) => {
     }
 
     if (existing) {
-      setCart(
-        cart.map((c) =>
+      dispatch({
+        type: 'set_cart',
+        cart: cart.map((c) =>
           c.material_id === item.materials.id ? { ...c, quantity: c.quantity + 1 } : c
-        )
-      )
+        ),
+      })
     } else {
-      setCart([
-        ...cart,
-        {
-          material_id: item.materials.id,
-          name: item.materials.name,
-          unit_price: item.precio_venta,
-          quantity: 1,
-          is_extra: isExtra,
-        },
-      ])
+      dispatch({
+        type: 'set_cart',
+        cart: [
+          ...cart,
+          {
+            material_id: item.materials.id,
+            name: item.materials.name,
+            unit_price: item.precio_venta,
+            quantity: 1,
+            is_extra: isExtra,
+          },
+        ],
+      })
     }
   }
 
@@ -267,14 +714,15 @@ const POS = ({ onEditingStateChange = () => {} }) => {
       return
     }
 
-    setCart((prevCart) =>
-      prevCart
+    dispatch({
+      type: 'set_cart',
+      cart: cart
         .map((item) => {
           if (item.material_id !== id) return item
           return { ...item, quantity: item.quantity + delta }
         })
-        .filter((item) => item.quantity > 0)
-    )
+        .filter((item) => item.quantity > 0),
+    })
   }
 
   const removeFromCart = (id) => {
@@ -283,13 +731,19 @@ const POS = ({ onEditingStateChange = () => {} }) => {
       showNotice('Los meseros no pueden remover productos de una mesa ya ocupada. Solo un manager puede hacerlo.', 'warning')
       return
     }
-    setCart(cart.filter((c) => c.material_id !== id))
+    dispatch({ type: 'set_cart', cart: cart.filter((c) => c.material_id !== id) })
   }
 
   const total = cart.reduce((acc, curr) => acc + curr.unit_price * curr.quantity, 0)
   const totalItems = cart.reduce((acc, curr) => acc + curr.quantity, 0)
   const availableProducts = inventory.filter((item) => item.materials?.categories?.is_for_sale === true)
-  const occupiedTables = tables.filter((table) => table.status === 'ocupada').length
+  const barTables = tables.filter((table) => isBarStation(table))
+  const diningTables = tables.filter((table) => !isBarStation(table))
+  const freeBars = barTables.filter((table) => table.status === 'libre').length
+  const occupiedBars = barTables.filter((table) => table.status === 'ocupada').length
+  const freeDiningTables = diningTables.filter((table) => table.status === 'libre').length
+  const occupiedDiningTables = diningTables.filter((table) => table.status === 'ocupada').length
+  const selectedStationLabel = getStationDisplayName(selectedTable)
 
   const buildTicketData = (sale, items, table, documentNumber) => {
     const chargedAt = sale?.created_at || new Date().toISOString()
@@ -298,7 +752,7 @@ const POS = ({ onEditingStateChange = () => {} }) => {
       saleId: sale?.id,
       documentNumber,
       chargedAt,
-      tableNumber: table?.number,
+      tableNumber: getStationDisplayName(table),
       items: items.map((item) => ({
         name: item.name,
         quantity: item.quantity,
@@ -312,7 +766,7 @@ const POS = ({ onEditingStateChange = () => {} }) => {
   const handleRequestFinalizeSale = () => {
     if (!canOperatePOS) return
     if (!selectedTable || cart.length === 0) return
-    setShowFinalizeConfirm(true)
+    dispatch({ type: 'set_show_finalize_confirm', value: true })
   }
 
   const handleFinalizeSale = async () => {
@@ -320,7 +774,7 @@ const POS = ({ onEditingStateChange = () => {} }) => {
     if (!selectedTable || cart.length === 0) return
 
     try {
-      setShowFinalizeConfirm(false)
+      dispatch({ type: 'set_show_finalize_confirm', value: false })
       const centerId = inventory[0]?.centers?.id
       if (!centerId) {
         showNotice('No se encontro un centro de inventario para procesar la venta.', 'warning')
@@ -363,11 +817,12 @@ const POS = ({ onEditingStateChange = () => {} }) => {
         payment_method: 'Efectivo',
       })
       const documentNumber = sale?.document_number || null
-      setTicketData(buildTicketData(sale, normalizedCart, selectedTable, documentNumber))
+      dispatch({
+        type: 'set_ticket_data',
+        ticketData: buildTicketData(sale, normalizedCart, selectedTable, documentNumber),
+      })
       showNotice('Venta realizada con exito', 'success')
-      setCart([])
-      setSelectedTable(null)
-      setWaiterEditLocked(false)
+      dispatch({ type: 'leave_selected_table' })
       await Promise.all([loadInventory(), loadTables()])
     } catch (error) {
       console.error('Error en la venta:', error)
@@ -375,217 +830,120 @@ const POS = ({ onEditingStateChange = () => {} }) => {
     }
   }
 
+  return {
+    dispatch,
+    isMobile,
+    isTablet,
+    canOperatePOS,
+    selectedTable,
+    selectedStationLabel,
+    loading,
+    notice,
+    ticketData,
+    meseroLockedTable,
+    freeBars,
+    occupiedBars,
+    freeDiningTables,
+    occupiedDiningTables,
+    barTables,
+    diningTables,
+    availableProducts,
+    totalItems,
+    total,
+    cart,
+    canDecreaseOrRemoveFromOccupiedTable,
+    showFinalizeConfirm,
+    handleSelectTable,
+    handleSaveAndExit,
+    addToCart,
+    changeQuantity,
+    removeFromCart,
+    handleRequestFinalizeSale,
+    handleFinalizeSale,
+  }
+}
+
+const POS = ({ onEditingStateChange = () => {} }) => {
+  const {
+    dispatch,
+    isMobile,
+    isTablet,
+    canOperatePOS,
+    selectedTable,
+    selectedStationLabel,
+    loading,
+    notice,
+    ticketData,
+    meseroLockedTable,
+    freeBars,
+    occupiedBars,
+    freeDiningTables,
+    occupiedDiningTables,
+    barTables,
+    diningTables,
+    availableProducts,
+    totalItems,
+    total,
+    cart,
+    canDecreaseOrRemoveFromOccupiedTable,
+    showFinalizeConfirm,
+    handleSelectTable,
+    handleSaveAndExit,
+    addToCart,
+    changeQuantity,
+    removeFromCart,
+    handleRequestFinalizeSale,
+    handleFinalizeSale,
+  } = usePosController({ onEditingStateChange })
+
   if (loading) return <div style={{ padding: '20px' }}>Iniciando terminal de venta...</div>
 
   if (!selectedTable) {
     return (
-      <>
-        {notice && <NoticeBanner notice={notice} onClose={() => setNotice(null)} />}
-        <div style={getContainerStyle(isMobile)}>
-          <div style={heroCardStyle}>
-            <div>
-              <h2 style={{ color: '#1f2937', margin: 0, fontSize: isMobile ? '1.5rem' : '1.9rem' }}>Mapa de Mesas</h2>
-              <p style={{ ...mutedTextStyle, margin: '8px 0 0 0' }}>
-                Toca una mesa para abrir su cuenta y seguir tomando pedidos.
-              </p>
-              {!canOperatePOS && (
-                <div style={readOnlyHintStyle}>
-                  Tu usuario puede consultar mesas, pero no modificar pedidos.
-                </div>
-              )}
-              {meseroLockedTable && (
-                <div style={warningHintStyle}>
-                  Mesa ocupada: como mesero solo puedes agregar productos o aumentar cantidades.
-                </div>
-              )}
-            </div>
-
-            <div style={getStatsGridStyle(isMobile)}>
-              <div style={statCardStyle}>
-                <span style={statLabelStyle}>Mesas libres</span>
-                <strong style={statValueStyle}>{tables.length - occupiedTables}</strong>
-              </div>
-              <div style={statCardStyle}>
-                <span style={statLabelStyle}>Mesas ocupadas</span>
-                <strong style={statValueStyle}>{occupiedTables}</strong>
-              </div>
-            </div>
-          </div>
-
-          <div style={getTableGridStyle(isMobile)}>
-            {tables.map((table) => {
-              const isFree = table.status === 'libre'
-              return (
-                <button
-                  key={table.id}
-                  onClick={() => handleSelectTable(table)}
-                  style={{
-                    ...getTableButtonStyle(isMobile),
-                    background: isFree
-                      ? 'linear-gradient(135deg, #2f855a 0%, #276749 100%)'
-                      : 'linear-gradient(135deg, #c53030 0%, #9b2c2c 100%)',
-                  }}
-                >
-                  <span style={{ fontSize: isMobile ? '1rem' : '0.9rem', opacity: 0.88 }}>Mesa</span>
-                  <strong style={{ fontSize: isMobile ? '1.35rem' : '1.55rem' }}>{table.number}</strong>
-                  <span style={tableStatusBadgeStyle}>{(table.status || 'libre').toUpperCase()}</span>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-        {ticketData && <TicketModal ticket={ticketData} onClose={() => setTicketData(null)} />}
-      </>
+      <ServiceMapView
+        notice={notice}
+        isMobile={isMobile}
+        canOperatePOS={canOperatePOS}
+        meseroLockedTable={meseroLockedTable}
+        freeBars={freeBars}
+        occupiedBars={occupiedBars}
+        freeDiningTables={freeDiningTables}
+        occupiedDiningTables={occupiedDiningTables}
+        barTables={barTables}
+        diningTables={diningTables}
+        onNoticeClose={() => dispatch({ type: 'set_notice', notice: null })}
+        onSelectTable={handleSelectTable}
+        ticketData={ticketData}
+        onCloseTicket={() => dispatch({ type: 'set_ticket_data', ticketData: null })}
+      />
     )
   }
 
   return (
-    <>
-      {notice && <NoticeBanner notice={notice} onClose={() => setNotice(null)} />}
-      <div style={getWorkspaceStyle(isTablet, isMobile)}>
-        <section>
-          <div style={topBarStyle(isMobile)}>
-            <button onClick={handleSaveAndExit} disabled={!canOperatePOS} style={canOperatePOS ? btnSecondaryStyle : disabledSecondaryBtnStyle}>
-              Volver a Mesas
-            </button>
-            <div style={tableInfoCardStyle}>
-              <span style={tableInfoLabelStyle}>Atendiendo</span>
-              <strong style={{ color: '#1f2937', fontSize: isMobile ? '1rem' : '1.15rem' }}>
-                {selectedTable?.number}
-              </strong>
-            </div>
-          </div>
-
-          <div style={heroCardStyle}>
-            <div>
-              <h2 style={{ color: '#1f2937', margin: 0, fontSize: isMobile ? '1.35rem' : '1.65rem' }}>Productos Disponibles</h2>
-              <p style={{ ...mutedTextStyle, margin: '8px 0 0 0' }}>
-                Toca un producto para agregarlo a la cuenta de la mesa.
-              </p>
-              {!canOperatePOS && (
-                <div style={readOnlyHintStyle}>
-                  Modo solo lectura. Puedes revisar el contenido de la mesa, pero no cambiarlo.
-                </div>
-              )}
-            </div>
-
-            <div style={getStatsGridStyle(isMobile)}>
-              <div style={statCardStyle}>
-                <span style={statLabelStyle}>Productos</span>
-                <strong style={statValueStyle}>{availableProducts.length}</strong>
-              </div>
-              <div style={statCardStyle}>
-                <span style={statLabelStyle}>Articulos</span>
-                <strong style={statValueStyle}>{totalItems}</strong>
-              </div>
-            </div>
-          </div>
-
-          <div style={getProductGridStyle(isMobile)}>
-            {availableProducts.map((item, idx) => {
-              const isExtra = item.materials?.categories?.name === 'Extras'
-              const isOutOfStock = !isExtra && item.stock_actual <= 0
-
-              return (
-                <div
-                  key={idx}
-                  onClick={() => addToCart(item)}
-                  style={{
-                    ...getProductCardStyle(isMobile),
-                    opacity: isOutOfStock ? 0.52 : 1,
-                    cursor: !canOperatePOS || isOutOfStock ? 'not-allowed' : 'pointer',
-                  }}
-                >
-                  <div style={productCategoryPillStyle}>{item.materials.categories.name}</div>
-                  <div style={{ fontWeight: 'bold', color: '#1f2937', fontSize: isMobile ? '0.95rem' : '1rem' }}>
-                    {item.materials.name}
-                  </div>
-                  <div style={{ color: '#0f766e', fontWeight: 'bold', marginTop: '10px', fontSize: isMobile ? '1.1rem' : '1.2rem' }}>
-                    ${item.precio_venta}
-                  </div>
-
-                  {item.materials.categories.is_inventoried ? (
-                    <div style={{ fontSize: '0.78rem', color: item.stock_actual <= 0 ? '#b91c1c' : '#475569', marginTop: '10px' }}>
-                      Stock: {item.stock_actual}
-                    </div>
-                  ) : (
-                    <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '10px' }}>
-                      Venta sin inventario fisico
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        </section>
-
-        <section style={getCartContainerStyle(isTablet, isMobile)}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
-            <div>
-              <h3 style={{ margin: 0, color: '#1f2937' }}>Cuenta Actual</h3>
-              <p style={{ ...mutedTextStyle, margin: '6px 0 0 0' }}>{totalItems} articulos en la mesa</p>
-            </div>
-            <div style={cartBadgeStyle}>${total.toFixed(2)}</div>
-          </div>
-
-          <div style={cartListStyle}>
-            {cart.length === 0 ? (
-              <div style={emptyCartStyle}>
-                <strong style={{ color: '#334155' }}>Aun no hay productos</strong>
-                <span style={{ ...mutedTextStyle, marginTop: '6px' }}>Agrega articulos para comenzar la cuenta.</span>
-              </div>
-            ) : (
-              cart.map((c) => (
-                <div key={c.material_id} style={cartItemStyle}>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: '0.95rem', color: '#0f172a', fontWeight: '700' }}>{c.name}</div>
-                    <div style={{ fontSize: '0.82rem', color: '#64748b', marginTop: '4px' }}>
-                      ${c.unit_price} c/u
-                    </div>
-                  </div>
-
-                  <div style={cartActionsStyle}>
-                    <div style={quantityControlStyle}>
-                      <button onClick={() => changeQuantity(c.material_id, -1)} disabled={!canOperatePOS || !canDecreaseOrRemoveFromOccupiedTable} style={canOperatePOS && canDecreaseOrRemoveFromOccupiedTable ? qtyBtnStyle : disabledQtyBtnStyle} type="button">
-                        -
-                      </button>
-                      <span style={qtyValueStyle}>{c.quantity}</span>
-                      <button onClick={() => changeQuantity(c.material_id, 1)} disabled={!canOperatePOS} style={canOperatePOS ? qtyBtnStyle : disabledQtyBtnStyle} type="button">
-                        +
-                      </button>
-                    </div>
-
-                    <button onClick={() => removeFromCart(c.material_id)} disabled={!canOperatePOS || !canDecreaseOrRemoveFromOccupiedTable} style={canOperatePOS && canDecreaseOrRemoveFromOccupiedTable ? deleteBtnStyle : disabledDeleteBtnStyle} type="button">
-                      Quitar
-                    </button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-
-          <div style={checkoutPanelStyle}>
-            <div style={checkoutRowStyle}>
-              <span>Total</span>
-              <strong>${total.toFixed(2)}</strong>
-            </div>
-            <button onClick={handleRequestFinalizeSale} disabled={cart.length === 0 || !canOperatePOS} style={cart.length === 0 || !canOperatePOS ? disabledCheckoutBtnStyle : checkoutBtnStyle}>
-              Finalizar Venta
-            </button>
-          </div>
-        </section>
-      </div>
-      {ticketData && <TicketModal ticket={ticketData} onClose={() => setTicketData(null)} />}
-      {showFinalizeConfirm && (
-        <FinalizeSaleModal
-          table={selectedTable}
-          total={total}
-          totalItems={totalItems}
-          onCancel={() => setShowFinalizeConfirm(false)}
-          onConfirm={handleFinalizeSale}
-        />
-      )}
-    </>
+    <ActiveOrderView
+      notice={notice}
+      isTablet={isTablet}
+      isMobile={isMobile}
+      canOperatePOS={canOperatePOS}
+      selectedTable={selectedTable}
+      selectedStationLabel={selectedStationLabel}
+      availableProducts={availableProducts}
+      totalItems={totalItems}
+      total={total}
+      cart={cart}
+      canDecreaseOrRemoveFromOccupiedTable={canDecreaseOrRemoveFromOccupiedTable}
+      showFinalizeConfirm={showFinalizeConfirm}
+      ticketData={ticketData}
+      onNoticeClose={() => dispatch({ type: 'set_notice', notice: null })}
+      onSaveAndExit={handleSaveAndExit}
+      onAddToCart={addToCart}
+      onChangeQuantity={changeQuantity}
+      onRemoveFromCart={removeFromCart}
+      onRequestFinalizeSale={handleRequestFinalizeSale}
+      onCloseTicket={() => dispatch({ type: 'set_ticket_data', ticketData: null })}
+      onCloseFinalizeConfirm={() => dispatch({ type: 'set_show_finalize_confirm', value: false })}
+      onConfirmFinalizeSale={handleFinalizeSale}
+    />
   )
 }
 
@@ -610,13 +968,57 @@ const NoticeBanner = ({ notice, onClose }) => (
   </div>
 )
 
+const StationSection = ({ title, description, stations, isMobile, emptyMessage, onSelect }) => (
+  <section style={stationSectionStyle}>
+    <div style={stationSectionHeaderStyle}>
+      <div>
+        <h3 style={stationSectionTitleStyle}>{title}</h3>
+        <p style={stationSectionDescriptionStyle}>{description}</p>
+      </div>
+      <div style={stationSectionCountStyle}>
+        {stations.length} {stations.length === 1 ? 'estacion' : 'estaciones'}
+      </div>
+    </div>
+
+    {stations.length === 0 ? (
+      <div style={emptyStationStateStyle}>{emptyMessage}</div>
+    ) : (
+      <div style={getTableGridStyle(isMobile)}>
+        {stations.map((table) => {
+          const isFree = table.status === 'libre'
+          const typeLabel = getStationTypeName(table)
+          const shortName = getStationShortName(table)
+
+          return (
+            <button
+              key={table.id}
+              type="button"
+              onClick={() => onSelect(table)}
+              style={{
+                ...getTableButtonStyle(isMobile),
+                background: isFree
+                  ? 'linear-gradient(135deg, #2f855a 0%, #276749 100%)'
+                  : 'linear-gradient(135deg, #c53030 0%, #9b2c2c 100%)',
+              }}
+            >
+              <span style={{ fontSize: isMobile ? '1rem' : '0.9rem', opacity: 0.88 }}>{typeLabel}</span>
+              <strong style={{ fontSize: isMobile ? '1.35rem' : '1.55rem' }}>{shortName}</strong>
+              <span style={tableStatusBadgeStyle}>{(table.status || 'libre').toUpperCase()}</span>
+            </button>
+          )
+        })}
+      </div>
+    )}
+  </section>
+)
+
 const FinalizeSaleModal = ({ table, total, totalItems, onCancel, onConfirm }) => (
   <div style={confirmOverlayStyle}>
     <div style={confirmCardStyle}>
       <div style={confirmBadgeStyle}>Confirmar venta</div>
       <h3 style={confirmTitleStyle}>Estas por finalizar la cuenta</h3>
       <p style={confirmTextStyle}>
-        Se cerrara la venta de <strong>Mesa {table?.number || 'General'}</strong> y la mesa quedara libre para un nuevo pedido.
+        Se cerrara la venta de <strong>{getStationDisplayName(table)}</strong> y la estacion quedara libre para un nuevo pedido.
       </p>
       <div style={confirmSummaryStyle}>
         <div style={confirmMetricStyle}>
@@ -639,126 +1041,285 @@ const FinalizeSaleModal = ({ table, total, totalItems, onCancel, onConfirm }) =>
     </div>
   </div>
 )
-const TicketModal = ({ ticket, onClose }) => {
+const getTicketLabels = (ticket) => {
   const chargedAt = new Date(ticket.chargedAt)
-  const dateLabel = chargedAt.toLocaleDateString('es-MX', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  })
-  const timeLabel = chargedAt.toLocaleTimeString('es-MX', {
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-  const [isExportingPdf, setIsExportingPdf] = useState(false)
-  const ticketReference = ticket.documentNumber
 
-  const loadLogoDataUrl = async () => {
-    const response = await fetch(logoCarreta)
-    const blob = await response.blob()
-
-    return await new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onloadend = () => resolve(reader.result)
-      reader.onerror = reject
-      reader.readAsDataURL(blob)
-    })
+  return {
+    dateLabel: chargedAt.toLocaleDateString('es-MX', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    }),
+    timeLabel: chargedAt.toLocaleTimeString('es-MX', {
+      hour: '2-digit',
+      minute: '2-digit',
+    }),
+    ticketReference: ticket.documentNumber,
   }
+}
 
-  const buildTicketPdf = async () => {
-    const { jsPDF } = await loadJsPdf()
-    const pageWidth = TICKET_WIDTH_MM
-    const margin = 6
-    const lineHeight = 4.3
-    const itemBlockHeight = 9
-    const baseHeight = 52
-    const footerHeight = 16
-    const pageHeight = Math.max(110, baseHeight + ticket.items.length * itemBlockHeight + footerHeight)
-    const pdf = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: [pageWidth, pageHeight],
-    })
+const getTicketFileName = (ticket) => `ticket-la-carreta-${ticket.documentNumber || Date.now()}.pdf`
 
-    const watermarkUrl = await loadLogoDataUrl()
-    const centerX = pageWidth / 2
-    const contentWidth = pageWidth - margin * 2
-    const headerRight = pageWidth - margin
-    let y = 8
+const loadTicketLogoDataUrl = async () => {
+  const response = await fetch(logoCarreta)
+  const blob = await response.blob()
 
-    pdf.setFillColor(255, 255, 255)
-    pdf.rect(0, 0, pageWidth, pageHeight, 'F')
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onloadend = () => resolve(reader.result)
+    reader.onerror = reject
+    reader.readAsDataURL(blob)
+  })
+}
 
-    pdf.setGState(new pdf.GState({ opacity: 0.08 }))
-    pdf.addImage(watermarkUrl, 'PNG', 9, pageHeight / 2 - 22, 62, 44, undefined, 'FAST')
-    pdf.setGState(new pdf.GState({ opacity: 1 }))
+const buildTicketPdf = async ({ ticket, dateLabel, timeLabel, ticketReference }) => {
+  const { jsPDF } = await loadJsPdf()
+  const pageWidth = TICKET_WIDTH_MM
+  const margin = 6
+  const lineHeight = 4.3
+  const itemBlockHeight = 9
+  const baseHeight = 52
+  const footerHeight = 16
+  const pageHeight = Math.max(110, baseHeight + ticket.items.length * itemBlockHeight + footerHeight)
+  const pdf = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: [pageWidth, pageHeight],
+  })
 
+  const watermarkUrl = await loadTicketLogoDataUrl()
+  const centerX = pageWidth / 2
+  const contentWidth = pageWidth - margin * 2
+  const headerRight = pageWidth - margin
+  let y = 8
+
+  pdf.setFillColor(255, 255, 255)
+  pdf.rect(0, 0, pageWidth, pageHeight, 'F')
+
+  pdf.setGState(new pdf.GState({ opacity: 0.08 }))
+  pdf.addImage(watermarkUrl, 'PNG', 9, pageHeight / 2 - 22, 62, 44, undefined, 'FAST')
+  pdf.setGState(new pdf.GState({ opacity: 1 }))
+
+  pdf.setFont('helvetica', 'bold')
+  pdf.setFontSize(13)
+  pdf.text('LA CARRETA', centerX, y, { align: 'center' })
+  y += 6
+
+  pdf.setFontSize(10)
+  pdf.text('Ticket virtual', centerX, y, { align: 'center' })
+  y += 7
+
+  pdf.setDrawColor(203, 213, 225)
+  pdf.line(margin, y, headerRight, y)
+  y += 5
+
+  pdf.setFont('helvetica', 'normal')
+  pdf.setFontSize(8.5)
+  if (ticketReference) {
+    pdf.text(`Folio de venta: ${ticketReference}`, margin, y)
+    y += lineHeight
+  }
+  pdf.text(`Fecha: ${dateLabel}`, margin, y)
+  y += lineHeight
+  pdf.text(`Hora: ${timeLabel}`, margin, y)
+  y += lineHeight
+  pdf.text(`Cuenta: ${ticket.tableNumber || 'General'}`, margin, y)
+  y += lineHeight
+
+  y += 2
+  pdf.setFont('helvetica', 'bold')
+  pdf.setFontSize(8)
+  pdf.text('Producto', margin, y)
+  pdf.text('Importe', headerRight, y, { align: 'right' })
+  y += 2
+  pdf.line(margin, y, headerRight, y)
+  y += 5
+
+  ticket.items.forEach((item) => {
     pdf.setFont('helvetica', 'bold')
-    pdf.setFontSize(13)
-    pdf.text('LA CARRETA', centerX, y, { align: 'center' })
-    y += 6
-
-    pdf.setFontSize(10)
-    pdf.text('Ticket virtual', centerX, y, { align: 'center' })
-    y += 7
-
-    pdf.setDrawColor(203, 213, 225)
-    pdf.line(margin, y, headerRight, y)
-    y += 5
-
+    pdf.setFontSize(8.4)
+    const itemNameLines = pdf.splitTextToSize(item.name, contentWidth - 16)
+    pdf.text(itemNameLines, margin, y)
+    pdf.text(`$${item.subtotal.toFixed(2)}`, headerRight, y, { align: 'right' })
+    y += itemNameLines.length * 3.7
     pdf.setFont('helvetica', 'normal')
-    pdf.setFontSize(8.5)
-    if (ticketReference) {
-      pdf.text(`Folio de venta: ${ticketReference}`, margin, y)
-      y += lineHeight
-    }
-    pdf.text(`Fecha: ${dateLabel}`, margin, y)
-    y += lineHeight
-    pdf.text(`Hora: ${timeLabel}`, margin, y)
-    y += lineHeight
-    pdf.text(`Mesa: ${ticket.tableNumber || 'General'}`, margin, y)
-    y += lineHeight
-
-    y += 2
-    pdf.setFont('helvetica', 'bold')
-    pdf.setFontSize(8)
-    pdf.text('Producto', margin, y)
-    pdf.text('Importe', headerRight, y, { align: 'right' })
-    y += 2
-    pdf.line(margin, y, headerRight, y)
+    pdf.setFontSize(7.8)
+    pdf.text(`${item.quantity} x $${item.unitPrice.toFixed(2)}`, margin, y)
     y += 5
+  })
 
-    ticket.items.forEach((item) => {
-      pdf.setFont('helvetica', 'bold')
-      pdf.setFontSize(8.4)
-      const itemNameLines = pdf.splitTextToSize(item.name, contentWidth - 16)
-      pdf.text(itemNameLines, margin, y)
+  pdf.line(margin, y, headerRight, y)
+  y += 6
 
-      pdf.text(`$${item.subtotal.toFixed(2)}`, headerRight, y, { align: 'right' })
+  pdf.setFont('helvetica', 'bold')
+  pdf.setFontSize(10.5)
+  pdf.text('Total', margin, y)
+  pdf.text(`$${ticket.total.toFixed(2)}`, headerRight, y, { align: 'right' })
 
-      y += itemNameLines.length * 3.7
-      pdf.setFont('helvetica', 'normal')
-      pdf.setFontSize(7.8)
-      pdf.text(`${item.quantity} x $${item.unitPrice.toFixed(2)}`, margin, y)
-      y += 5
-    })
+  return pdf
+}
 
-    pdf.line(margin, y, headerRight, y)
-    y += 6
+const buildTicketPrintHtml = ({ ticket, dateLabel, timeLabel, ticketReference }) => {
+  const watermarkUrl = new URL('../assets/la_carreta_sin_fondo.png', import.meta.url).href
+  const itemsMarkup = ticket.items
+    .map(
+      (item) => `
+        <div class="ticket-row">
+          <div>
+            <div class="item-name">${item.name}</div>
+            <div class="item-meta">${item.quantity} x $${item.unitPrice.toFixed(2)}</div>
+          </div>
+          <strong>$${item.subtotal.toFixed(2)}</strong>
+        </div>
+      `
+    )
+    .join('')
 
-    pdf.setFont('helvetica', 'bold')
-    pdf.setFontSize(10.5)
-    pdf.text('Total', margin, y)
-    pdf.text(`$${ticket.total.toFixed(2)}`, headerRight, y, { align: 'right' })
+  return `
+    <!doctype html>
+    <html lang="es">
+      <head>
+        <meta charset="utf-8" />
+        <title>Ticket Virtual</title>
+        <style>
+          body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #f3f4f6;
+            color: #111827;
+          }
+          @page {
+            size: ${TICKET_WIDTH_MM}mm auto;
+            margin: 0;
+          }
+          .sheet {
+            position: relative;
+            width: ${TICKET_WIDTH_MM}mm;
+            max-width: ${TICKET_WIDTH_MM}mm;
+            margin: 24px auto;
+            padding: 8mm 6mm;
+            background: #ffffff;
+            border-radius: 18px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+            box-sizing: border-box;
+          }
+          .watermark {
+            position: absolute;
+            inset: 50% auto auto 50%;
+            transform: translate(-50%, -50%);
+            width: 64mm;
+            opacity: 0.08;
+            pointer-events: none;
+          }
+          .header,
+          .total-row,
+          .ticket-row,
+          .items-header {
+            position: relative;
+            z-index: 1;
+          }
+          .header h1 {
+            margin: 0 0 14px 0;
+            font-size: 24px;
+          }
+          .meta {
+            position: relative;
+            z-index: 1;
+            display: grid;
+            gap: 6px;
+            margin-bottom: 18px;
+            font-size: 14px;
+            color: #374151;
+          }
+          .items-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #e5e7eb;
+            font-size: 12px;
+            font-weight: 700;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+          }
+          .ticket-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 12px 0;
+            border-bottom: 1px solid #f1f5f9;
+          }
+          .item-name {
+            font-weight: 700;
+          }
+          .item-meta {
+            margin-top: 4px;
+            color: #6b7280;
+            font-size: 13px;
+          }
+          .total-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 18px;
+            padding-top: 14px;
+            border-top: 2px solid #e5e7eb;
+            font-size: 18px;
+            font-weight: 800;
+          }
+          @media print {
+            body {
+              background: #ffffff;
+            }
+            .sheet {
+              margin: 0;
+              width: ${TICKET_WIDTH_MM}mm;
+              max-width: ${TICKET_WIDTH_MM}mm;
+              border-radius: 0;
+              box-shadow: none;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="sheet">
+          <img src="${watermarkUrl}" alt="" class="watermark" />
+          <div class="header">
+            <h1>Ticket Virtual</h1>
+          </div>
+          <div class="meta">
+            ${ticketReference ? `<div><strong>Folio de venta:</strong> ${ticketReference}</div>` : ''}
+            <div><strong>Fecha:</strong> ${dateLabel}</div>
+            <div><strong>Hora:</strong> ${timeLabel}</div>
+            <div><strong>Cuenta:</strong> ${ticket.tableNumber || 'General'}</div>
+          </div>
+          <div class="items-header">
+            <span>Producto</span>
+            <span>Importe</span>
+          </div>
+          ${itemsMarkup}
+          <div class="total-row">
+            <span>Total</span>
+            <strong>$${ticket.total.toFixed(2)}</strong>
+          </div>
+        </div>
+      </body>
+    </html>
+  `
+}
 
-    return pdf
-  }
+const useTicketModalController = ({ ticket }) => {
+  const [isExportingPdf, setIsExportingPdf] = useState(false)
+  const { dateLabel, timeLabel, ticketReference } = getTicketLabels(ticket)
 
   const handleDownloadPdf = async () => {
     try {
       setIsExportingPdf(true)
-      const pdf = await buildTicketPdf()
-      pdf.save(`ticket-la-carreta-${ticket.documentNumber || Date.now()}.pdf`)
+      const pdf = await buildTicketPdf({ ticket, dateLabel, timeLabel, ticketReference })
+      pdf.save(getTicketFileName(ticket))
     } catch (error) {
       console.error('Error al generar PDF:', error)
       alert('No se pudo generar el PDF del ticket.')
@@ -770,16 +1331,16 @@ const TicketModal = ({ ticket, onClose }) => {
   const handleShareTicket = async () => {
     try {
       setIsExportingPdf(true)
-      const pdf = await buildTicketPdf()
+      const pdf = await buildTicketPdf({ ticket, dateLabel, timeLabel, ticketReference })
       const blob = pdf.output('blob')
-      const file = new File([blob], `ticket-la-carreta-${ticket.documentNumber || Date.now()}.pdf`, {
+      const file = new File([blob], getTicketFileName(ticket), {
         type: 'application/pdf',
       })
 
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
         await navigator.share({
           title: 'Ticket La Carreta',
-          text: `Ticket de consumo${ticket.tableNumber ? ` - Mesa ${ticket.tableNumber}` : ''}`,
+          text: `Ticket de consumo${ticket.tableNumber ? ` - ${ticket.tableNumber}` : ''}`,
           files: [file],
         })
       } else {
@@ -802,7 +1363,6 @@ const TicketModal = ({ ticket, onClose }) => {
   }
 
   const handlePrintTicket = () => {
-    const watermarkUrl = new URL('../assets/la_carreta_sin_fondo.png', import.meta.url).href
     const printWindow = window.open('', '_blank', 'width=760,height=900')
 
     if (!printWindow) {
@@ -810,213 +1370,118 @@ const TicketModal = ({ ticket, onClose }) => {
       return
     }
 
-    const itemsMarkup = ticket.items
-      .map(
-        (item) => `
-          <div class="ticket-row">
-            <div>
-              <div class="item-name">${item.name}</div>
-              <div class="item-meta">${item.quantity} x $${item.unitPrice.toFixed(2)}</div>
-            </div>
-            <strong>$${item.subtotal.toFixed(2)}</strong>
-          </div>
-        `
-      )
-      .join('')
-
-    printWindow.document.write(`
-      <!doctype html>
-      <html lang="es">
-        <head>
-          <meta charset="utf-8" />
-          <title>Ticket Virtual</title>
-          <style>
-            body {
-              margin: 0;
-              font-family: Arial, sans-serif;
-              background: #f3f4f6;
-              color: #111827;
-            }
-            @page {
-              size: ${TICKET_WIDTH_MM}mm auto;
-              margin: 0;
-            }
-            .sheet {
-              position: relative;
-              width: ${TICKET_WIDTH_MM}mm;
-              max-width: ${TICKET_WIDTH_MM}mm;
-              margin: 24px auto;
-              padding: 8mm 6mm;
-              background: #ffffff;
-              border-radius: 18px;
-              overflow: hidden;
-              box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
-              box-sizing: border-box;
-            }
-            .watermark {
-              position: absolute;
-              inset: 50% auto auto 50%;
-              transform: translate(-50%, -50%);
-              width: 64mm;
-              opacity: 0.08;
-              pointer-events: none;
-            }
-            .header,
-            .total-row,
-            .ticket-row,
-            .items-header {
-              position: relative;
-              z-index: 1;
-            }
-            .header h1 {
-              margin: 0 0 14px 0;
-              font-size: 24px;
-            }
-            .meta {
-              position: relative;
-              z-index: 1;
-              display: grid;
-              gap: 6px;
-              margin-bottom: 18px;
-              font-size: 14px;
-              color: #374151;
-            }
-            .items-header {
-              display: flex;
-              justify-content: space-between;
-              gap: 12px;
-              padding-bottom: 8px;
-              border-bottom: 1px solid #e5e7eb;
-              font-size: 12px;
-              font-weight: 700;
-              color: #6b7280;
-              text-transform: uppercase;
-              letter-spacing: 0.04em;
-            }
-            .ticket-row {
-              display: flex;
-              justify-content: space-between;
-              align-items: flex-start;
-              gap: 12px;
-              padding: 12px 0;
-              border-bottom: 1px solid #f1f5f9;
-            }
-            .item-name {
-              font-weight: 700;
-            }
-            .item-meta {
-              margin-top: 4px;
-              color: #6b7280;
-              font-size: 13px;
-            }
-            .total-row {
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-              margin-top: 18px;
-              padding-top: 14px;
-              border-top: 2px solid #e5e7eb;
-              font-size: 18px;
-              font-weight: 800;
-            }
-            @media print {
-              body {
-                background: #ffffff;
-              }
-              .sheet {
-                margin: 0;
-                width: ${TICKET_WIDTH_MM}mm;
-                max-width: ${TICKET_WIDTH_MM}mm;
-                border-radius: 0;
-                box-shadow: none;
-              }
-            }
-          </style>
-        </head>
-        <body>
-          <div class="sheet">
-            <img src="${watermarkUrl}" alt="" class="watermark" />
-            <div class="header">
-              <h1>Ticket Virtual</h1>
-            </div>
-            <div class="meta">
-              ${ticketReference ? `<div><strong>Folio de venta:</strong> ${ticketReference}</div>` : ''}
-              <div><strong>Fecha:</strong> ${dateLabel}</div>
-              <div><strong>Hora:</strong> ${timeLabel}</div>
-              <div><strong>Mesa:</strong> ${ticket.tableNumber || 'General'}</div>
-            </div>
-            <div class="items-header">
-              <span>Producto</span>
-              <span>Importe</span>
-            </div>
-            ${itemsMarkup}
-            <div class="total-row">
-              <span>Total</span>
-              <strong>$${ticket.total.toFixed(2)}</strong>
-            </div>
-          </div>
-        </body>
-      </html>
-    `)
-
+    printWindow.document.write(buildTicketPrintHtml({ ticket, dateLabel, timeLabel, ticketReference }))
     printWindow.document.close()
     printWindow.focus()
     printWindow.print()
   }
+
+  return {
+    isExportingPdf,
+    dateLabel,
+    timeLabel,
+    ticketReference,
+    handleDownloadPdf,
+    handleShareTicket,
+    handlePrintTicket,
+  }
+}
+
+const TicketModalHeader = ({
+  isExportingPdf,
+  onDownloadPdf,
+  onShareTicket,
+  onPrintTicket,
+  onClose,
+}) => (
+  <div style={ticketHeaderStyle}>
+    <h3 style={{ margin: 0, color: '#111827' }}>Ticket Virtual</h3>
+    <div style={ticketHeaderActionsStyle}>
+      <button type="button" onClick={onDownloadPdf} style={ticketPdfBtnStyle} disabled={isExportingPdf}>
+        {isExportingPdf ? 'Generando...' : 'Descargar PDF'}
+      </button>
+      <button type="button" onClick={onShareTicket} style={ticketShareBtnStyle} disabled={isExportingPdf}>
+        Compartir
+      </button>
+      <button type="button" onClick={onPrintTicket} style={ticketPrintBtnStyle} disabled={isExportingPdf}>
+        Imprimir
+      </button>
+      <button type="button" onClick={onClose} style={ticketCloseBtnStyle}>
+        Cerrar
+      </button>
+    </div>
+  </div>
+)
+
+const TicketMeta = ({ ticketReference, dateLabel, timeLabel, tableNumber }) => (
+  <div style={ticketMetaStyle}>
+    {ticketReference && <div><strong>Folio de venta:</strong> {ticketReference}</div>}
+    <div><strong>Fecha:</strong> {dateLabel}</div>
+    <div><strong>Hora:</strong> {timeLabel}</div>
+    <div><strong>Cuenta:</strong> {tableNumber || 'General'}</div>
+  </div>
+)
+
+const TicketItems = ({ items }) => (
+  <div style={ticketItemsWrapStyle}>
+    <div style={ticketItemsHeaderStyle}>
+      <span>Producto</span>
+      <span>Importe</span>
+    </div>
+
+    {items.map((item) => (
+      <div key={`${item.name}-${item.unitPrice}`} style={ticketItemRowStyle}>
+        <div style={{ minWidth: 0 }}>
+          <div style={ticketItemNameStyle}>{item.name}</div>
+          <div style={ticketItemMetaStyle}>
+            {item.quantity} x ${item.unitPrice.toFixed(2)}
+          </div>
+        </div>
+        <strong style={{ color: '#111827' }}>${item.subtotal.toFixed(2)}</strong>
+      </div>
+    ))}
+  </div>
+)
+
+const TicketSummary = ({ total }) => (
+  <div style={ticketTotalStyle}>
+    <span>Total</span>
+    <strong>${total.toFixed(2)}</strong>
+  </div>
+)
+
+const TicketModal = ({ ticket, onClose }) => {
+  const {
+    isExportingPdf,
+    dateLabel,
+    timeLabel,
+    ticketReference,
+    handleDownloadPdf,
+    handleShareTicket,
+    handlePrintTicket,
+  } = useTicketModalController({ ticket })
 
   return (
     <div style={ticketOverlayStyle}>
       <div style={ticketCardStyle}>
         <img src={logoCarreta} alt="" style={ticketWatermarkStyle} />
 
-        <div style={ticketHeaderStyle}>
-          <h3 style={{ margin: 0, color: '#111827' }}>Ticket Virtual</h3>
-          <div style={ticketHeaderActionsStyle}>
-            <button type="button" onClick={handleDownloadPdf} style={ticketPdfBtnStyle} disabled={isExportingPdf}>
-              {isExportingPdf ? 'Generando...' : 'Descargar PDF'}
-            </button>
-            <button type="button" onClick={handleShareTicket} style={ticketShareBtnStyle} disabled={isExportingPdf}>
-              Compartir
-            </button>
-            <button type="button" onClick={handlePrintTicket} style={ticketPrintBtnStyle} disabled={isExportingPdf}>
-              Imprimir
-            </button>
-            <button type="button" onClick={onClose} style={ticketCloseBtnStyle}>
-              Cerrar
-            </button>
-          </div>
-        </div>
+        <TicketModalHeader
+          isExportingPdf={isExportingPdf}
+          onDownloadPdf={handleDownloadPdf}
+          onShareTicket={handleShareTicket}
+          onPrintTicket={handlePrintTicket}
+          onClose={onClose}
+        />
 
-        <div style={ticketMetaStyle}>
-          {ticketReference && <div><strong>Folio de venta:</strong> {ticketReference}</div>}
-          <div><strong>Fecha:</strong> {dateLabel}</div>
-          <div><strong>Hora:</strong> {timeLabel}</div>
-          <div><strong>Mesa:</strong> {ticket.tableNumber || 'General'}</div>
-        </div>
-
-        <div style={ticketItemsWrapStyle}>
-          <div style={ticketItemsHeaderStyle}>
-            <span>Producto</span>
-            <span>Importe</span>
-          </div>
-
-          {ticket.items.map((item, index) => (
-            <div key={`${item.name}-${index}`} style={ticketItemRowStyle}>
-              <div style={{ minWidth: 0 }}>
-                <div style={ticketItemNameStyle}>{item.name}</div>
-                <div style={ticketItemMetaStyle}>
-                  {item.quantity} x ${item.unitPrice.toFixed(2)}
-                </div>
-              </div>
-              <strong style={{ color: '#111827' }}>${item.subtotal.toFixed(2)}</strong>
-            </div>
-          ))}
-        </div>
-
-        <div style={ticketTotalStyle}>
-          <span>Total</span>
-          <strong>${ticket.total.toFixed(2)}</strong>
-        </div>
+        <TicketMeta
+          ticketReference={ticketReference}
+          dateLabel={dateLabel}
+          timeLabel={timeLabel}
+          tableNumber={ticket.tableNumber}
+        />
+        <TicketItems items={ticket.items} />
+        <TicketSummary total={ticket.total} />
       </div>
     </div>
   )
@@ -1087,6 +1552,57 @@ const statLabelStyle = {
 const statValueStyle = {
   color: '#0f172a',
   fontSize: '1.2rem',
+}
+
+const stationSectionsStyle = {
+  display: 'grid',
+  gap: '18px',
+}
+
+const stationSectionStyle = {
+  backgroundColor: '#ffffff',
+  borderRadius: '18px',
+  padding: '18px',
+  boxShadow: '0 10px 30px rgba(15, 23, 42, 0.08)',
+  border: '1px solid #e2e8f0',
+}
+
+const stationSectionHeaderStyle = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'flex-start',
+  gap: '12px',
+  flexWrap: 'wrap',
+  marginBottom: '16px',
+}
+
+const stationSectionTitleStyle = {
+  margin: 0,
+  color: '#1f2937',
+  fontSize: '1.1rem',
+}
+
+const stationSectionDescriptionStyle = {
+  ...mutedTextStyle,
+  margin: '6px 0 0 0',
+}
+
+const stationSectionCountStyle = {
+  backgroundColor: '#eff6ff',
+  color: '#1d4ed8',
+  borderRadius: '999px',
+  padding: '8px 12px',
+  fontWeight: '700',
+  fontSize: '0.78rem',
+}
+
+const emptyStationStateStyle = {
+  backgroundColor: '#f8fafc',
+  border: '1px dashed #cbd5e1',
+  borderRadius: '16px',
+  padding: '18px',
+  color: '#64748b',
+  fontWeight: '600',
 }
 
 const getTableGridStyle = (isMobile) => ({

@@ -1,26 +1,69 @@
-﻿import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useReducer } from 'react'
 import ReportView from '../components/ReportView'
 import { materialService } from '../api/materialService'
 import { formatCurrency, formatDateTime } from '../lib/reportUtils'
 import { useResponsive } from '../lib/useResponsive'
 
+const createInitialPurchasesState = () => ({
+  purchases: [],
+  loading: true,
+  dateFrom: '',
+  dateTo: '',
+  selectedProvider: '',
+})
+
+const purchasesReducer = (state, action) => {
+  switch (action.type) {
+    case 'load-start':
+      return {
+        ...state,
+        loading: true,
+      }
+    case 'load-success':
+      return {
+        ...state,
+        loading: false,
+        purchases: action.purchases,
+      }
+    case 'load-finish':
+      return {
+        ...state,
+        loading: false,
+      }
+    case 'set-date-from':
+      return {
+        ...state,
+        dateFrom: action.value,
+      }
+    case 'set-date-to':
+      return {
+        ...state,
+        dateTo: action.value,
+      }
+    case 'set-provider':
+      return {
+        ...state,
+        selectedProvider: action.value,
+      }
+    default:
+      return state
+  }
+}
+
 const PurchasesReport = () => {
-  const [purchases, setPurchases] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
-  const [selectedProvider, setSelectedProvider] = useState('')
+  const [state, dispatch] = useReducer(purchasesReducer, undefined, createInitialPurchasesState)
+  const { purchases, loading, dateFrom, dateTo, selectedProvider } = state
   const { isMobile } = useResponsive()
 
   useEffect(() => {
     const loadReport = async () => {
+      dispatch({ type: 'load-start' })
       try {
         const data = await materialService.getPurchasesReport()
-        setPurchases(data || [])
+        dispatch({ type: 'load-success', purchases: data || [] })
       } catch (error) {
         console.error('Error al cargar reporte de compras:', error)
-      } finally {
-        setLoading(false)
+        dispatch({ type: 'load-finish' })
       }
     }
 
@@ -28,7 +71,11 @@ const PurchasesReport = () => {
   }, [])
 
   const providerOptions = Array.from(
-    new Set(purchases.map((purchase) => purchase.provider_name).filter(Boolean))
+    new Set(
+      purchases.flatMap((purchase) => (
+        purchase.provider_name ? [purchase.provider_name] : []
+      ))
+    )
   ).sort((a, b) => a.localeCompare(b, 'es'))
 
   const filteredPurchases = purchases.filter((purchase) => {
@@ -58,18 +105,31 @@ const PurchasesReport = () => {
       filters={
         <div style={getFilterGridStyle(isMobile)}>
           <div>
-            <label style={filterLabelStyle}>Fecha desde</label>
-            <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} style={filterInputStyle} />
+            <label htmlFor="purchases-report-date-from" style={filterLabelStyle}>Fecha desde</label>
+            <input
+              id="purchases-report-date-from"
+              type="date"
+              value={dateFrom}
+              onChange={(event) => dispatch({ type: 'set-date-from', value: event.target.value })}
+              style={filterInputStyle}
+            />
           </div>
           <div>
-            <label style={filterLabelStyle}>Fecha hasta</label>
-            <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} style={filterInputStyle} />
+            <label htmlFor="purchases-report-date-to" style={filterLabelStyle}>Fecha hasta</label>
+            <input
+              id="purchases-report-date-to"
+              type="date"
+              value={dateTo}
+              onChange={(event) => dispatch({ type: 'set-date-to', value: event.target.value })}
+              style={filterInputStyle}
+            />
           </div>
           <div>
-            <label style={filterLabelStyle}>Proveedor</label>
+            <label htmlFor="purchases-report-provider" style={filterLabelStyle}>Proveedor</label>
             <select
+              id="purchases-report-provider"
               value={selectedProvider}
-              onChange={(event) => setSelectedProvider(event.target.value)}
+              onChange={(event) => dispatch({ type: 'set-provider', value: event.target.value })}
               style={filterInputStyle}
             >
               <option value="">Todos los proveedores</option>

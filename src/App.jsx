@@ -79,6 +79,37 @@ const uiReducer = (state, action) => {
   }
 }
 
+const PageContent = ({ currentPage, onNavigate, onPosEditingStateChange }) => {
+  switch (currentPage) {
+    case 'home':
+      return <Home onNavigate={onNavigate} />
+    case 'master':
+      return <Inventory />
+    case 'providers':
+      return <ProviderMaster />
+    case 'purchases':
+      return <PurchaseEntry />
+    case 'movements':
+      return <MaterialMovements />
+    case 'reports':
+      return <ReportsHome onNavigate={onNavigate} />
+    case 'report-inventory':
+      return <InventoryReport />
+    case 'report-purchases':
+      return <PurchasesReport />
+    case 'report-sales':
+      return <SalesReport />
+    case 'report-movements':
+      return <MaterialMovementsReport />
+    case 'pos':
+      return <POS onEditingStateChange={onPosEditingStateChange} />
+    case 'security':
+      return <SecurityUsers />
+    default:
+      return <AccessDenied />
+  }
+}
+
 const AppShell = () => {
   const {
     loading,
@@ -152,37 +183,6 @@ const AppShell = () => {
 
   const handlePosEditingStateChange = (value) => {
     dispatch({ type: 'set-pos-editing', value: Boolean(value) })
-  }
-
-  const renderPage = () => {
-    switch (currentPage) {
-      case 'home':
-        return <Home onNavigate={handleNavigate} />
-      case 'master':
-        return <Inventory />
-      case 'providers':
-        return <ProviderMaster />
-      case 'purchases':
-        return <PurchaseEntry />
-      case 'movements':
-        return <MaterialMovements />
-      case 'reports':
-        return <ReportsHome onNavigate={handleNavigate} />
-      case 'report-inventory':
-        return <InventoryReport />
-      case 'report-purchases':
-        return <PurchasesReport />
-      case 'report-sales':
-        return <SalesReport />
-      case 'report-movements':
-        return <MaterialMovementsReport />
-      case 'pos':
-        return <POS onEditingStateChange={handlePosEditingStateChange} />
-      case 'security':
-        return <SecurityUsers />
-      default:
-        return <AccessDenied />
-    }
   }
 
   if (loading) {
@@ -260,7 +260,14 @@ const AppShell = () => {
             </button>
           </header>
 
-          {isMobileNavOpen && <div style={mobileOverlayStyle} onClick={closeMobileNav} />}
+          {isMobileNavOpen && (
+            <button
+              type="button"
+              style={mobileOverlayStyle}
+              onClick={closeMobileNav}
+              aria-label="Cerrar menu de navegacion"
+            />
+          )}
 
           <aside
             style={{
@@ -301,7 +308,11 @@ const AppShell = () => {
 
       <main style={mainStyle}>
         <Suspense fallback={<div style={pageLoadingStyle}>Cargando modulo...</div>}>
-          {renderPage()}
+          <PageContent
+            currentPage={currentPage}
+            onNavigate={handleNavigate}
+            onPosEditingStateChange={handlePosEditingStateChange}
+          />
         </Suspense>
       </main>
     </div>

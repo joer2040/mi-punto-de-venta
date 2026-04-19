@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useReducer } from 'react'
 import { securityService } from '../api/securityService'
 import { isValidPassword } from '../api/authService'
 import { useAuth } from '../contexts/AuthContext'
@@ -24,14 +24,238 @@ const getRoleDisplayName = (value = '') => {
   return normalizeRoleName(value)
 }
 
+const createInitialSecurityState = () => ({
+  users: [],
+  roles: [],
+  loading: true,
+  userForm: emptyUserForm,
+  notice: '',
+})
+
+const securityReducer = (state, action) => {
+  switch (action.type) {
+    case 'load-start':
+      return {
+        ...state,
+        loading: true,
+      }
+    case 'load-success':
+      return {
+        ...state,
+        users: action.users,
+        roles: action.roles,
+        loading: false,
+      }
+    case 'load-error':
+      return {
+        ...state,
+        loading: false,
+        notice: action.notice,
+      }
+    case 'set-notice':
+      return {
+        ...state,
+        notice: action.notice,
+      }
+    case 'set-user-form':
+      return {
+        ...state,
+        userForm: action.value,
+      }
+    case 'patch-user-form':
+      return {
+        ...state,
+        userForm: {
+          ...state.userForm,
+          ...action.value,
+        },
+      }
+    case 'reset-user-form':
+      return {
+        ...state,
+        userForm: {
+          ...emptyUserForm,
+          role_ids: action.waiterRoleId ? [action.waiterRoleId] : [],
+        },
+      }
+    default:
+      return state
+  }
+}
+
+const UserFormCard = ({
+  canManageUsers,
+  getRoleDisplayName,
+  getRoleOptionsForCurrentUser,
+  helperText,
+  isSuperadmin,
+  onResetUserForm,
+  onSubmitUser,
+  onUserFormChange,
+  userForm,
+}) => (
+  <form onSubmit={onSubmitUser} style={formCardStyle}>
+    <h4 style={formTitleStyle}>{userForm.id ? 'Editar usuario' : 'Crear usuario'}</h4>
+
+    <label htmlFor="security-user-username" style={labelStyle}>Usuario</label>
+    <input
+      id="security-user-username"
+      style={inputStyle}
+      value={userForm.username}
+      onChange={(event) => onUserFormChange({ username: event.target.value.toLowerCase() })}
+      disabled={!canManageUsers}
+      placeholder="usuario"
+      required
+    />
+
+    <label htmlFor="security-user-full-name" style={labelStyle}>Nombre completo</label>
+    <input
+      id="security-user-full-name"
+      style={inputStyle}
+      value={userForm.full_name}
+      onChange={(event) => onUserFormChange({ full_name: event.target.value })}
+      disabled={!canManageUsers}
+      required
+    />
+
+    {!userForm.id && (
+      <>
+        <label htmlFor="security-user-password" style={labelStyle}>Contrasena inicial</label>
+        <input
+          id="security-user-password"
+          type="password"
+          style={inputStyle}
+          value={userForm.password}
+          onChange={(event) => onUserFormChange({ password: event.target.value })}
+          disabled={!canManageUsers}
+          required
+        />
+        <div style={helperTextStyle}>
+          Debe ser alfanumerica y tener al menos 10 caracteres.
+        </div>
+      </>
+    )}
+
+    <label htmlFor="security-user-role" style={labelStyle}>Rol</label>
+    <select
+      id="security-user-role"
+      style={inputStyle}
+      value={userForm.role_ids[0] || ''}
+      onChange={(event) =>
+        onUserFormChange({
+          role_ids: event.target.value ? [event.target.value] : [],
+        })
+      }
+      disabled={!canManageUsers || (!isSuperadmin && Boolean(userForm.id))}
+      required
+    >
+      <option value="">Selecciona un rol</option>
+      {getRoleOptionsForCurrentUser().map((role) => (
+        <option key={role.id} value={role.id}>
+          {getRoleDisplayName(role.name)}
+        </option>
+      ))}
+    </select>
+
+    <div style={helperTextStyle}>{helperText}</div>
+
+    <label htmlFor="security-user-status" style={labelStyle}>Estatus</label>
+    <select
+      id="security-user-status"
+      style={inputStyle}
+      value={userForm.status}
+      onChange={(event) => onUserFormChange({ status: event.target.value })}
+      disabled={!canManageUsers}
+    >
+      <option value="active">Activo</option>
+      <option value="inactive">Inactivo</option>
+    </select>
+
+    <div style={formActionsStyle}>
+      <button type="submit" style={primaryBtnStyle} disabled={!canManageUsers}>
+        {userForm.id ? 'Guardar usuario' : 'Crear usuario'}
+      </button>
+      <button type="button" style={secondaryBtnStyle} onClick={onResetUserForm}>
+        Limpiar
+      </button>
+    </div>
+  </form>
+)
+
+const UsersTable = ({
+  canManageTargetUser,
+  canManageUsers,
+  getRoleDisplayName,
+  getUserRoleNames,
+  onDeleteUser,
+  onEditUser,
+  profile,
+  users,
+}) => (
+  <div style={tableCardStyle}>
+    <table style={tableStyle}>
+      <thead>
+        <tr style={theadStyle}>
+          <th style={thStyle}>Usuario</th>
+          <th style={thStyle}>Estatus</th>
+          <th style={thStyle}>Rol</th>
+          <th style={thStyle}>Accion</th>
+        </tr>
+      </thead>
+      <tbody>
+        {users.map((user) => {
+          const roleLabel = user.is_superadmin
+            ? 'admin'
+            : getUserRoleNames(user).map((roleName) => getRoleDisplayName(roleName)).join(', ') || 'Sin rol'
+
+          const canEditTarget = canManageTargetUser(user)
+
+          return (
+            <tr key={user.id} style={rowStyle}>
+              <td style={tdStyle}>
+                <strong>{user.username}</strong>
+                <div style={metaStyle}>{user.full_name}</div>
+              </td>
+              <td style={tdStyle}>
+                <span style={user.status === 'active' ? activeBadgeStyle : inactiveBadgeStyle}>
+                  {user.status === 'active' ? 'Activo' : 'Inactivo'}
+                </span>
+              </td>
+              <td style={tdStyle}>{roleLabel}</td>
+              <td style={tdStyle}>
+                <div style={rowActionStyle}>
+                  {canEditTarget ? (
+                    <button type="button" style={linkBtnStyle} onClick={() => onEditUser(user)}>
+                      Editar
+                    </button>
+                  ) : (
+                    <span style={blockedTextStyle}>Solo lectura</span>
+                  )}
+
+                  {canManageUsers && user.id !== profile?.id && canEditTarget && (
+                    <button
+                      type="button"
+                      style={dangerBtnStyle}
+                      onClick={() => onDeleteUser(user)}
+                    >
+                      Eliminar
+                    </button>
+                  )}
+                </div>
+              </td>
+            </tr>
+          )
+        })}
+      </tbody>
+    </table>
+  </div>
+)
+
 const SecurityUsers = () => {
   const { can, profile, isManager, isSuperadmin } = useAuth()
   const { isMobile } = useResponsive()
-  const [users, setUsers] = useState([])
-  const [roles, setRoles] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [userForm, setUserForm] = useState(emptyUserForm)
-  const [notice, setNotice] = useState('')
+  const [state, dispatch] = useReducer(securityReducer, undefined, createInitialSecurityState)
+  const { users, roles, loading, userForm, notice } = state
 
   const canManageUsers = can(PAGE_PERMISSION_MAP.security, ACTION_KEYS.MANAGE)
   const waiterRole = useMemo(
@@ -49,7 +273,10 @@ const SecurityUsers = () => {
   )
 
   const getUserRoleNames = (user) =>
-    (user.role_ids || []).map((roleId) => roleNameById.get(roleId)).filter(Boolean)
+    (user.role_ids || []).flatMap((roleId) => {
+      const roleName = roleNameById.get(roleId)
+      return roleName ? [roleName] : []
+    })
 
   const isWaiterOnlyUser = (user) => {
     if (user?.is_superadmin) return false
@@ -64,26 +291,31 @@ const SecurityUsers = () => {
   }
 
   const resetUserForm = () => {
-    setUserForm({
-      ...emptyUserForm,
-      role_ids: waiterRole ? [waiterRole.id] : [],
+    dispatch({
+      type: 'reset-user-form',
+      waiterRoleId: waiterRole?.id || null,
     })
   }
 
   const loadSecurityData = async () => {
+    dispatch({ type: 'load-start' })
     try {
       const [usersData, rolesData] = await Promise.all([
         securityService.getUsers(),
         securityService.getRoles(),
       ])
 
-      setUsers(usersData)
-      setRoles(rolesData)
+      dispatch({
+        type: 'load-success',
+        users: usersData,
+        roles: rolesData,
+      })
     } catch (error) {
       console.error('Error al cargar usuarios:', error)
-      setNotice(error.message || 'No se pudo cargar la administracion de usuarios.')
-    } finally {
-      setLoading(false)
+      dispatch({
+        type: 'load-error',
+        notice: error.message || 'No se pudo cargar la administracion de usuarios.',
+      })
     }
   }
 
@@ -93,10 +325,10 @@ const SecurityUsers = () => {
 
   useEffect(() => {
     if (!userForm.id && waiterRole && userForm.role_ids.length === 0) {
-      setUserForm((prev) => ({
-        ...prev,
-        role_ids: [waiterRole.id],
-      }))
+      dispatch({
+        type: 'patch-user-form',
+        value: { role_ids: [waiterRole.id] },
+      })
     }
   }, [userForm.id, userForm.role_ids.length, waiterRole])
 
@@ -108,6 +340,17 @@ const SecurityUsers = () => {
     return waiterRole ? [waiterRole] : []
   }
 
+  const handleUserFormChange = (value) => {
+    dispatch({
+      type: 'patch-user-form',
+      value,
+    })
+  }
+
+  const helperText = isSuperadmin
+    ? 'Como admin puedes crear usuarios con rol de manager o mesero.'
+    : 'El manager solo puede crear y editar cuentas con rol de mesero.'
+
   const handleSubmitUser = async (event) => {
     event.preventDefault()
     if (!canManageUsers) return
@@ -117,19 +360,25 @@ const SecurityUsers = () => {
         !userForm.id && !isSuperadmin ? (waiterRole ? [waiterRole.id] : []) : userForm.role_ids
 
       if (!userForm.id && !isValidPassword(userForm.password)) {
-        setNotice('La contrasena inicial debe ser alfanumerica y tener al menos 10 caracteres.')
+        dispatch({
+          type: 'set-notice',
+          notice: 'La contrasena inicial debe ser alfanumerica y tener al menos 10 caracteres.',
+        })
         return
       }
 
       if (!userForm.id && effectiveRoleIds.length === 0) {
-        setNotice('Selecciona un rol para el usuario.')
+        dispatch({ type: 'set-notice', notice: 'Selecciona un rol para el usuario.' })
         return
       }
 
       if (userForm.id) {
         const targetUser = users.find((user) => user.id === userForm.id)
         if (targetUser && !canManageTargetUser(targetUser)) {
-          setNotice('Tu usuario solo puede editar cuentas con rol de mesero.')
+          dispatch({
+            type: 'set-notice',
+            notice: 'Tu usuario solo puede editar cuentas con rol de mesero.',
+          })
           return
         }
 
@@ -141,7 +390,7 @@ const SecurityUsers = () => {
           is_superadmin: false,
           role_ids: effectiveRoleIds,
         })
-        setNotice('Usuario actualizado con exito.')
+        dispatch({ type: 'set-notice', notice: 'Usuario actualizado con exito.' })
       } else {
         await securityService.createUser({
           username: userForm.username,
@@ -150,14 +399,17 @@ const SecurityUsers = () => {
           is_superadmin: false,
           role_ids: effectiveRoleIds,
         })
-        setNotice('Usuario creado con exito.')
+        dispatch({ type: 'set-notice', notice: 'Usuario creado con exito.' })
       }
 
       resetUserForm()
       await loadSecurityData()
     } catch (error) {
       console.error('Error al guardar usuario:', error)
-      setNotice(error.message || 'No se pudo guardar el usuario.')
+      dispatch({
+        type: 'set-notice',
+        notice: error.message || 'No se pudo guardar el usuario.',
+      })
     }
   }
 
@@ -165,36 +417,48 @@ const SecurityUsers = () => {
     if (!canManageUsers || user.id === profile?.id) return
 
     if (!canManageTargetUser(user)) {
-      setNotice('Tu usuario solo puede eliminar cuentas con rol de mesero.')
+      dispatch({
+        type: 'set-notice',
+        notice: 'Tu usuario solo puede eliminar cuentas con rol de mesero.',
+      })
       return
     }
 
     try {
       await securityService.deleteUser(user.id)
-      setNotice('Usuario eliminado con exito.')
+      dispatch({ type: 'set-notice', notice: 'Usuario eliminado con exito.' })
       if (userForm.id === user.id) {
         resetUserForm()
       }
       await loadSecurityData()
     } catch (error) {
       console.error('Error al eliminar usuario:', error)
-      setNotice(error.message || 'No se pudo eliminar el usuario.')
+      dispatch({
+        type: 'set-notice',
+        notice: error.message || 'No se pudo eliminar el usuario.',
+      })
     }
   }
 
   const handleEditUser = (user) => {
     if (!canManageTargetUser(user)) {
-      setNotice('Tu usuario solo puede editar cuentas con rol de mesero.')
+      dispatch({
+        type: 'set-notice',
+        notice: 'Tu usuario solo puede editar cuentas con rol de mesero.',
+      })
       return
     }
 
-    setUserForm({
-      id: user.id,
-      username: user.username || '',
-      full_name: user.full_name || '',
-      password: '',
-      status: user.status || 'active',
-      role_ids: user.role_ids || [],
+    dispatch({
+      type: 'set-user-form',
+      value: {
+        id: user.id,
+        username: user.username || '',
+        full_name: user.full_name || '',
+        password: '',
+        status: user.status || 'active',
+        role_ids: user.role_ids || [],
+      },
     })
   }
 
@@ -220,152 +484,28 @@ const SecurityUsers = () => {
         </div>
 
         <div style={contentGridStyle(isMobile)}>
-          <form onSubmit={handleSubmitUser} style={formCardStyle}>
-            <h4 style={formTitleStyle}>{userForm.id ? 'Editar usuario' : 'Crear usuario'}</h4>
+          <UserFormCard
+            canManageUsers={canManageUsers}
+            getRoleDisplayName={getRoleDisplayName}
+            getRoleOptionsForCurrentUser={getRoleOptionsForCurrentUser}
+            helperText={helperText}
+            isSuperadmin={isSuperadmin}
+            onResetUserForm={resetUserForm}
+            onSubmitUser={handleSubmitUser}
+            onUserFormChange={handleUserFormChange}
+            userForm={userForm}
+          />
 
-            <label style={labelStyle}>Usuario</label>
-            <input
-              style={inputStyle}
-              value={userForm.username}
-              onChange={(event) =>
-                setUserForm((prev) => ({ ...prev, username: event.target.value.toLowerCase() }))
-              }
-              disabled={!canManageUsers}
-              placeholder="usuario"
-              required
-            />
-
-            <label style={labelStyle}>Nombre completo</label>
-            <input
-              style={inputStyle}
-              value={userForm.full_name}
-              onChange={(event) => setUserForm((prev) => ({ ...prev, full_name: event.target.value }))}
-              disabled={!canManageUsers}
-              required
-            />
-
-            {!userForm.id && (
-              <>
-                <label style={labelStyle}>Contrasena inicial</label>
-                <input
-                  type="password"
-                  style={inputStyle}
-                  value={userForm.password}
-                  onChange={(event) => setUserForm((prev) => ({ ...prev, password: event.target.value }))}
-                  disabled={!canManageUsers}
-                  required
-                />
-                <div style={helperTextStyle}>
-                  Debe ser alfanumerica y tener al menos 10 caracteres.
-                </div>
-              </>
-            )}
-
-            <label style={labelStyle}>Rol</label>
-            <select
-              style={inputStyle}
-              value={userForm.role_ids[0] || ''}
-              onChange={(event) =>
-                setUserForm((prev) => ({
-                  ...prev,
-                  role_ids: event.target.value ? [event.target.value] : [],
-                }))
-              }
-              disabled={!canManageUsers || (!isSuperadmin && Boolean(userForm.id))}
-              required
-            >
-              <option value="">Selecciona un rol</option>
-              {getRoleOptionsForCurrentUser().map((role) => (
-                <option key={role.id} value={role.id}>
-                  {getRoleDisplayName(role.name)}
-                </option>
-              ))}
-            </select>
-
-            <div style={helperTextStyle}>
-              {isSuperadmin
-                ? 'Como admin puedes crear usuarios con rol de manager o mesero.'
-                : 'El manager solo puede crear y editar cuentas con rol de mesero.'}
-            </div>
-
-            <label style={labelStyle}>Estatus</label>
-            <select
-              style={inputStyle}
-              value={userForm.status}
-              onChange={(event) => setUserForm((prev) => ({ ...prev, status: event.target.value }))}
-              disabled={!canManageUsers}
-            >
-              <option value="active">Activo</option>
-              <option value="inactive">Inactivo</option>
-            </select>
-
-            <div style={formActionsStyle}>
-              <button type="submit" style={primaryBtnStyle} disabled={!canManageUsers}>
-                {userForm.id ? 'Guardar usuario' : 'Crear usuario'}
-              </button>
-              <button type="button" style={secondaryBtnStyle} onClick={resetUserForm}>
-                Limpiar
-              </button>
-            </div>
-          </form>
-
-          <div style={tableCardStyle}>
-            <table style={tableStyle}>
-              <thead>
-                <tr style={theadStyle}>
-                  <th style={thStyle}>Usuario</th>
-                  <th style={thStyle}>Estatus</th>
-                  <th style={thStyle}>Rol</th>
-                  <th style={thStyle}>Accion</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((user) => {
-                  const roleLabel = user.is_superadmin
-                    ? 'admin'
-                    : getUserRoleNames(user).map((roleName) => getRoleDisplayName(roleName)).join(', ') || 'Sin rol'
-
-                  const canEditTarget = canManageTargetUser(user)
-
-                  return (
-                    <tr key={user.id} style={rowStyle}>
-                      <td style={tdStyle}>
-                        <strong>{user.username}</strong>
-                        <div style={metaStyle}>{user.full_name}</div>
-                      </td>
-                      <td style={tdStyle}>
-                        <span style={user.status === 'active' ? activeBadgeStyle : inactiveBadgeStyle}>
-                          {user.status === 'active' ? 'Activo' : 'Inactivo'}
-                        </span>
-                      </td>
-                      <td style={tdStyle}>{roleLabel}</td>
-                      <td style={tdStyle}>
-                        <div style={rowActionStyle}>
-                          {canEditTarget ? (
-                            <button type="button" style={linkBtnStyle} onClick={() => handleEditUser(user)}>
-                              Editar
-                            </button>
-                          ) : (
-                            <span style={blockedTextStyle}>Solo lectura</span>
-                          )}
-
-                          {canManageUsers && user.id !== profile?.id && canEditTarget && (
-                            <button
-                              type="button"
-                              style={dangerBtnStyle}
-                              onClick={() => handleDeleteUser(user)}
-                            >
-                              Eliminar
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+          <UsersTable
+            canManageTargetUser={canManageTargetUser}
+            canManageUsers={canManageUsers}
+            getRoleDisplayName={getRoleDisplayName}
+            getUserRoleNames={getUserRoleNames}
+            onDeleteUser={handleDeleteUser}
+            onEditUser={handleEditUser}
+            profile={profile}
+            users={users}
+          />
         </div>
       </section>
     </div>

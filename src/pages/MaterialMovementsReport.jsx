@@ -1,27 +1,113 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useReducer } from 'react'
 import ReportView from '../components/ReportView'
 import { materialService } from '../api/materialService'
 import { formatDateTime } from '../lib/reportUtils'
 import { useResponsive } from '../lib/useResponsive'
 
+const createInitialMaterialMovementsReportState = () => ({
+  movements: [],
+  loading: true,
+  dateFrom: '',
+  dateTo: '',
+  productQuery: '',
+  selectedMovementType: '',
+})
+
+const materialMovementsReportReducer = (state, action) => {
+  switch (action.type) {
+    case 'load_success':
+      return {
+        ...state,
+        movements: action.movements,
+        loading: false,
+      }
+    case 'load_error':
+      return {
+        ...state,
+        loading: false,
+      }
+    case 'set_filter':
+      return {
+        ...state,
+        [action.field]: action.value,
+      }
+    default:
+      return state
+  }
+}
+
+const FiltersPanel = ({
+  isMobile,
+  dateFrom,
+  dateTo,
+  productQuery,
+  selectedMovementType,
+  movementTypeOptions,
+  onFilterChange,
+}) => (
+  <div style={getFilterGridStyle(isMobile)}>
+    <div>
+      <label htmlFor="movements-report-date-from" style={filterLabelStyle}>Fecha desde</label>
+      <input id="movements-report-date-from" type="date" value={dateFrom} onChange={(event) => onFilterChange('dateFrom', event.target.value)} style={filterInputStyle} />
+    </div>
+    <div>
+      <label htmlFor="movements-report-date-to" style={filterLabelStyle}>Fecha hasta</label>
+      <input id="movements-report-date-to" type="date" value={dateTo} onChange={(event) => onFilterChange('dateTo', event.target.value)} style={filterInputStyle} />
+    </div>
+    <div>
+      <label htmlFor="movements-report-product" style={filterLabelStyle}>Producto</label>
+      <input
+        id="movements-report-product"
+        type="text"
+        value={productQuery}
+        onChange={(event) => onFilterChange('productQuery', event.target.value)}
+        placeholder="Buscar por material o SKU"
+        style={filterInputStyle}
+      />
+    </div>
+    <div>
+      <label htmlFor="movements-report-type" style={filterLabelStyle}>Tipo de movimiento</label>
+      <select
+        id="movements-report-type"
+        value={selectedMovementType}
+        onChange={(event) => onFilterChange('selectedMovementType', event.target.value)}
+        style={filterInputStyle}
+      >
+        <option value="">Todos los tipos</option>
+        {movementTypeOptions.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    </div>
+  </div>
+)
+
 const MaterialMovementsReport = () => {
-  const [movements, setMovements] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
-  const [productQuery, setProductQuery] = useState('')
-  const [selectedMovementType, setSelectedMovementType] = useState('')
+  const [state, dispatch] = useReducer(
+    materialMovementsReportReducer,
+    undefined,
+    createInitialMaterialMovementsReportState
+  )
   const { isMobile } = useResponsive()
+  const {
+    movements,
+    loading,
+    dateFrom,
+    dateTo,
+    productQuery,
+    selectedMovementType,
+  } = state
 
   useEffect(() => {
     const loadReport = async () => {
       try {
         const data = await materialService.getMaterialMovementsReport()
-        setMovements(data || [])
+        dispatch({ type: 'load_success', movements: data || [] })
       } catch (error) {
         console.error('Error al cargar reporte de movimientos de materiales:', error)
-      } finally {
-        setLoading(false)
+        dispatch({ type: 'load_error' })
       }
     }
 
@@ -29,7 +115,11 @@ const MaterialMovementsReport = () => {
   }, [])
 
   const movementTypeOptions = Array.from(
-    new Set(movements.map((movement) => movement.movement_type_label).filter(Boolean))
+    new Set(
+      movements.flatMap((movement) => (
+        movement.movement_type_label ? [movement.movement_type_label] : []
+      ))
+    )
   ).sort((a, b) => a.localeCompare(b, 'es'))
 
   const filteredMovements = useMemo(
@@ -58,6 +148,10 @@ const MaterialMovementsReport = () => {
     fecha: formatDateTime(movement.created_at),
   }))
 
+  const handleFilterChange = (field, value) => {
+    dispatch({ type: 'set_filter', field, value })
+  }
+
   if (loading) return <div style={loadingStyle}>Generando reporte de movimientos de materiales...</div>
 
   return (
@@ -65,41 +159,15 @@ const MaterialMovementsReport = () => {
       title="Reporte de Movimiento de Materiales"
       isMobile={isMobile}
       filters={
-        <div style={getFilterGridStyle(isMobile)}>
-          <div>
-            <label style={filterLabelStyle}>Fecha desde</label>
-            <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} style={filterInputStyle} />
-          </div>
-          <div>
-            <label style={filterLabelStyle}>Fecha hasta</label>
-            <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} style={filterInputStyle} />
-          </div>
-          <div>
-            <label style={filterLabelStyle}>Producto</label>
-            <input
-              type="text"
-              value={productQuery}
-              onChange={(event) => setProductQuery(event.target.value)}
-              placeholder="Buscar por material o SKU"
-              style={filterInputStyle}
-            />
-          </div>
-          <div>
-            <label style={filterLabelStyle}>Tipo de movimiento</label>
-            <select
-              value={selectedMovementType}
-              onChange={(event) => setSelectedMovementType(event.target.value)}
-              style={filterInputStyle}
-            >
-              <option value="">Todos los tipos</option>
-              {movementTypeOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
+        <FiltersPanel
+          isMobile={isMobile}
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          productQuery={productQuery}
+          selectedMovementType={selectedMovementType}
+          movementTypeOptions={movementTypeOptions}
+          onFilterChange={handleFilterChange}
+        />
       }
       rows={filteredMovements}
       columns={[

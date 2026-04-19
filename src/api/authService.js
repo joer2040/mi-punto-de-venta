@@ -27,36 +27,6 @@ export const authService = {
     if (error) throw error
   },
 
-  async updatePassword({ currentPassword, newPassword }) {
-    if (!isValidPassword(newPassword)) {
-      throw new Error('La contrasena debe ser alfanumerica y tener al menos 10 caracteres.')
-    }
-
-    const session = await this.getSession()
-    if (!session?.user?.id) {
-      throw new Error('No hay una sesion activa para cambiar la contrasena.')
-    }
-
-    const profile = await this.getCurrentProfile(session.user.id)
-    if (!profile?.username) {
-      throw new Error('No se pudo validar el usuario actual.')
-    }
-
-    const { error: reauthError } = await supabase.auth.signInWithPassword({
-      email: usernameToAuthEmail(profile.username),
-      password: currentPassword,
-    })
-
-    if (reauthError) {
-      throw new Error('La contrasena actual no es correcta.')
-    }
-
-    const { data, error } = await supabase.auth.updateUser({ password: newPassword })
-
-    if (error) throw error
-    return data
-  },
-
   async getSession() {
     const { data, error } = await supabase.auth.getSession()
     if (error) throw error

@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useReducer } from 'react'
 import MaterialForm from '../components/MaterialForm'
 import { materialService } from '../api/materialService'
 import { providerService } from '../api/providerService'
@@ -29,28 +29,313 @@ const normalizeMaterials = (rows = []) =>
     }
   })
 
+const createInitialInventoryState = () => ({
+  items: [],
+  providers: [],
+  loading: true,
+  manualEditUnlocked: false,
+  savingKey: '',
+})
+
+const inventoryReducer = (state, action) => {
+  switch (action.type) {
+    case 'load-start':
+      return {
+        ...state,
+        loading: true,
+      }
+    case 'load-success':
+      return {
+        ...state,
+        loading: false,
+        items: action.items,
+        providers: action.providers,
+      }
+    case 'load-finish':
+      return {
+        ...state,
+        loading: false,
+      }
+    case 'patch-item':
+      return {
+        ...state,
+        items: state.items.map((item) =>
+          item.rowKey === action.rowKey
+            ? {
+                ...item,
+                [action.field]: action.value,
+              }
+            : item
+        ),
+      }
+    case 'set-manual-edit-unlocked':
+      return {
+        ...state,
+        manualEditUnlocked: action.value,
+      }
+    case 'set-saving-key':
+      return {
+        ...state,
+        savingKey: action.value,
+      }
+    default:
+      return state
+  }
+}
+
+const InventoryHeader = ({ manualEditUnlocked, onLock, onUnlock }) => (
+  <div style={tableHeaderRowStyle}>
+    <h2 style={tableTitleStyle}>Maestro de Materiales</h2>
+
+    {manualEditUnlocked ? (
+      <button type="button" onClick={onLock} style={lockButtonStyle}>
+        Bloquear Edicion
+      </button>
+    ) : (
+      <button type="button" onClick={onUnlock} style={unlockButtonStyle}>
+        Desbloquear Edicion Manual
+      </button>
+    )}
+  </div>
+)
+
+const InventoryMobileList = ({
+  items,
+  manualEditUnlocked,
+  onFieldChange,
+  onSaveField,
+  providers,
+  savingKey,
+}) => (
+  <div style={mobileCardsGridStyle}>
+    {items.map((item) => {
+      const skuSaveKey = `${item.rowKey}:sku`
+      const nameSaveKey = `${item.rowKey}:name`
+      const priceSaveKey = `${item.rowKey}:price`
+      const isExtraCategory = isExtraCategoryName(item.categoryName)
+
+      return (
+        <article key={item.rowKey} style={mobileCardStyle}>
+          <div style={mobileCardTopStyle}>
+            <div>
+              <div style={mobileMetaLabelStyle}>SKU</div>
+              {manualEditUnlocked ? (
+                <input
+                  value={item.sku}
+                  onChange={(event) => onFieldChange(item.rowKey, 'sku', event.target.value)}
+                  onBlur={() => onSaveField(item, 'sku')}
+                  style={tableInputStyle}
+                  disabled={savingKey === skuSaveKey}
+                />
+              ) : (
+                <div style={mobileSkuTextStyle}>{item.sku || 'Sin SKU'}</div>
+              )}
+            </div>
+
+            <span style={categoryPillStyle}>{item.categoryName}</span>
+          </div>
+
+          <div style={mobileFieldBlockStyle}>
+            <div style={mobileMetaLabelStyle}>Producto</div>
+            {manualEditUnlocked ? (
+              <input
+                value={item.name}
+                onChange={(event) => onFieldChange(item.rowKey, 'name', event.target.value)}
+                onBlur={() => onSaveField(item, 'name')}
+                style={tableInputStyle}
+                disabled={savingKey === nameSaveKey}
+              />
+            ) : (
+              <div style={mobileNameTextStyle}>{item.name}</div>
+            )}
+          </div>
+
+          <div style={mobileFieldBlockStyle}>
+            <div style={mobileMetaLabelStyle}>Proveedor</div>
+            {manualEditUnlocked && !isExtraCategory ? (
+              <select
+                value={item.providerId}
+                onChange={(event) => onFieldChange(item.rowKey, 'providerId', event.target.value)}
+                onBlur={() => onSaveField(item, 'providerId')}
+                style={tableInputStyle}
+              >
+                <option value="">Selecciona proveedor...</option>
+                {providers.map((provider) => (
+                  <option key={provider.id} value={provider.id}>
+                    {provider.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div style={mobileSkuTextStyle}>
+                {isExtraCategory ? 'Produccion interna' : item.providerName}
+              </div>
+            )}
+          </div>
+
+          <div style={mobileMetricsGridStyle}>
+            <div style={mobileMetricCardStyle}>
+              <div style={mobileMetaLabelStyle}>Precio venta</div>
+              {manualEditUnlocked ? (
+                <div style={currencyInputWrapStyle}>
+                  <span style={currencyMarkStyle}>$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={item.price}
+                    onChange={(event) => onFieldChange(item.rowKey, 'price', event.target.value)}
+                    onBlur={() => onSaveField(item, 'price')}
+                    style={tableInputStyle}
+                    disabled={savingKey === priceSaveKey}
+                  />
+                </div>
+              ) : (
+                <span style={priceTextStyle}>${Number(item.price || 0).toFixed(0)}</span>
+              )}
+            </div>
+
+            <div style={mobileMetricCardStyle}>
+              <div style={mobileMetaLabelStyle}>Stock actual</div>
+              <div style={mobileStockTextStyle}>{Number(item.stock || 0)}</div>
+              {manualEditUnlocked && (
+                <div style={stockHintStyle}>El stock solo se ajusta desde Movimiento de Materiales.</div>
+              )}
+            </div>
+          </div>
+        </article>
+      )
+    })}
+  </div>
+)
+
+const InventoryDesktopTable = ({
+  items,
+  manualEditUnlocked,
+  onFieldChange,
+  onSaveField,
+  providers,
+  savingKey,
+}) => (
+  <div style={tableWrapStyle}>
+    <table style={tableStyle}>
+      <thead>
+        <tr style={tableHeadRowStyle}>
+          <th style={headerCellStyle}>SKU</th>
+          <th style={headerCellStyle}>PRODUCTO</th>
+          <th style={headerCellStyle}>PROVEEDOR</th>
+          <th style={headerCellStyle}>CATEGORIA</th>
+          <th style={headerCellStyle}>PRECIO VENTA</th>
+          <th style={headerCellStyle}>STOCK ACTUAL</th>
+        </tr>
+      </thead>
+      <tbody>
+        {items.map((item) => {
+          const skuSaveKey = `${item.rowKey}:sku`
+          const nameSaveKey = `${item.rowKey}:name`
+          const priceSaveKey = `${item.rowKey}:price`
+          const isExtraCategory = isExtraCategoryName(item.categoryName)
+
+          return (
+            <tr key={item.rowKey} style={bodyRowStyle}>
+              <td style={bodyCellStyle}>
+                {manualEditUnlocked ? (
+                  <input
+                    value={item.sku}
+                    onChange={(event) => onFieldChange(item.rowKey, 'sku', event.target.value)}
+                    onBlur={() => onSaveField(item, 'sku')}
+                    style={tableInputStyle}
+                    disabled={savingKey === skuSaveKey}
+                  />
+                ) : (
+                  item.sku
+                )}
+              </td>
+              <td style={{ ...bodyCellStyle, fontWeight: 800 }}>
+                {manualEditUnlocked ? (
+                  <input
+                    value={item.name}
+                    onChange={(event) => onFieldChange(item.rowKey, 'name', event.target.value)}
+                    onBlur={() => onSaveField(item, 'name')}
+                    style={tableInputStyle}
+                    disabled={savingKey === nameSaveKey}
+                  />
+                ) : (
+                  item.name
+                )}
+              </td>
+              <td style={bodyCellStyle}>
+                {manualEditUnlocked && !isExtraCategory ? (
+                  <select
+                    value={item.providerId}
+                    onChange={(event) => onFieldChange(item.rowKey, 'providerId', event.target.value)}
+                    onBlur={() => onSaveField(item, 'providerId')}
+                    style={tableInputStyle}
+                  >
+                    <option value="">Selecciona proveedor...</option>
+                    {providers.map((provider) => (
+                      <option key={provider.id} value={provider.id}>
+                        {provider.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  isExtraCategory ? 'Produccion interna' : item.providerName
+                )}
+              </td>
+              <td style={bodyCellStyle}>
+                <span style={categoryPillStyle}>{item.categoryName}</span>
+              </td>
+              <td style={bodyCellStyle}>
+                {manualEditUnlocked ? (
+                  <div style={currencyInputWrapStyle}>
+                    <span style={currencyMarkStyle}>$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={item.price}
+                      onChange={(event) => onFieldChange(item.rowKey, 'price', event.target.value)}
+                      onBlur={() => onSaveField(item, 'price')}
+                      style={tableInputStyle}
+                      disabled={savingKey === priceSaveKey}
+                    />
+                  </div>
+                ) : (
+                  <span style={priceTextStyle}>${Number(item.price || 0).toFixed(0)}</span>
+                )}
+              </td>
+              <td style={bodyCellStyle}>
+                <div>{Number(item.stock || 0)}</div>
+                {manualEditUnlocked && <div style={stockHintStyle}>Ajusta desde Movimiento de Materiales.</div>}
+              </td>
+            </tr>
+          )
+        })}
+      </tbody>
+    </table>
+  </div>
+)
+
 const Inventory = () => {
   const { isMobile } = useResponsive()
-  const [items, setItems] = useState([])
-  const [providers, setProviders] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [manualEditUnlocked, setManualEditUnlocked] = useState(false)
-  const [savingKey, setSavingKey] = useState('')
+  const [state, dispatch] = useReducer(inventoryReducer, undefined, createInitialInventoryState)
+  const { items, providers, loading, manualEditUnlocked, savingKey } = state
 
   const loadMaterials = async () => {
-    setLoading(true)
+    dispatch({ type: 'load-start' })
     try {
       const [data, providerRows] = await Promise.all([
         materialService.getAllMaterials(),
         providerService.getProviders(),
       ])
-      setItems(normalizeMaterials(data))
-      setProviders(providerRows || [])
+      dispatch({
+        type: 'load-success',
+        items: normalizeMaterials(data),
+        providers: providerRows || [],
+      })
     } catch (error) {
       console.error('Error cargando maestro de materiales:', error)
       alert(error?.message || 'No se pudo cargar el maestro de materiales.')
-    } finally {
-      setLoading(false)
+      dispatch({ type: 'load-finish' })
     }
   }
 
@@ -58,19 +343,13 @@ const Inventory = () => {
     loadMaterials()
   }, [])
 
-  const groupedItems = useMemo(() => items, [items])
-
   const handleFieldChange = (rowKey, field, value) => {
-    setItems((prev) =>
-      prev.map((item) =>
-        item.rowKey === rowKey
-          ? {
-              ...item,
-              [field]: value,
-            }
-          : item
-      )
-    )
+    dispatch({
+      type: 'patch-item',
+      rowKey,
+      field,
+      value,
+    })
   }
 
   const handleUnlockManualEdit = () => {
@@ -82,14 +361,14 @@ const Inventory = () => {
       return
     }
 
-    setManualEditUnlocked(true)
+    dispatch({ type: 'set-manual-edit-unlocked', value: true })
   }
 
   const handleSaveField = async (item, field) => {
     if (!item.materialId) return
 
     const saveKey = `${item.rowKey}:${field}`
-    setSavingKey(saveKey)
+    dispatch({ type: 'set-saving-key', value: saveKey })
     try {
       if (field === 'sku' || field === 'name' || field === 'providerId') {
         const nextField = field === 'providerId' ? 'provider_id' : field
@@ -116,7 +395,7 @@ const Inventory = () => {
       console.error('Error guardando campo del material:', error)
       alert(error?.message || 'No se pudo guardar el cambio.')
     } finally {
-      setSavingKey('')
+      dispatch({ type: 'set-saving-key', value: '' })
     }
   }
 
@@ -131,218 +410,30 @@ const Inventory = () => {
       </section>
 
       <section style={tableSectionStyle}>
-        <div style={tableHeaderRowStyle}>
-          <h2 style={tableTitleStyle}>Maestro de Materiales</h2>
-
-          {manualEditUnlocked ? (
-            <button type="button" onClick={() => setManualEditUnlocked(false)} style={lockButtonStyle}>
-              Bloquear Edicion
-            </button>
-          ) : (
-            <button type="button" onClick={handleUnlockManualEdit} style={unlockButtonStyle}>
-              Desbloquear Edicion Manual
-            </button>
-          )}
-        </div>
+        <InventoryHeader
+          manualEditUnlocked={manualEditUnlocked}
+          onLock={() => dispatch({ type: 'set-manual-edit-unlocked', value: false })}
+          onUnlock={handleUnlockManualEdit}
+        />
 
         {isMobile ? (
-          <div style={mobileCardsGridStyle}>
-            {groupedItems.map((item) => {
-              const skuSaveKey = `${item.rowKey}:sku`
-              const nameSaveKey = `${item.rowKey}:name`
-              const priceSaveKey = `${item.rowKey}:price`
-              const isExtraCategory = isExtraCategoryName(item.categoryName)
-
-              return (
-                <article key={item.rowKey} style={mobileCardStyle}>
-                  <div style={mobileCardTopStyle}>
-                    <div>
-                      <div style={mobileMetaLabelStyle}>SKU</div>
-                      {manualEditUnlocked ? (
-                        <input
-                          value={item.sku}
-                          onChange={(event) => handleFieldChange(item.rowKey, 'sku', event.target.value)}
-                          onBlur={() => handleSaveField(item, 'sku')}
-                          style={tableInputStyle}
-                          disabled={savingKey === skuSaveKey}
-                        />
-                      ) : (
-                        <div style={mobileSkuTextStyle}>{item.sku || 'Sin SKU'}</div>
-                      )}
-                    </div>
-
-                    <span style={categoryPillStyle}>{item.categoryName}</span>
-                  </div>
-
-                  <div style={mobileFieldBlockStyle}>
-                    <div style={mobileMetaLabelStyle}>Producto</div>
-                    {manualEditUnlocked ? (
-                      <input
-                        value={item.name}
-                        onChange={(event) => handleFieldChange(item.rowKey, 'name', event.target.value)}
-                        onBlur={() => handleSaveField(item, 'name')}
-                        style={tableInputStyle}
-                        disabled={savingKey === nameSaveKey}
-                      />
-                    ) : (
-                      <div style={mobileNameTextStyle}>{item.name}</div>
-                    )}
-                  </div>
-
-                  <div style={mobileFieldBlockStyle}>
-                    <div style={mobileMetaLabelStyle}>Proveedor</div>
-                    {manualEditUnlocked && !isExtraCategory ? (
-                      <select
-                        value={item.providerId}
-                        onChange={(event) => handleFieldChange(item.rowKey, 'providerId', event.target.value)}
-                        onBlur={() => handleSaveField(item, 'providerId')}
-                        style={tableInputStyle}
-                      >
-                        <option value="">Selecciona proveedor...</option>
-                        {providers.map((provider) => (
-                          <option key={provider.id} value={provider.id}>
-                            {provider.name}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <div style={mobileSkuTextStyle}>
-                        {isExtraCategory ? 'Produccion interna' : item.providerName}
-                      </div>
-                    )}
-                  </div>
-
-                  <div style={mobileMetricsGridStyle}>
-                    <div style={mobileMetricCardStyle}>
-                      <div style={mobileMetaLabelStyle}>Precio venta</div>
-                      {manualEditUnlocked ? (
-                        <div style={currencyInputWrapStyle}>
-                          <span style={currencyMarkStyle}>$</span>
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={item.price}
-                            onChange={(event) => handleFieldChange(item.rowKey, 'price', event.target.value)}
-                            onBlur={() => handleSaveField(item, 'price')}
-                            style={tableInputStyle}
-                            disabled={savingKey === priceSaveKey}
-                          />
-                        </div>
-                      ) : (
-                        <span style={priceTextStyle}>${Number(item.price || 0).toFixed(0)}</span>
-                      )}
-                    </div>
-
-                    <div style={mobileMetricCardStyle}>
-                      <div style={mobileMetaLabelStyle}>Stock actual</div>
-                      <div style={mobileStockTextStyle}>{Number(item.stock || 0)}</div>
-                      {manualEditUnlocked && (
-                        <div style={stockHintStyle}>El stock solo se ajusta desde Movimiento de Materiales.</div>
-                      )}
-                    </div>
-                  </div>
-                </article>
-              )
-            })}
-          </div>
+          <InventoryMobileList
+            items={items}
+            manualEditUnlocked={manualEditUnlocked}
+            onFieldChange={handleFieldChange}
+            onSaveField={handleSaveField}
+            providers={providers}
+            savingKey={savingKey}
+          />
         ) : (
-          <div style={tableWrapStyle}>
-            <table style={tableStyle}>
-              <thead>
-                <tr style={tableHeadRowStyle}>
-                  <th style={headerCellStyle}>SKU</th>
-                  <th style={headerCellStyle}>PRODUCTO</th>
-                  <th style={headerCellStyle}>PROVEEDOR</th>
-                  <th style={headerCellStyle}>CATEGORIA</th>
-                  <th style={headerCellStyle}>PRECIO VENTA</th>
-                  <th style={headerCellStyle}>STOCK ACTUAL</th>
-                </tr>
-              </thead>
-              <tbody>
-                {groupedItems.map((item) => {
-                  const skuSaveKey = `${item.rowKey}:sku`
-                  const nameSaveKey = `${item.rowKey}:name`
-                  const priceSaveKey = `${item.rowKey}:price`
-                  const isExtraCategory = isExtraCategoryName(item.categoryName)
-
-                  return (
-                    <tr key={item.rowKey} style={bodyRowStyle}>
-                      <td style={bodyCellStyle}>
-                        {manualEditUnlocked ? (
-                          <input
-                            value={item.sku}
-                            onChange={(event) => handleFieldChange(item.rowKey, 'sku', event.target.value)}
-                            onBlur={() => handleSaveField(item, 'sku')}
-                            style={tableInputStyle}
-                            disabled={savingKey === skuSaveKey}
-                          />
-                        ) : (
-                          item.sku
-                        )}
-                      </td>
-                      <td style={{ ...bodyCellStyle, fontWeight: 800 }}>
-                        {manualEditUnlocked ? (
-                          <input
-                            value={item.name}
-                            onChange={(event) => handleFieldChange(item.rowKey, 'name', event.target.value)}
-                            onBlur={() => handleSaveField(item, 'name')}
-                            style={tableInputStyle}
-                            disabled={savingKey === nameSaveKey}
-                          />
-                        ) : (
-                          item.name
-                        )}
-                      </td>
-                      <td style={bodyCellStyle}>
-                        {manualEditUnlocked && !isExtraCategory ? (
-                          <select
-                            value={item.providerId}
-                            onChange={(event) => handleFieldChange(item.rowKey, 'providerId', event.target.value)}
-                            onBlur={() => handleSaveField(item, 'providerId')}
-                            style={tableInputStyle}
-                          >
-                            <option value="">Selecciona proveedor...</option>
-                            {providers.map((provider) => (
-                              <option key={provider.id} value={provider.id}>
-                                {provider.name}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          isExtraCategory ? 'Produccion interna' : item.providerName
-                        )}
-                      </td>
-                      <td style={bodyCellStyle}>
-                        <span style={categoryPillStyle}>{item.categoryName}</span>
-                      </td>
-                      <td style={bodyCellStyle}>
-                        {manualEditUnlocked ? (
-                          <div style={currencyInputWrapStyle}>
-                            <span style={currencyMarkStyle}>$</span>
-                            <input
-                              type="number"
-                              step="0.01"
-                              value={item.price}
-                              onChange={(event) => handleFieldChange(item.rowKey, 'price', event.target.value)}
-                              onBlur={() => handleSaveField(item, 'price')}
-                              style={tableInputStyle}
-                              disabled={savingKey === priceSaveKey}
-                            />
-                          </div>
-                        ) : (
-                          <span style={priceTextStyle}>${Number(item.price || 0).toFixed(0)}</span>
-                        )}
-                      </td>
-                      <td style={bodyCellStyle}>
-                        <div>{Number(item.stock || 0)}</div>
-                        {manualEditUnlocked && <div style={stockHintStyle}>Ajusta desde Movimiento de Materiales.</div>}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+          <InventoryDesktopTable
+            items={items}
+            manualEditUnlocked={manualEditUnlocked}
+            onFieldChange={handleFieldChange}
+            onSaveField={handleSaveField}
+            providers={providers}
+            savingKey={savingKey}
+          />
         )}
       </section>
     </div>
@@ -481,67 +572,71 @@ const tableWrapStyle = {
 
 const tableStyle = {
   width: '100%',
+  minWidth: '880px',
   borderCollapse: 'collapse',
 }
 
 const tableHeadRowStyle = {
-  background: '#374151',
+  background: '#0f172a',
 }
 
 const headerCellStyle = {
-  color: '#ffffff',
-  fontSize: '0.85rem',
-  fontWeight: 900,
-  letterSpacing: '0.04em',
-  padding: '16px 14px',
+  padding: '14px 16px',
+  color: '#e2e8f0',
+  fontSize: '0.8rem',
+  letterSpacing: '0.06em',
+  textTransform: 'uppercase',
   textAlign: 'left',
 }
 
 const bodyRowStyle = {
-  borderBottom: '1px solid #e5e7eb',
+  borderBottom: '1px solid #e2e8f0',
 }
 
 const bodyCellStyle = {
-  padding: '12px 14px',
-  color: '#0f172a',
-  verticalAlign: 'middle',
+  padding: '14px 16px',
+  color: '#334155',
+  verticalAlign: 'top',
 }
 
 const categoryPillStyle = {
   display: 'inline-flex',
   alignItems: 'center',
-  background: '#eff6ff',
-  color: '#1e3a5f',
-  borderRadius: '8px',
-  padding: '4px 10px',
-  fontSize: '0.9rem',
+  padding: '6px 12px',
+  borderRadius: '999px',
+  background: '#e0f2fe',
+  color: '#0369a1',
+  fontWeight: 800,
+  fontSize: '0.8rem',
 }
 
-const priceTextStyle = {
-  color: '#16a34a',
-  fontWeight: 800,
+const currencyInputWrapStyle = {
+  position: 'relative',
+  display: 'flex',
+  alignItems: 'center',
+}
+
+const currencyMarkStyle = {
+  position: 'absolute',
+  left: '12px',
+  color: '#475569',
+  fontWeight: 700,
 }
 
 const tableInputStyle = {
   width: '100%',
   boxSizing: 'border-box',
-  padding: '8px 10px',
-  borderRadius: '8px',
-  border: '2px solid #3b82f6',
-  background: '#eff6ff',
-  fontWeight: 700,
-  color: '#0f172a',
+  minHeight: '40px',
+  borderRadius: '10px',
+  border: '1px solid #cbd5e1',
+  padding: '10px 12px',
+  fontSize: '0.95rem',
+  background: '#ffffff',
 }
 
-const currencyInputWrapStyle = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: '8px',
-}
-
-const currencyMarkStyle = {
-  color: '#334155',
-  fontWeight: 800,
+const priceTextStyle = {
+  color: '#166534',
+  fontWeight: 900,
 }
 
 export default Inventory

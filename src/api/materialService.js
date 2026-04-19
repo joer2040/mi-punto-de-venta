@@ -1,71 +1,6 @@
 ﻿import { supabase } from '../lib/supabase'
 import { erpService } from './erpService'
 
-const padDocumentSegment = (value, length = 2) => String(value).padStart(length, '0')
-
-const buildSaleDocumentNumber = (date, sequence) =>
-  [
-    padDocumentSegment(date.getDate()),
-    padDocumentSegment(date.getMonth() + 1),
-    date.getFullYear(),
-    padDocumentSegment(date.getHours()),
-    padDocumentSegment(date.getMinutes()),
-    padDocumentSegment(sequence),
-  ].join('')
-
-const getDayBounds = (dateValue) => {
-  const date = new Date(dateValue)
-  const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0)
-  const nextDay = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1, 0, 0, 0, 0)
-
-  return {
-    dayStart: dayStart.toISOString(),
-    nextDay: nextDay.toISOString(),
-  }
-}
-
-const logInventoryMovement = async (movement) => {
-  try {
-    const { error } = await supabase.from('inventory_movements').insert([movement])
-    if (error) throw error
-  } catch (error) {
-    console.warn('No se pudo registrar inventory_movements:', error)
-  }
-}
-
-const getInventorySnapshot = async (materialId, centerId) => {
-  const { data, error } = await supabase
-    .from('inventory')
-    .select('material_id, center_id, stock_actual, costo_promedio, precio_venta')
-    .eq('material_id', materialId)
-    .eq('center_id', centerId)
-    .single()
-
-  if (error) throw error
-  return data
-}
-
-const getDailySaleDocumentNumber = async (sale) => {
-  const chargedAt = sale?.created_at || new Date().toISOString()
-  const { dayStart, nextDay } = getDayBounds(chargedAt)
-
-  const { data, error } = await supabase
-    .from('sales')
-    .select('id, created_at')
-    .gte('created_at', dayStart)
-    .lt('created_at', nextDay)
-    .order('created_at', { ascending: true })
-    .order('id', { ascending: true })
-
-  if (error) throw error
-
-  const saleDate = new Date(chargedAt)
-  const saleIndex = (data || []).findIndex((item) => item.id === sale.id)
-  const sequence = saleIndex >= 0 ? saleIndex + 1 : (data?.length || 0) + 1
-
-  return buildSaleDocumentNumber(saleDate, sequence)
-}
-
 const getPurchaseItemsTotals = async () => {
   const { data, error } = await supabase
     .from('purchase_items')
@@ -171,16 +106,6 @@ export const materialService = {
     return data
   },
 
-  async getInventoryMovements() {
-    const { data, error } = await supabase
-      .from('inventory_movements')
-      .select('material_id, created_at')
-      .order('created_at', { ascending: false })
-
-    if (error) throw error
-    return data
-  },
-
   async createMaterial(formData) {
     const response = await erpService.createMaterial(formData)
     return response.material
@@ -194,80 +119,6 @@ export const materialService = {
   async updatePrice(materialId, centerId, newPrice) {
     const response = await erpService.updatePrice(materialId, centerId, newPrice)
     return response.inventory
-  },
-
-  async recordSale(saleHeader, items) {
-    const draftSale = {
-      id: crypto.randomUUID(),
-      created_at: new Date().toISOString(),
-    }
-    const documentNumber = saleHeader.document_number || (await getDailySaleDocumentNumber(draftSale))
-
-    const { data: sale, error: saleError } = await supabase
-      .from('sales')
-      .insert([
-        {
-          center_id: saleHeader.center_id,
-          total_amount: parseFloat(saleHeader.total_amount),
-          payment_method: saleHeader.payment_method,
-          document_number: documentNumber,
-        },
-      ])
-      .select()
-      .single()
-
-    if (saleError) throw saleError
-
-    const chargeableItems = items.filter((item) => !item.is_extra)
-    const itemsWithId = chargeableItems.map((item) => ({
-      sale_id: sale.id,
-      material_id: item.material_id,
-      quantity: parseFloat(item.quantity),
-      unit_price: parseFloat(item.unit_price),
-    }))
-
-    if (itemsWithId.length > 0) {
-      const { error: itemsError } = await supabase
-        .from('sale_items')
-        .insert(itemsWithId)
-
-      if (itemsError) throw itemsError
-    }
-
-    await Promise.all(
-      itemsWithId.map(async (item) => {
-        try {
-          const inventorySnapshot = await getInventorySnapshot(item.material_id, sale.center_id)
-          const afterStock = parseFloat(inventorySnapshot.stock_actual)
-          const beforeStock = afterStock + parseFloat(item.quantity)
-
-          await logInventoryMovement({
-            center_id: sale.center_id,
-            material_id: item.material_id,
-            movement_type: 'sale',
-            direction: 'out',
-            quantity: parseFloat(item.quantity),
-            before_stock: beforeStock,
-            after_stock: afterStock,
-            unit_cost: null,
-            unit_price: parseFloat(item.unit_price),
-            reference_table: 'sales',
-            reference_id: sale.id,
-            reference_number: documentNumber,
-            reason_code: 'sale_ticket',
-            notes: 'Salida de inventario por venta',
-            performed_by: 'pos',
-          })
-        } catch (error) {
-          console.warn('No se pudo registrar movimiento de venta:', error)
-        }
-      })
-    )
-
-    return {
-      ...sale,
-      document_number: documentNumber,
-    }
   },
 
   async getSalesReport() {

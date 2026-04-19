@@ -5,11 +5,16 @@ import { useResponsive } from '../lib/useResponsive'
 
 const normalizeCategoryName = (value) => (value || '').trim().toLowerCase()
 
+const createInitialCatalogState = () => ({
+  categories: [],
+  uoms: [],
+  providers: [],
+})
+
 const MaterialForm = ({ onMaterialAdded }) => {
-  const [categories, setCategories] = useState([])
-  const [uoms, setUoms] = useState([])
-  const [providers, setProviders] = useState([])
+  const [catalogs, setCatalogs] = useState(createInitialCatalogState)
   const { isMobile } = useResponsive()
+  const { categories, uoms, providers } = catalogs
 
   const [formData, setFormData] = useState({
     sku: '',
@@ -27,9 +32,11 @@ const MaterialForm = ({ onMaterialAdded }) => {
         materialService.getUoms(),
         providerService.getProviders(),
       ])
-      setCategories(cats)
-      setUoms(units)
-      setProviders(providersData || [])
+      setCatalogs({
+        categories: cats,
+        uoms: units,
+        providers: providersData || [],
+      })
     }
 
     loadData()
@@ -83,8 +90,9 @@ const MaterialForm = ({ onMaterialAdded }) => {
 
       <div style={getRowStyle(isMobile)}>
         <div style={groupStyle}>
-          <label style={labelStyle}>SKU (Codigo):</label>
+          <label htmlFor="material-sku" style={labelStyle}>SKU (Codigo):</label>
           <input
+            id="material-sku"
             required
             style={inputStyle}
             value={formData.sku}
@@ -93,8 +101,9 @@ const MaterialForm = ({ onMaterialAdded }) => {
           />
         </div>
         <div style={groupStyle}>
-          <label style={labelStyle}>Nombre / Descripcion:</label>
+          <label htmlFor="material-name" style={labelStyle}>Nombre / Descripcion:</label>
           <input
+            id="material-name"
             required
             style={inputStyle}
             value={formData.name}
@@ -106,8 +115,9 @@ const MaterialForm = ({ onMaterialAdded }) => {
 
       <div style={getRowStyle(isMobile)}>
         <div style={groupStyle}>
-          <label style={labelStyle}>Proveedor:</label>
+          <label htmlFor="material-provider" style={labelStyle}>Proveedor:</label>
           <select
+            id="material-provider"
             style={inputStyle}
             value={formData.provider_id}
             onChange={(e) => setFormData({ ...formData, provider_id: e.target.value })}
@@ -122,8 +132,9 @@ const MaterialForm = ({ onMaterialAdded }) => {
           </select>
         </div>
         <div style={groupStyle}>
-          <label style={labelStyle}>Categoria:</label>
+          <label htmlFor="material-category" style={labelStyle}>Categoria:</label>
           <select
+            id="material-category"
             required
             style={inputStyle}
             value={formData.cat_id}
@@ -151,8 +162,9 @@ const MaterialForm = ({ onMaterialAdded }) => {
 
       <div style={getRowStyle(isMobile)}>
         <div style={groupStyle}>
-          <label style={labelStyle}>Unidad de Compra:</label>
+          <label htmlFor="material-buy-uom" style={labelStyle}>Unidad de Compra:</label>
           <select
+            id="material-buy-uom"
             required
             style={inputStyle}
             value={formData.buy_uom_id}
@@ -172,8 +184,9 @@ const MaterialForm = ({ onMaterialAdded }) => {
           </select>
         </div>
         <div style={groupStyle}>
-          <label style={labelStyle}>Unidad de Venta:</label>
+          <label htmlFor="material-sell-uom" style={labelStyle}>Unidad de Venta:</label>
           <select
+            id="material-sell-uom"
             required
             style={inputStyle}
             value={formData.sell_uom_id}

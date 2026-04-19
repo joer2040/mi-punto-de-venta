@@ -1,16 +1,20 @@
 ## SQL Scripts
 
-These files are kept as manual or historical support scripts.
+This folder is only for support SQL outside the primary schema history.
 
-Current guidance:
-- `supabase/migrations/` is the primary database history for the project.
-- `supabase/functions/` is the primary home for deployed Supabase Edge Functions.
+Current source of truth:
+- `supabase/migrations/` for committed schema history
+- `supabase/functions/` for deployed Edge Functions
 
-Use the scripts in this folder when:
-- you need a one-off manual setup in Supabase SQL Editor,
-- you want to inspect historical setup steps,
-- or you are converting older manual SQL into formal migrations.
+Subfolders:
+- `sql/dev/` for development-only support scripts
+- `sql/prod/` for production-only operational scripts
+- `sql/archive/` for historical manual scripts kept as reference
 
-Recommended cleanup rule going forward:
-- avoid introducing new long-lived schema changes only in `sql/`;
-- prefer adding or updating migrations under `supabase/migrations/`.
+Recommended execution flow:
+- use `npm run supabase:sql:dev -- -File sql/dev/<file>.sql` for dev
+- use `npm run supabase:sql:prod -- -File sql/prod/<file>.sql -AllowProduction` for prod
+
+Cleanup rule going forward:
+- avoid adding new long-lived schema changes only in `sql/`
+- prefer `supabase/migrations/` for durable database changes

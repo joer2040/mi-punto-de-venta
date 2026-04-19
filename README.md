@@ -56,6 +56,8 @@ Archivos locales no versionados:
 
 Consulta [ENVIRONMENT.md](C:/Users/jaime/OneDrive/Documentos/OneDrive/Escritorio%20Nube/Project%20Codex/pventa/mi-punto-de-venta/ENVIRONMENT.md) para la configuracion de frontend y conexiones SQL remotas.
 
+Consulta tambien [HOMOLOGACION_DEV_PRD.md](C:/Users/jaime/OneDrive/Documentos/OneDrive/Escritorio%20Nube/Project%20Codex/pventa/mi-punto-de-venta/docs/HOMOLOGACION_DEV_PRD.md) para la guia de homologacion estructural y funcional entre desarrollo y produccion.
+
 ## SQL remoto por ambiente
 
 Desarrollo:

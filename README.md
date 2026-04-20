@@ -58,6 +58,8 @@ Consulta [ENVIRONMENT.md](C:/Users/jaime/OneDrive/Documentos/OneDrive/Escritorio
 
 Consulta tambien [HOMOLOGACION_DEV_PRD.md](C:/Users/jaime/OneDrive/Documentos/OneDrive/Escritorio%20Nube/Project%20Codex/pventa/mi-punto-de-venta/docs/HOMOLOGACION_DEV_PRD.md) para la guia de homologacion estructural y funcional entre desarrollo y produccion.
 
+Consulta tambien [REGISTRO_CAMBIOS.md](C:/Users/jaime/OneDrive/Documentos/OneDrive/Escritorio%20Nube/Project%20Codex/pventa/mi-punto-de-venta/docs/REGISTRO_CAMBIOS.md) para la bitacora unica de cambios y liberaciones del proyecto.
+
 ## SQL remoto por ambiente
 
 Desarrollo:

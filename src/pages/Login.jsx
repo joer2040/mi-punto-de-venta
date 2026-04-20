@@ -2,16 +2,28 @@ import React, { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import logoCarreta from '../assets/la_carreta_sin_fondo.png'
 
+const SESSION_EXPIRED_MESSAGE_KEY = 'mi-punto-de-venta.session-expired-message'
+
 const Login = () => {
   const { signIn } = useAuth()
   const [formData, setFormData] = useState({ username: '', password: '' })
   const [loading, setLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
+  const [noticeMessage, setNoticeMessage] = useState(() => {
+    if (typeof window === 'undefined') return ''
+
+    const message = sessionStorage.getItem(SESSION_EXPIRED_MESSAGE_KEY) || ''
+    if (message) {
+      sessionStorage.removeItem(SESSION_EXPIRED_MESSAGE_KEY)
+    }
+    return message
+  })
 
   const handleSubmit = async (event) => {
     event.preventDefault()
     setLoading(true)
     setErrorMessage('')
+    setNoticeMessage('')
 
     try {
       await signIn(formData.username, formData.password)
@@ -63,6 +75,7 @@ const Login = () => {
             />
           </div>
 
+          {noticeMessage && <div style={noticeStyle}>{noticeMessage}</div>}
           {errorMessage && <div style={errorStyle}>{errorMessage}</div>}
 
           <button type="submit" style={buttonStyle} disabled={loading}>
@@ -150,6 +163,14 @@ const buttonStyle = {
 const errorStyle = {
   backgroundColor: '#fef2f2',
   color: '#b91c1c',
+  borderRadius: '10px',
+  padding: '10px 12px',
+  fontWeight: '600',
+}
+
+const noticeStyle = {
+  backgroundColor: '#eff6ff',
+  color: '#1d4ed8',
   borderRadius: '10px',
   padding: '10px 12px',
   fontWeight: '600',

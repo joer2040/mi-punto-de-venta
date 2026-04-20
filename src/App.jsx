@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useReducer } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useReducer, useRef } from 'react'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { useResponsive } from './lib/useResponsive'
 
@@ -18,6 +18,8 @@ const Login = lazy(() => import('./pages/Login'))
 const AccessDenied = lazy(() => import('./pages/AccessDenied'))
 
 const STORAGE_KEY = 'mi-punto-de-venta.current-page'
+const IDLE_TIMEOUT_MS = 10 * 60 * 1000
+const SESSION_EXPIRED_MESSAGE_KEY = 'mi-punto-de-venta.session-expired-message'
 
 const PAGE_LABELS = {
   home: 'Inicio',
@@ -119,10 +121,13 @@ const AppShell = () => {
     getFirstAllowedPage,
     profile,
     isWaiter,
+    signOut,
   } = useAuth()
   const { isMobile } = useResponsive()
   const [uiState, dispatch] = useReducer(uiReducer, undefined, getInitialUiState)
   const { currentPage, isPosEditing, restoredProfileId, isMobileNavOpen } = uiState
+  const idleTimerRef = useRef(null)
+  const idleLogoutInFlightRef = useRef(false)
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -158,6 +163,58 @@ const AppShell = () => {
       dispatch({ type: 'set-mobile-nav-open', value: false })
     }
   }, [isMobile, isMobileNavOpen])
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      if (idleTimerRef.current) {
+        clearTimeout(idleTimerRef.current)
+        idleTimerRef.current = null
+      }
+      idleLogoutInFlightRef.current = false
+      return undefined
+    }
+
+    const resetIdleTimer = () => {
+      if (idleTimerRef.current) {
+        clearTimeout(idleTimerRef.current)
+      }
+
+      idleTimerRef.current = window.setTimeout(async () => {
+        if (idleLogoutInFlightRef.current) return
+
+        idleLogoutInFlightRef.current = true
+        sessionStorage.setItem(
+          SESSION_EXPIRED_MESSAGE_KEY,
+          'La sesion se cerro por inactividad despues de 10 minutos. Vuelve a iniciar sesion.'
+        )
+
+        try {
+          await signOut()
+        } catch (error) {
+          console.error('Error al cerrar sesion por inactividad:', error)
+          idleLogoutInFlightRef.current = false
+        }
+      }, IDLE_TIMEOUT_MS)
+    }
+
+    const activityEvents = ['pointerdown', 'pointermove', 'keydown', 'scroll', 'touchstart']
+    activityEvents.forEach((eventName) => {
+      window.addEventListener(eventName, resetIdleTimer, { passive: true })
+    })
+
+    resetIdleTimer()
+
+    return () => {
+      if (idleTimerRef.current) {
+        clearTimeout(idleTimerRef.current)
+        idleTimerRef.current = null
+      }
+
+      activityEvents.forEach((eventName) => {
+        window.removeEventListener(eventName, resetIdleTimer)
+      })
+    }
+  }, [isAuthenticated, signOut])
 
   const navItems = useMemo(
     () =>

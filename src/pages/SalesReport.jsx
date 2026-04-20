@@ -8,7 +8,9 @@ const SalesReport = () => {
   const [sales, setSales] = useState([])
   const [loading, setLoading] = useState(true)
   const [dateFrom, setDateFrom] = useState('')
+  const [timeFrom, setTimeFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+  const [timeTo, setTimeTo] = useState('')
   const { isMobile } = useResponsive()
 
   useEffect(() => {
@@ -26,7 +28,7 @@ const SalesReport = () => {
     loadReport()
   }, [])
 
-  const filteredSales = sales.filter((sale) => isWithinDateRange(sale.created_at, dateFrom, dateTo))
+  const filteredSales = sales.filter((sale) => isWithinDateRange(sale.created_at, dateFrom, timeFrom, dateTo, timeTo))
 
   const totalSold = useMemo(
     () => filteredSales.reduce((acc, sale) => acc + Number(sale.total_amount || 0), 0),
@@ -52,8 +54,30 @@ const SalesReport = () => {
             <input id="sales-report-date-from" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} style={filterInputStyle} />
           </div>
           <div>
+            <label htmlFor="sales-report-time-from" style={filterLabelStyle}>Hora desde (00:00-23:59)</label>
+            <input
+              id="sales-report-time-from"
+              type="time"
+              value={timeFrom}
+              onChange={(event) => setTimeFrom(event.target.value)}
+              style={filterInputStyle}
+              disabled={!dateFrom}
+            />
+          </div>
+          <div>
             <label htmlFor="sales-report-date-to" style={filterLabelStyle}>Fecha hasta</label>
             <input id="sales-report-date-to" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} style={filterInputStyle} />
+          </div>
+          <div>
+            <label htmlFor="sales-report-time-to" style={filterLabelStyle}>Hora hasta (00:00-23:59)</label>
+            <input
+              id="sales-report-time-to"
+              type="time"
+              value={timeTo}
+              onChange={(event) => setTimeTo(event.target.value)}
+              style={filterInputStyle}
+              disabled={!dateTo}
+            />
           </div>
         </div>
       }
@@ -85,15 +109,15 @@ const SalesReport = () => {
   )
 }
 
-const isWithinDateRange = (value, dateFrom, dateTo) => {
+const isWithinDateRange = (value, dateFrom, timeFrom, dateTo, timeTo) => {
   const current = new Date(value)
   if (dateFrom) {
-    const from = new Date(`${dateFrom}T00:00:00`)
+    const from = new Date(`${dateFrom}T${timeFrom || '00:00'}:00`)
     if (current < from) return false
   }
 
   if (dateTo) {
-    const to = new Date(`${dateTo}T23:59:59`)
+    const to = new Date(`${dateTo}T${timeTo || '23:59'}:59`)
     if (current > to) return false
   }
 
@@ -102,7 +126,7 @@ const isWithinDateRange = (value, dateFrom, dateTo) => {
 
 const getFilterGridStyle = (isMobile) => ({
   display: 'grid',
-  gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, minmax(0, 1fr))',
+  gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, minmax(0, 1fr))',
   gap: '12px',
 })
 

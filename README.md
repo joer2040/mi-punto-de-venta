@@ -58,6 +58,10 @@ Consulta [ENVIRONMENT.md](C:/Users/jaime/OneDrive/Documentos/OneDrive/Escritorio
 
 Consulta tambien [HOMOLOGACION_DEV_PRD.md](C:/Users/jaime/OneDrive/Documentos/OneDrive/Escritorio%20Nube/Project%20Codex/pventa/mi-punto-de-venta/docs/HOMOLOGACION_DEV_PRD.md) para la guia de homologacion estructural y funcional entre desarrollo y produccion.
 
+Consulta tambien [SUPABASE_EDGE_FUNCTION_AUTH.md](C:/Users/jaime/OneDrive/Documentos/OneDrive/Escritorio%20Nube/Project%20Codex/pventa/mi-punto-de-venta/docs/SUPABASE_EDGE_FUNCTION_AUTH.md) para el patron obligatorio de autenticacion y despliegue de Edge Functions.
+
+Consulta tambien [RELEASE_PRD_CASH_CONTROL.md](C:/Users/jaime/OneDrive/Documentos/OneDrive/Escritorio%20Nube/Project%20Codex/pventa/mi-punto-de-venta/docs/RELEASE_PRD_CASH_CONTROL.md) para el checklist operativo de paso a produccion del modulo de caja.
+
 Consulta tambien [REGISTRO_CAMBIOS.md](C:/Users/jaime/OneDrive/Documentos/OneDrive/Escritorio%20Nube/Project%20Codex/pventa/mi-punto-de-venta/docs/REGISTRO_CAMBIOS.md) para la bitacora unica de cambios y liberaciones del proyecto.
 
 ## SQL remoto por ambiente
@@ -76,7 +80,8 @@ npm run supabase:sql:prod -- -File sql/prod/tu-script.sql -AllowProduction
 
 ## Notas operativas
 
-- las Edge Functions dependen de `PROJECT_LEGACY_SERVICE_ROLE_KEY` para validar sesion correctamente en nuestros proyectos Supabase actuales
+- las Edge Functions protegidas deben usar `requestClient` con publishable key y `adminClient` con service role key
+- las Edge Functions protegidas deben desplegarse con `--no-verify-jwt` si el proyecto usa tokens `ES256`
 - `scripts/refresh-dev-core-data-from-prod.ps1` esta pensado como reset controlado de DEV y tambien restaura el POS de desarrollo a `3 barras + 12 mesas`
 - no asumas que ese refresh preserva pedidos abiertos o estado operativo previo en DEV
 

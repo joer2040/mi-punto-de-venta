@@ -55,9 +55,9 @@ Ambos ambientes deben compartir:
 
 En este proyecto, revisar especialmente:
 
+- `PROJECT_PUBLISHABLE_KEY`
 - `SERVICE_ROLE_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
-- `PROJECT_LEGACY_SERVICE_ROLE_KEY`
 
 Un redeploy sin los secretos correctos puede romper autenticacion aunque el codigo sea igual.
 
@@ -69,12 +69,21 @@ Las funciones desplegadas en `DEV` y `PRD` deben estar alineadas en:
 - variables de entorno
 - estrategia de autenticacion
 - nombres de secretos
+- flag de despliegue `--no-verify-jwt` para funciones protegidas con tokens `ES256`
 
 Las funciones clave hoy son:
 
 - `pos-operations`
 - `user-admin`
 - `erp-operations`
+- `cash-operations`
+
+Patron de autenticacion esperado:
+
+- `requestClient` con publishable key
+- `adminClient` con service role key
+- `requestClient.auth.getUser()`
+- despliegue con `--no-verify-jwt`
 
 ### 4. Frontend
 

@@ -32,13 +32,21 @@ Si quieres ejecutar scripts SQL remotos contra Supabase desde terminal, agrega t
 SUPABASE_DB_URL_DEV=postgresql://postgres:tu-password-dev@db.tu-proyecto-dev.supabase.co:5432/postgres
 ```
 
-Para las Edge Functions (`pos-operations`, `user-admin`, `erp-operations`) agrega tambien:
+Para las Edge Functions protegidas agrega tambien:
 
 ```bash
-PROJECT_LEGACY_SERVICE_ROLE_KEY=tu-legacy-service-role-key-dev
+PROJECT_PUBLISHABLE_KEY=tu-publishable-key-dev
+SERVICE_ROLE_KEY=tu-service-role-key-dev
 ```
 
-Este valor se usa para validar sesiones desde `/auth/v1/user` en proyectos que emiten tokens `ES256`.
+En nuestros despliegues actuales la validacion de sesion ya no usa
+`PROJECT_LEGACY_SERVICE_ROLE_KEY` ni llamadas manuales a `/auth/v1/user`.
+El patron correcto es:
+
+- `requestClient` con `PROJECT_PUBLISHABLE_KEY` o `SUPABASE_ANON_KEY`
+- `Authorization` reenviado desde el request
+- `requestClient.auth.getUser()` para resolver al usuario
+- `adminClient` separado con `SERVICE_ROLE_KEY` o `SUPABASE_SERVICE_ROLE_KEY`
 
 ## Vercel / Produccion
 
@@ -60,10 +68,13 @@ SUPABASE_DB_URL_PROD=postgresql://postgres:tu-password-prod@db.tu-proyecto-prod.
 Para las Edge Functions desplegadas en produccion agrega tambien:
 
 ```bash
-PROJECT_LEGACY_SERVICE_ROLE_KEY=tu-legacy-service-role-key-prod
+PROJECT_PUBLISHABLE_KEY=tu-publishable-key-prod
+SERVICE_ROLE_KEY=tu-service-role-key-prod
 ```
 
-Si redeployas funciones sin este secreto, puedes volver a ver errores `401` o respuestas `non-2xx` al invocarlas desde la app.
+Si el proyecto usa tokens `ES256`, las funciones protegidas deben desplegarse con
+`--no-verify-jwt`. De lo contrario, Supabase puede rechazar la peticion antes de
+ejecutar tu codigo con errores como `Unsupported JWT algorithm ES256`.
 
 ## Ejecutar SQL por ambiente
 
@@ -88,13 +99,19 @@ Regla sugerida:
 
 ## Edge Functions
 
-Las funciones `pos-operations`, `user-admin` y `erp-operations` hoy asumen:
+Las funciones protegidas hoy asumen:
 
 - `SUPABASE_URL`
+- `PROJECT_PUBLISHABLE_KEY` o `SUPABASE_ANON_KEY`
 - `SERVICE_ROLE_KEY` o `SUPABASE_SERVICE_ROLE_KEY`
-- `PROJECT_LEGACY_SERVICE_ROLE_KEY`
 
-Ese ultimo secreto no es opcional en nuestros despliegues actuales si queremos que la validacion de sesion funcione con el flujo nuevo de JWT.
+Y deben desplegarse con:
+
+```powershell
+npm exec supabase functions deploy <nombre-funcion> -- --project-ref <project-ref> --no-verify-jwt
+```
+
+Consulta [SUPABASE_EDGE_FUNCTION_AUTH.md](C:/Users/jaime/OneDrive/Documentos/OneDrive/Escritorio%20Nube/Project%20Codex/pventa/mi-punto-de-venta/docs/SUPABASE_EDGE_FUNCTION_AUTH.md) para la guia operativa completa.
 
 ## Nota importante
 

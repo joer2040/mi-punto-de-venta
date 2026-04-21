@@ -12,6 +12,7 @@ const PurchasesReport = lazy(() => import('./pages/PurchasesReport'))
 const SalesReport = lazy(() => import('./pages/SalesReport'))
 const MaterialMovementsReport = lazy(() => import('./pages/MaterialMovementsReport'))
 const POS = lazy(() => import('./pages/POS'))
+const CashControl = lazy(() => import('./pages/CashControl'))
 const SecurityUsers = lazy(() => import('./pages/SecurityUsers'))
 const Home = lazy(() => import('./pages/Home'))
 const Login = lazy(() => import('./pages/Login'))
@@ -20,6 +21,8 @@ const AccessDenied = lazy(() => import('./pages/AccessDenied'))
 const STORAGE_KEY = 'mi-punto-de-venta.current-page'
 const IDLE_TIMEOUT_MS = 10 * 60 * 1000
 const SESSION_EXPIRED_MESSAGE_KEY = 'mi-punto-de-venta.session-expired-message'
+const SHOW_DEV_BADGE =
+  import.meta.env.DEV && String(import.meta.env.VITE_SHOW_DEV_BADGE).toLowerCase() === 'true'
 
 const PAGE_LABELS = {
   home: 'Inicio',
@@ -27,6 +30,7 @@ const PAGE_LABELS = {
   providers: 'Proveedores',
   purchases: 'Compras',
   movements: 'Movimiento de materiales',
+  'cash-control': 'Control y corte de caja',
   reports: 'Reportes',
   'report-inventory': 'Existencias',
   'report-purchases': 'Reporte compras',
@@ -36,7 +40,7 @@ const PAGE_LABELS = {
   security: 'Usuarios',
 }
 
-const PRIMARY_NAV_PAGES = ['home', 'master', 'providers', 'purchases', 'movements', 'reports', 'pos', 'security']
+const PRIMARY_NAV_PAGES = ['home', 'master', 'providers', 'purchases', 'movements', 'cash-control', 'reports', 'pos', 'security']
 
 const getInitialUiState = () => ({
   currentPage: typeof window === 'undefined' ? 'home' : localStorage.getItem(STORAGE_KEY) || 'home',
@@ -93,6 +97,8 @@ const PageContent = ({ currentPage, onNavigate, onPosEditingStateChange }) => {
       return <PurchaseEntry />
     case 'movements':
       return <MaterialMovements />
+    case 'cash-control':
+      return <CashControl />
     case 'reports':
       return <ReportsHome onNavigate={onNavigate} />
     case 'report-inventory':
@@ -110,6 +116,12 @@ const PageContent = ({ currentPage, onNavigate, onPosEditingStateChange }) => {
     default:
       return <AccessDenied />
   }
+}
+
+const DevBadge = () => {
+  if (!SHOW_DEV_BADGE) return null
+
+  return <div style={devBadgeStyle}>Development</div>
 }
 
 const AppShell = () => {
@@ -267,6 +279,8 @@ const AppShell = () => {
 
   return (
     <div style={appStyle}>
+      <DevBadge />
+
       {currentPage !== 'home' && (
         <div style={topMetaStyle}>
           <span style={userPillStyle}>{profile?.full_name || profile?.username || 'Usuario activo'}</span>
@@ -586,6 +600,23 @@ const pageLoadingStyle = {
   color: '#0f172a',
   fontWeight: 800,
   background: '#f8fafc',
+}
+
+const devBadgeStyle = {
+  position: 'fixed',
+  right: '16px',
+  bottom: '16px',
+  zIndex: 9999,
+  padding: '8px 12px',
+  borderRadius: '999px',
+  background: 'rgba(33, 42, 55, 0.82)',
+  color: '#f7f9fc',
+  fontSize: '12px',
+  fontWeight: 700,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  boxShadow: '0 10px 24px rgba(16, 24, 40, 0.18)',
+  pointerEvents: 'none',
 }
 
 export default App

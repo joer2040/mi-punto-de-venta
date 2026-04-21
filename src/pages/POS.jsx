@@ -1,4 +1,5 @@
 ﻿import React, { useEffect, useReducer, useRef, useState } from 'react'
+import { cashControlService } from '../api/cashControlService'
 import { materialService } from '../api/materialService'
 import { posService } from '../api/posService'
 import { useAuth } from '../contexts/AuthContext'
@@ -775,6 +776,12 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
 
     try {
       dispatch({ type: 'set_show_finalize_confirm', value: false })
+      const cashSessionOverview = await cashControlService.getSessionOverview()
+      if (cashSessionOverview?.session?.status !== 'open') {
+        showNotice('No hay una caja abierta. Debes abrir caja antes de registrar ventas en efectivo.', 'warning')
+        return
+      }
+
       const centerId = inventory[0]?.centers?.id
       if (!centerId) {
         showNotice('No se encontro un centro de inventario para procesar la venta.', 'warning')

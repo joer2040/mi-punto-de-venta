@@ -39,20 +39,15 @@ const json = (body: Record<string, unknown>, status = 200) =>
     },
   })
 
-const resolveAuthenticatedUser = async (supabaseUrl: string, authApiKey: string, authorization: string) => {
-  const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
-    headers: {
-      apikey: authApiKey,
-      Authorization: authorization,
-    },
-  })
+const resolveAuthenticatedUser = async (requestClient: ReturnType<typeof createClient>) => {
+  const { data, error } = await requestClient.auth.getUser()
 
-  if (!response.ok) {
+  if (error || !data?.user) {
     return { user: null, error: new Error('Sesion invalida o expirada.') }
   }
 
   return {
-    user: await response.json(),
+    user: data.user,
     error: null,
   }
 }
@@ -64,23 +59,26 @@ Deno.serve(async (req) => {
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+    const publishableKey =
+      Deno.env.get('PROJECT_PUBLISHABLE_KEY') || Deno.env.get('SUPABASE_ANON_KEY')!
     const serviceRoleKey =
       Deno.env.get('SERVICE_ROLE_KEY') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    const authApiKey = Deno.env.get('PROJECT_LEGACY_SERVICE_ROLE_KEY') || serviceRoleKey
     const authorization = req.headers.get('Authorization')
 
     if (!authorization) {
       return json({ error: 'No se recibio token de autenticacion.' }, 401)
     }
 
+    const requestClient = createClient(supabaseUrl, publishableKey, {
+      global: {
+        headers: {
+          Authorization: authorization,
+        },
+      },
+    })
     const adminClient = createClient(supabaseUrl, serviceRoleKey)
-    const accessToken = authorization.replace(/^Bearer\s+/i, '').trim()
 
-    const { user, error: userError } = await resolveAuthenticatedUser(
-      supabaseUrl,
-      authApiKey,
-      `Bearer ${accessToken}`
-    )
+    const { user, error: userError } = await resolveAuthenticatedUser(requestClient)
 
     if (userError || !user) {
       return json({ error: 'Sesion invalida o expirada.' }, 401)

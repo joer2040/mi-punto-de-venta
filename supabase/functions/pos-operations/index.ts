@@ -51,20 +51,15 @@ const json = (body: Record<string, unknown>, status = 200) =>
     },
   })
 
-const resolveAuthenticatedUser = async (supabaseUrl: string, authApiKey: string, authorization: string) => {
-  const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
-    headers: {
-      apikey: authApiKey,
-      Authorization: authorization,
-    },
-  })
+const resolveAuthenticatedUser = async (requestClient: ReturnType<typeof createClient>) => {
+  const { data, error } = await requestClient.auth.getUser()
 
-  if (!response.ok) {
+  if (error || !data?.user) {
     return { user: null, error: new Error('Sesion invalida o expirada.') }
   }
 
   return {
-    user: await response.json(),
+    user: data.user,
     error: null,
   }
 }
@@ -215,6 +210,19 @@ const loadTableState = async (adminClient: ReturnType<typeof createClient>, tabl
   return { table, order }
 }
 
+const loadOpenCashSession = async (adminClient: ReturnType<typeof createClient>) => {
+  const { data, error } = await adminClient
+    .from('cash_sessions')
+    .select('id, status')
+    .eq('status', 'open')
+    .order('opened_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) throw error
+  return data
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -222,23 +230,26 @@ Deno.serve(async (req) => {
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+    const publishableKey =
+      Deno.env.get('PROJECT_PUBLISHABLE_KEY') || Deno.env.get('SUPABASE_ANON_KEY')!
     const serviceRoleKey =
       Deno.env.get('SERVICE_ROLE_KEY') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    const authApiKey = Deno.env.get('PROJECT_LEGACY_SERVICE_ROLE_KEY') || serviceRoleKey
     const authorization = req.headers.get('Authorization')
 
     if (!authorization) {
       return json({ error: 'No se recibio token de autenticacion.' }, 401)
     }
 
+    const requestClient = createClient(supabaseUrl, publishableKey, {
+      global: {
+        headers: {
+          Authorization: authorization,
+        },
+      },
+    })
     const adminClient = createClient(supabaseUrl, serviceRoleKey)
-    const accessToken = authorization.replace(/^Bearer\s+/i, '').trim()
 
-    const { user, error: userError } = await resolveAuthenticatedUser(
-      supabaseUrl,
-      authApiKey,
-      `Bearer ${accessToken}`
-    )
+    const { user, error: userError } = await resolveAuthenticatedUser(requestClient)
 
     if (userError || !user) {
       return json({ error: 'Sesion invalida o expirada.' }, 401)
@@ -369,6 +380,15 @@ Deno.serve(async (req) => {
         return json({ error: 'No se encontro un centro de inventario para procesar la venta.' }, 400)
       }
 
+      const isCashPayment = normalizeRoleName(paymentMethod) === 'efectivo'
+      let openCashSession = null
+      if (isCashPayment) {
+        openCashSession = await loadOpenCashSession(adminClient)
+        if (!openCashSession) {
+          return json({ error: 'No hay una caja abierta. Debes abrir caja antes de finalizar ventas en efectivo.' }, 409)
+        }
+      }
+
       const materialIds = Array.from(new Set(items.map((item) => item.material_id)))
       const [{ data: inventoryRows, error: inventoryError }, { data: materialRows, error: materialError }] =
         await Promise.all([
@@ -412,6 +432,7 @@ Deno.serve(async (req) => {
             center_id: center.id,
             total_amount: totalAmount,
             payment_method: paymentMethod,
+            cash_session_id: openCashSession?.id || null,
           },
         ])
         .select()

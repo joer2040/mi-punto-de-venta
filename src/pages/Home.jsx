@@ -29,6 +29,12 @@ const sections = [
     accent: '#0f766e',
   },
   {
+    id: 'cash-control',
+    label: 'Control y corte de caja',
+    description: 'Abre caja, monitorea efectivo esperado y genera el corte final en PDF.',
+    accent: '#0f766e',
+  },
+  {
     id: 'reports',
     label: 'Reportes',
     description: 'Accede a existencias, compras y ventas desde un solo lugar.',

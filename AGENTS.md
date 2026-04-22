@@ -19,3 +19,14 @@ Optional switches:
 Turn Caveman mode off only when the user says `stop caveman` or `normal mode`.
 
 Do not use Caveman mode for irreversible warnings or confirmations where extra clarity matters.
+
+# Local Skills
+
+This repo also has local skills under `.agents/skills`.
+
+Available:
+- `systematic-debugging`
+- `commit-work`
+- `session-handoff`
+- `agent-md-refactor`
+- `naming-analyzer`

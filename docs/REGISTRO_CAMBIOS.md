@@ -2,6 +2,35 @@
 
 Este archivo concentra el registro historico de cambios funcionales, tecnicos y operativos liberados en el proyecto.
 
+## 2026-05-04
+
+### POS: Barra 4
+
+Estado:
+- liberado en `DEV`
+- liberado en `PRD`
+- validado funcionalmente en `DEV`
+
+Resumen:
+- se agrego una estacion adicional `Barra 4` en el layout operativo del POS
+- la nueva barra reutiliza la misma funcionalidad que las demas estaciones porque el POS consume dinamicamente el catalogo de `public.tables`
+
+Base de datos:
+- se versiono un script idempotente para insertar `Barra 4` con estado `libre`
+
+Archivos/versionado:
+- scripts SQL:
+  - `sql/dev/2026-05-04_add_barra_4.sql`
+  - `sql/prod/2026-05-04_add_barra_4.sql`
+
+Despliegue:
+- SQL aplicado en `DEV`
+- SQL aplicado en `PRD`
+
+Validacion:
+- `DEV` muestra `Barra 1`, `Barra 2`, `Barra 3`, `Barra 4`
+- `PRD` muestra `Barra 1`, `Barra 2`, `Barra 3`, `Barra 4`
+
 ## 2026-04-20
 
 ### Compras: Proveedor General

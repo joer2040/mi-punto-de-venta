@@ -11,6 +11,17 @@ const normalizeRoleName = (value: string | null | undefined) => (value || '').tr
 const isManagerRoleName = (value: string | null | undefined) =>
   ['manager', 'administrador operativo'].includes(normalizeRoleName(value))
 const isWaiterRoleName = (value: string | null | undefined) => normalizeRoleName(value) === 'mesero'
+const CUBETA_BUNDLE_TYPE = 'cubeta'
+const CUBETA_ALLOWED_SKUS = new Set([
+  '75004132',
+  '7501064115400',
+  '7501064101410',
+  '750106696971',
+  '7501064101465',
+])
+const CUBETA_REQUIRED_PIECES = 10
+const CUBETA_FIXED_PRICE = 320
+const CUBETA_FIXED_UNIT_PRICE = CUBETA_FIXED_PRICE / CUBETA_REQUIRED_PIECES
 const appError = (message: string, status = 400) => Object.assign(new Error(message), { status })
 
 type RoleLinkRow = {
@@ -24,6 +35,10 @@ type OrderItem = {
   quantity: number
   unit_price: number
   is_extra: boolean
+  base_unit_price?: number
+  bundle_id?: string
+  bundle_type?: string
+  bundle_label?: string
 }
 
 const readRoleName = (roleLink: RoleLinkRow) => {
@@ -79,6 +94,10 @@ const normalizeItems = (items: unknown): OrderItem[] => {
       quantity: toNumber(item?.quantity, 0),
       unit_price: toNumber(item?.unit_price, 0),
       is_extra: Boolean(item?.is_extra),
+      base_unit_price: toNumber(item?.base_unit_price, 0),
+      bundle_id: String(item?.bundle_id ?? '').trim() || undefined,
+      bundle_type: String(item?.bundle_type ?? '').trim() || undefined,
+      bundle_label: String(item?.bundle_label ?? '').trim() || undefined,
     }))
     .filter((item) => item.material_id && item.name && item.quantity > 0)
 }
@@ -102,6 +121,72 @@ const waiterCanModifyItems = (previousItems: OrderItem[], nextItems: OrderItem[]
   }
 
   return true
+}
+
+const validateCubetaBundles = (
+  items: OrderItem[],
+  materialRows: Array<{ id: string; sku?: string | null; categories?: { name?: string | null } | { name?: string | null }[] | null }>
+) => {
+  const cubetaItems = items.filter((item) => normalizeRoleName(item.bundle_type) === CUBETA_BUNDLE_TYPE)
+  if (cubetaItems.length === 0) return
+
+  const materialById = new Map(materialRows.map((row) => [row.id, row]))
+  const bundleRows = cubetaItems.reduce((map, item) => {
+    if (!item.bundle_id) {
+      throw appError('Una cubeta no tiene identificador de bundle valido.', 400)
+    }
+
+    const currentRows = map.get(item.bundle_id) || []
+    currentRows.push(item)
+    map.set(item.bundle_id, currentRows)
+    return map
+  }, new Map<string, OrderItem[]>())
+
+  for (const [bundleId, rows] of bundleRows.entries()) {
+    let totalQuantity = 0
+    let effectiveTotal = 0
+    let baseUnitPrice = 0
+
+    for (const row of rows) {
+      const material = materialById.get(row.material_id)
+      const materialSku = String(material?.sku ?? '').trim()
+      const categoryName = normalizeRoleName(readCategoryName(material?.categories ?? null))
+      const candidateBaseUnitPrice = row.base_unit_price && row.base_unit_price > 0 ? row.base_unit_price : row.unit_price
+
+      if (!material || !materialSku || !CUBETA_ALLOWED_SKUS.has(materialSku)) {
+        throw appError(`La cubeta ${bundleId} contiene un SKU no permitido.`, 400)
+      }
+
+      if (categoryName !== 'cerveza') {
+        throw appError(`La cubeta ${bundleId} contiene un producto fuera de la categoria Cerveza.`, 400)
+      }
+
+      if (candidateBaseUnitPrice <= 0) {
+        throw appError(`La cubeta ${bundleId} no tiene precio base valido.`, 400)
+      }
+
+      if (baseUnitPrice === 0) {
+        baseUnitPrice = candidateBaseUnitPrice
+      } else if (Math.abs(baseUnitPrice - candidateBaseUnitPrice) > 0.01) {
+        throw appError(`La cubeta ${bundleId} requiere que todos los SKU compartan el mismo precio de venta.`, 400)
+      }
+
+      totalQuantity += row.quantity
+      effectiveTotal += row.unit_price * row.quantity
+
+      if (Math.abs(row.unit_price - CUBETA_FIXED_UNIT_PRICE) > 0.01) {
+        throw appError(`La cubeta ${bundleId} debe registrar cada pieza a $${CUBETA_FIXED_UNIT_PRICE.toFixed(2)}.`, 400)
+      }
+    }
+
+    if (totalQuantity !== CUBETA_REQUIRED_PIECES) {
+      throw appError(`La cubeta ${bundleId} debe contener exactamente ${CUBETA_REQUIRED_PIECES} piezas.`, 400)
+    }
+
+    if (Math.abs(effectiveTotal - CUBETA_FIXED_PRICE) > 0.01) {
+      throw appError(`La cubeta ${bundleId} debe sumar exactamente $${CUBETA_FIXED_PRICE.toFixed(2)}.`, 400)
+    }
+  }
 }
 
 const padDocumentSegment = (value: number, length = 2) => String(value).padStart(length, '0')
@@ -399,7 +484,7 @@ Deno.serve(async (req) => {
             .in('material_id', materialIds),
           adminClient
             .from('materials')
-            .select('id, categories:cat_id(name)')
+            .select('id, sku, categories:cat_id(name)')
             .in('id', materialIds),
         ])
 
@@ -411,14 +496,22 @@ Deno.serve(async (req) => {
         (materialRows || []).map((row) => [row.id, normalizeRoleName(readCategoryName(row.categories)) === 'extras'])
       )
 
+      validateCubetaBundles(items, materialRows || [])
+
       const chargeableItems = items.filter((item) => !isExtraByMaterial.get(item.material_id))
 
-      for (const item of chargeableItems) {
-        const availableStock = stockByMaterial.get(item.material_id) || 0
-        if (item.quantity > availableStock) {
+      const requestedQuantityByMaterial = chargeableItems.reduce((map, item) => {
+        map.set(item.material_id, (map.get(item.material_id) || 0) + item.quantity)
+        return map
+      }, new Map<string, number>())
+
+      for (const [materialId, requestedQuantity] of requestedQuantityByMaterial.entries()) {
+        const availableStock = stockByMaterial.get(materialId) || 0
+        const materialName = chargeableItems.find((item) => item.material_id === materialId)?.name || 'este producto'
+        if (requestedQuantity > availableStock) {
           return json(
             {
-              error: `No hay stock suficiente para ${item.name}. Disponible: ${availableStock}, solicitado: ${item.quantity}.`,
+              error: `No hay stock suficiente para ${materialName}. Disponible: ${availableStock}, solicitado: ${requestedQuantity}.`,
             },
             400
           )

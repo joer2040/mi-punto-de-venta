@@ -4,6 +4,51 @@ Este archivo concentra el registro historico de cambios funcionales, tecnicos y 
 
 ## 2026-05-04
 
+### POS: Cubeta virtual
+
+Estado:
+- liberado en `DEV`
+- liberado en `PRD`
+- validado tecnicamente en frontend y backend
+
+Resumen:
+- se agrego `Cubeta` como bundle virtual en el POS, sin crear material nuevo en maestro
+- la cubeta solo se puede armar con 10 piezas exactas de una lista cerrada de SKU de categoria `Cerveza`
+- el precio de venta de la cubeta se fijo en `$320.00`
+- el ticket muestra solo el concepto `Cubeta`
+- el consumo de inventario se mantiene sobre las 10 piezas reales
+
+Frontend:
+- se agrego una tarjeta especial `Cubeta` en el catalogo del POS
+- la tarjeta abre un modal de armado con seleccion exacta de 10 piezas
+- el modal valida stock disponible por SKU en tiempo real
+- la cuenta activa muestra resumen de cubeta para operar el carrito
+- el ticket local, PDF e impresion muestran solo el concepto `Cubeta`
+
+Backend:
+- `pos-operations` ahora preserva metadatos opcionales de bundle en `table_orders.items`
+- `finalize_sale` valida:
+  - solo SKU permitidos
+  - misma base de precio en todos los SKU del bundle
+  - 10 piezas exactas por cubeta
+  - total fijo de `$320.00`
+- la venta se persiste con `sale_items` reales y `inventory_movements` reales
+
+Archivos/versionado:
+- `src/pages/POS.jsx`
+- `supabase/functions/pos-operations/index.ts`
+
+Despliegue:
+- frontend liberado por flujo `local -> GitHub -> Vercel`
+- `pos-operations` desplegada en `PRD`
+
+Validacion:
+- `npx eslint src/pages/POS.jsx`: OK
+- `npm run build`: OK
+
+Notas:
+- `npm run lint` sigue fallando por errores previos no relacionados en `src/api/cashControlService.js`
+
 ### POS: Barra 4
 
 Estado:

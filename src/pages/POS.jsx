@@ -9,6 +9,18 @@ import { useResponsive } from '../lib/useResponsive'
 import logoCarreta from '../assets/la_carreta_sin_fondo.png'
 
 const TICKET_WIDTH_MM = 80
+const CUBETA_ALLOWED_SKUS = [
+  '75004132',
+  '7501064115400',
+  '7501064101410',
+  '750106696971',
+  '7501064101465',
+]
+const CUBETA_BUNDLE_TYPE = 'cubeta'
+const CUBETA_BUNDLE_LABEL = 'Cubeta'
+const CUBETA_REQUIRED_PIECES = 10
+const CUBETA_FIXED_PRICE = 320
+const CUBETA_FIXED_UNIT_PRICE = CUBETA_FIXED_PRICE / CUBETA_REQUIRED_PIECES
 let jsPdfModulePromise = null
 
 const loadJsPdf = async () => {
@@ -37,6 +49,181 @@ const getStationDisplayName = (table) => {
 }
 
 const getStationTypeName = (table) => (isBarStation(table) ? 'Barra' : 'Mesa')
+const normalizeText = (value) => String(value || '').trim().toLowerCase()
+const buildBundleId = () =>
+  typeof crypto !== 'undefined' && crypto.randomUUID
+    ? `cubeta-${crypto.randomUUID()}`
+    : `cubeta-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+
+const getBaseUnitPrice = (item) => {
+  const parsedBase = Number(item?.base_unit_price)
+  if (Number.isFinite(parsedBase) && parsedBase > 0) return parsedBase
+  const parsedPrice = Number(item?.unit_price)
+  return Number.isFinite(parsedPrice) ? parsedPrice : 0
+}
+
+const getCartMaterialQuantityMap = (cart = []) =>
+  cart.reduce((map, item) => {
+    const materialId = item?.material_id
+    const quantity = Number(item?.quantity || 0)
+
+    if (!materialId || quantity <= 0) return map
+
+    map.set(materialId, (map.get(materialId) || 0) + quantity)
+    return map
+  }, new Map())
+
+const buildGroupedBundleDetails = (rows = []) =>
+  Array.from(
+    rows.reduce((map, row) => {
+      const key = row.material_id || row.name
+      const existing = map.get(key)
+
+      if (existing) {
+        existing.quantity += row.quantity
+        return map
+      }
+
+      map.set(key, {
+        name: row.name,
+        quantity: row.quantity,
+        unitPrice: getBaseUnitPrice(row),
+      })
+
+      return map
+    }, new Map()).values()
+  )
+
+const buildDisplayCartItems = (cart = []) => {
+  const bundleGroups = new Map()
+  const standaloneItems = []
+
+  cart.forEach((item) => {
+    if (item.bundle_id && item.bundle_type === CUBETA_BUNDLE_TYPE) {
+      const currentBundle = bundleGroups.get(item.bundle_id) || []
+      currentBundle.push(item)
+      bundleGroups.set(item.bundle_id, currentBundle)
+      return
+    }
+
+    standaloneItems.push({
+      id: `material:${item.material_id}`,
+      kind: 'material',
+      material_id: item.material_id,
+      name: item.name,
+      quantity: item.quantity,
+      unit_price: item.unit_price,
+      subtotal: item.quantity * item.unit_price,
+    })
+  })
+
+  const bundleItems = Array.from(bundleGroups.entries()).map(([bundleId, rows]) => {
+    const bundleTotal = rows.reduce((acc, row) => acc + row.quantity * row.unit_price, 0)
+    const details = buildGroupedBundleDetails(rows)
+    const totalPieces = details.reduce((acc, detail) => acc + detail.quantity, 0)
+
+    return {
+      id: `bundle:${bundleId}`,
+      kind: 'bundle',
+      bundle_id: bundleId,
+      name: rows[0]?.bundle_label || CUBETA_BUNDLE_LABEL,
+      quantity: 1,
+      unit_price: bundleTotal,
+      subtotal: bundleTotal,
+      details,
+      totalPieces,
+    }
+  })
+
+  return [...bundleItems, ...standaloneItems]
+}
+
+const buildTicketDisplayItems = (cart = [], { includeBundleDetails = true } = {}) =>
+  buildDisplayCartItems(cart).map((item) => ({
+    name: item.name,
+    quantity: item.quantity,
+    unitPrice: Number(item.unit_price),
+    subtotal: Number(item.subtotal),
+    details: includeBundleDetails ? item.details || [] : [],
+    totalPieces: item.totalPieces || null,
+  }))
+
+const buildCubetaConfig = (availableProducts = [], cart = []) => {
+  const currentQuantities = getCartMaterialQuantityMap(cart)
+  const products = CUBETA_ALLOWED_SKUS.map((sku) =>
+    availableProducts.find((item) => String(item?.materials?.sku || '').trim() === sku) || null
+  )
+
+  if (products.some((product) => !product)) {
+    return {
+      isAvailable: false,
+      disabledReason: 'Cubeta no disponible: faltan productos configurados en el catalogo de venta.',
+      products: [],
+    }
+  }
+
+  const normalizedProducts = products.map((product) => {
+    const materialId = product.materials?.id
+    const currentReserved = currentQuantities.get(materialId) || 0
+
+    return {
+      sku: product.materials?.sku,
+      materialId,
+      name: product.materials?.name,
+      price: Number(product.precio_venta || 0),
+      categoryName: product.materials?.categories?.name,
+      stockActual: Number(product.stock_actual || 0),
+      remainingStock: Math.max(Number(product.stock_actual || 0) - currentReserved, 0),
+    }
+  })
+
+  const priceSet = new Set(normalizedProducts.map((product) => product.price))
+  const allAreBeer = normalizedProducts.every((product) => normalizeText(product.categoryName) === 'cerveza')
+  const allHaveSalePrice = normalizedProducts.every((product) => product.price > 0)
+  const totalRemainingStock = normalizedProducts.reduce((acc, product) => acc + product.remainingStock, 0)
+
+  if (!allAreBeer) {
+    return {
+      isAvailable: false,
+      disabledReason: 'Cubeta solo se habilita con productos de categoria Cerveza.',
+      products: normalizedProducts,
+    }
+  }
+
+  if (!allHaveSalePrice) {
+    return {
+      isAvailable: false,
+      disabledReason: 'Cubeta requiere precio de venta valido en todos los SKU permitidos.',
+      products: normalizedProducts,
+    }
+  }
+
+  if (priceSet.size !== 1) {
+    return {
+      isAvailable: false,
+      disabledReason: 'Cubeta requiere que todos los SKU permitidos compartan el mismo precio de venta.',
+      products: normalizedProducts,
+    }
+  }
+
+  if (totalRemainingStock < CUBETA_REQUIRED_PIECES) {
+    return {
+      isAvailable: false,
+      disabledReason: 'No hay suficientes existencias combinadas para completar una cubeta.',
+      products: normalizedProducts,
+    }
+  }
+
+  const unitPrice = normalizedProducts[0]?.price || 0
+
+  return {
+    isAvailable: true,
+    disabledReason: null,
+    unitPrice,
+    bundlePrice: CUBETA_FIXED_PRICE,
+    products: normalizedProducts,
+  }
+}
 
 const getStationShortName = (table) => {
   const rawValue = String(table?.number || '').trim()
@@ -229,6 +416,8 @@ const ProductCatalog = ({
   availableProducts,
   totalItems,
   onAddToCart,
+  cubetaConfig,
+  onOpenCubetaBuilder,
 }) => (
   <>
     <div style={heroCardStyle}>
@@ -257,6 +446,35 @@ const ProductCatalog = ({
     </div>
 
     <div style={getProductGridStyle(isMobile)}>
+      <button
+        type="button"
+        onClick={onOpenCubetaBuilder}
+        disabled={!canOperatePOS || !cubetaConfig?.isAvailable}
+        style={{
+          ...cubetaCardStyle,
+          ...getProductCardStyle(isMobile),
+          opacity: !cubetaConfig?.isAvailable ? 0.55 : 1,
+          cursor: !canOperatePOS || !cubetaConfig?.isAvailable ? 'not-allowed' : 'pointer',
+          textAlign: 'left',
+          width: '100%',
+        }}
+      >
+        <div style={cubetaPillStyle}>Bundle virtual</div>
+        <div style={{ fontWeight: 'bold', color: '#1f2937', fontSize: isMobile ? '0.95rem' : '1rem' }}>
+          {CUBETA_BUNDLE_LABEL}
+        </div>
+        <div style={{ color: '#0f766e', fontWeight: 'bold', marginTop: '10px', fontSize: isMobile ? '1.1rem' : '1.2rem' }}>
+          ${Number(cubetaConfig?.bundlePrice || 0).toFixed(2)}
+        </div>
+        <div style={{ fontSize: '0.78rem', color: '#475569', marginTop: '10px', lineHeight: 1.45 }}>
+          Precio fijo de cubeta con 10 cervezas permitidas.
+        </div>
+        {!cubetaConfig?.isAvailable && (
+          <div style={{ fontSize: '0.78rem', color: '#b91c1c', marginTop: '10px', lineHeight: 1.45 }}>
+            {cubetaConfig?.disabledReason}
+          </div>
+        )}
+      </button>
       {availableProducts.map((item) => {
         const isExtra = item.materials?.categories?.name === 'Extras'
         const isOutOfStock = !isExtra && item.stock_actual <= 0
@@ -304,6 +522,7 @@ const CartPanel = ({
   isTablet,
   isMobile,
   cart,
+  displayCart,
   total,
   totalItems,
   canOperatePOS,
@@ -328,29 +547,53 @@ const CartPanel = ({
           <span style={{ ...mutedTextStyle, marginTop: '6px' }}>Agrega articulos para comenzar la cuenta.</span>
         </div>
       ) : (
-        cart.map((item) => (
-          <div key={item.material_id} style={cartItemStyle}>
+        displayCart.map((item) => (
+          <div key={item.id} style={cartItemStyle}>
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: '0.95rem', color: '#0f172a', fontWeight: '700' }}>{item.name}</div>
-              <div style={{ fontSize: '0.82rem', color: '#64748b', marginTop: '4px' }}>
-                ${item.unit_price} c/u
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <div style={{ fontSize: '0.95rem', color: '#0f172a', fontWeight: '700' }}>{item.name}</div>
+                {item.kind === 'bundle' && <span style={cartBundleBadgeStyle}>10 piezas</span>}
               </div>
+              <div style={{ fontSize: '0.82rem', color: '#64748b', marginTop: '4px' }}>
+                {item.kind === 'bundle' ? `$${item.subtotal.toFixed(2)} por cubeta` : `$${item.unit_price} c/u`}
+              </div>
+              {item.kind === 'bundle' && (
+                <div style={bundleDetailListStyle}>
+                  {item.details.map((detail) => (
+                    <div key={`${item.id}-${detail.name}`} style={bundleDetailRowStyle}>
+                      <span>{detail.name}</span>
+                      <strong>{detail.quantity}</strong>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div style={cartActionsStyle}>
-              <div style={quantityControlStyle}>
-                <button onClick={() => onChangeQuantity(item.material_id, -1)} disabled={!canOperatePOS || !canDecreaseOrRemoveFromOccupiedTable} style={canOperatePOS && canDecreaseOrRemoveFromOccupiedTable ? qtyBtnStyle : disabledQtyBtnStyle} type="button">
-                  -
-                </button>
-                <span style={qtyValueStyle}>{item.quantity}</span>
-                <button onClick={() => onChangeQuantity(item.material_id, 1)} disabled={!canOperatePOS} style={canOperatePOS ? qtyBtnStyle : disabledQtyBtnStyle} type="button">
-                  +
-                </button>
-              </div>
+              {item.kind === 'bundle' ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  <span style={qtyValueStyle}>1</span>
+                  <button onClick={() => onRemoveFromCart(item.id)} disabled={!canOperatePOS || !canDecreaseOrRemoveFromOccupiedTable} style={canOperatePOS && canDecreaseOrRemoveFromOccupiedTable ? deleteBtnStyle : disabledDeleteBtnStyle} type="button">
+                    Quitar cubeta
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div style={quantityControlStyle}>
+                    <button onClick={() => onChangeQuantity(item.id, -1)} disabled={!canOperatePOS || !canDecreaseOrRemoveFromOccupiedTable} style={canOperatePOS && canDecreaseOrRemoveFromOccupiedTable ? qtyBtnStyle : disabledQtyBtnStyle} type="button">
+                      -
+                    </button>
+                    <span style={qtyValueStyle}>{item.quantity}</span>
+                    <button onClick={() => onChangeQuantity(item.id, 1)} disabled={!canOperatePOS} style={canOperatePOS ? qtyBtnStyle : disabledQtyBtnStyle} type="button">
+                      +
+                    </button>
+                  </div>
 
-              <button onClick={() => onRemoveFromCart(item.material_id)} disabled={!canOperatePOS || !canDecreaseOrRemoveFromOccupiedTable} style={canOperatePOS && canDecreaseOrRemoveFromOccupiedTable ? deleteBtnStyle : disabledDeleteBtnStyle} type="button">
-                Quitar
-              </button>
+                  <button onClick={() => onRemoveFromCart(item.id)} disabled={!canOperatePOS || !canDecreaseOrRemoveFromOccupiedTable} style={canOperatePOS && canDecreaseOrRemoveFromOccupiedTable ? deleteBtnStyle : disabledDeleteBtnStyle} type="button">
+                    Quitar
+                  </button>
+                </>
+              )}
             </div>
           </div>
         ))
@@ -377,21 +620,27 @@ const ActiveOrderView = ({
   selectedTable,
   selectedStationLabel,
   availableProducts,
+  cubetaConfig,
   totalItems,
   total,
   cart,
+  displayCart,
   canDecreaseOrRemoveFromOccupiedTable,
   showFinalizeConfirm,
+  showCubetaBuilder,
   ticketData,
   onNoticeClose,
   onSaveAndExit,
   onAddToCart,
+  onOpenCubetaBuilder,
   onChangeQuantity,
   onRemoveFromCart,
   onRequestFinalizeSale,
   onCloseTicket,
   onCloseFinalizeConfirm,
   onConfirmFinalizeSale,
+  onCloseCubetaBuilder,
+  onConfirmCubetaBuilder,
 }) => (
   <>
     {notice && <NoticeBanner notice={notice} onClose={onNoticeClose} />}
@@ -413,8 +662,10 @@ const ActiveOrderView = ({
           isMobile={isMobile}
           canOperatePOS={canOperatePOS}
           availableProducts={availableProducts}
+          cubetaConfig={cubetaConfig}
           totalItems={totalItems}
           onAddToCart={onAddToCart}
+          onOpenCubetaBuilder={onOpenCubetaBuilder}
         />
       </section>
 
@@ -422,6 +673,7 @@ const ActiveOrderView = ({
         isTablet={isTablet}
         isMobile={isMobile}
         cart={cart}
+        displayCart={displayCart}
         total={total}
         totalItems={totalItems}
         canOperatePOS={canOperatePOS}
@@ -441,11 +693,19 @@ const ActiveOrderView = ({
         onConfirm={onConfirmFinalizeSale}
       />
     )}
+    {showCubetaBuilder && (
+      <CubetaBuilderModal
+        cubetaConfig={cubetaConfig}
+        onCancel={onCloseCubetaBuilder}
+        onConfirm={onConfirmCubetaBuilder}
+      />
+    )}
   </>
 )
 
 const usePosController = ({ onEditingStateChange = () => {} }) => {
   const [state, dispatch] = useReducer(posReducer, undefined, createInitialPosState)
+  const [showCubetaBuilder, setShowCubetaBuilder] = useState(false)
   const { isMobile, isTablet } = useResponsive()
   const { can, isManager, isSuperadmin, isWaiter } = useAuth()
   const canCreateSale = can(PAGE_PERMISSION_MAP.pos, ACTION_KEYS.CREATE)
@@ -677,7 +937,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
       return
     }
 
-    const existing = cart.find((c) => c.material_id === item.materials.id)
+    const existing = cart.find((c) => c.material_id === item.materials.id && !c.bundle_id)
 
     if (!isExtra && existing && existing.quantity >= item.stock_actual) {
       showNotice(`Solo hay ${item.stock_actual} unidades disponibles.`, 'warning')
@@ -715,11 +975,13 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
       return
     }
 
+    const materialId = String(id || '').replace('material:', '')
+
     dispatch({
       type: 'set_cart',
       cart: cart
         .map((item) => {
-          if (item.material_id !== id) return item
+          if (item.bundle_id || item.material_id !== materialId) return item
           return { ...item, quantity: item.quantity + delta }
         })
         .filter((item) => item.quantity > 0),
@@ -732,12 +994,22 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
       showNotice('Los meseros no pueden remover productos de una mesa ya ocupada. Solo un manager puede hacerlo.', 'warning')
       return
     }
-    dispatch({ type: 'set_cart', cart: cart.filter((c) => c.material_id !== id) })
+
+    if (String(id || '').startsWith('bundle:')) {
+      const bundleId = String(id).replace('bundle:', '')
+      dispatch({ type: 'set_cart', cart: cart.filter((item) => item.bundle_id !== bundleId) })
+      return
+    }
+
+    const materialId = String(id || '').replace('material:', '')
+    dispatch({ type: 'set_cart', cart: cart.filter((item) => item.bundle_id || item.material_id !== materialId) })
   }
 
   const total = cart.reduce((acc, curr) => acc + curr.unit_price * curr.quantity, 0)
   const totalItems = cart.reduce((acc, curr) => acc + curr.quantity, 0)
   const availableProducts = inventory.filter((item) => item.materials?.categories?.is_for_sale === true)
+  const cubetaConfig = buildCubetaConfig(availableProducts, cart)
+  const displayCart = buildDisplayCartItems(cart)
   const barTables = tables.filter((table) => isBarStation(table))
   const diningTables = tables.filter((table) => !isBarStation(table))
   const freeBars = barTables.filter((table) => table.status === 'libre').length
@@ -754,14 +1026,65 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
       documentNumber,
       chargedAt,
       tableNumber: getStationDisplayName(table),
-      items: items.map((item) => ({
-        name: item.name,
-        quantity: item.quantity,
-        unitPrice: parseFloat(item.unit_price),
-        subtotal: parseFloat(item.unit_price) * parseFloat(item.quantity),
-      })),
+      items: buildTicketDisplayItems(items, { includeBundleDetails: false }),
       total: items.reduce((acc, item) => acc + parseFloat(item.unit_price) * parseFloat(item.quantity), 0),
     }
+  }
+
+  const handleOpenCubetaBuilder = () => {
+    if (!canOperatePOS) return
+    if (!cubetaConfig.isAvailable) {
+      showNotice(cubetaConfig.disabledReason || 'Cubeta no disponible en este momento.', 'warning')
+      return
+    }
+
+    setShowCubetaBuilder(true)
+  }
+
+  const handleConfirmCubetaBuilder = (selections) => {
+    if (!cubetaConfig.isAvailable) {
+      showNotice(cubetaConfig.disabledReason || 'Cubeta no disponible en este momento.', 'warning')
+      return
+    }
+
+    const totalSelected = Object.values(selections || {}).reduce((acc, value) => acc + Number(value || 0), 0)
+    if (totalSelected !== CUBETA_REQUIRED_PIECES) {
+      showNotice(`La cubeta requiere exactamente ${CUBETA_REQUIRED_PIECES} piezas.`, 'warning')
+      return
+    }
+
+    const hasSelection = cubetaConfig.products.some((product) => Number(selections?.[product.sku] || 0) > 0)
+    if (!hasSelection) {
+      showNotice('Selecciona al menos un producto para armar la cubeta.', 'warning')
+      return
+    }
+
+    const bundleId = buildBundleId()
+    const bundleRows = cubetaConfig.products.flatMap((product) => {
+      const quantity = Number(selections?.[product.sku] || 0)
+      if (quantity <= 0) return []
+
+      return [
+        {
+          material_id: product.materialId,
+          name: product.name,
+          base_unit_price: product.price,
+          unit_price: CUBETA_FIXED_UNIT_PRICE,
+          quantity,
+          is_extra: false,
+          bundle_id: bundleId,
+          bundle_type: CUBETA_BUNDLE_TYPE,
+          bundle_label: CUBETA_BUNDLE_LABEL,
+        },
+      ]
+    })
+
+    dispatch({
+      type: 'set_cart',
+      cart: [...cart, ...bundleRows],
+    })
+    setShowCubetaBuilder(false)
+    showNotice('Cubeta agregada a la cuenta.', 'success')
   }
 
   const handleRequestFinalizeSale = () => {
@@ -806,12 +1129,18 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
         }
       })
 
-      for (const item of normalizedCart) {
-        if (item.is_extra) continue
+      const requestedQuantityByMaterial = normalizedCart.reduce((map, item) => {
+        if (item.is_extra) return map
 
-        const availableStock = inventoryByMaterialId.get(item.material_id)?.stock_actual ?? 0
-        if (item.quantity > availableStock) {
-          showNotice(`No hay stock suficiente para ${item.name}. Disponible: ${availableStock}, solicitado: ${item.quantity}.`, 'warning')
+        map.set(item.material_id, (map.get(item.material_id) || 0) + Number(item.quantity || 0))
+        return map
+      }, new Map())
+
+      for (const [materialId, requestedQuantity] of requestedQuantityByMaterial.entries()) {
+        const inventoryItem = inventoryByMaterialId.get(materialId)
+        const availableStock = Number(inventoryItem?.stock_actual ?? 0)
+        if (requestedQuantity > availableStock) {
+          showNotice(`No hay stock suficiente para ${inventoryItem?.materials?.name || 'este producto'}. Disponible: ${availableStock}, solicitado: ${requestedQuantity}.`, 'warning')
           await loadInventory()
           return
         }
@@ -858,15 +1187,21 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
     totalItems,
     total,
     cart,
+    cubetaConfig,
+    displayCart,
     canDecreaseOrRemoveFromOccupiedTable,
     showFinalizeConfirm,
+    showCubetaBuilder,
     handleSelectTable,
     handleSaveAndExit,
     addToCart,
+    handleOpenCubetaBuilder,
     changeQuantity,
     removeFromCart,
     handleRequestFinalizeSale,
     handleFinalizeSale,
+    handleConfirmCubetaBuilder,
+    setShowCubetaBuilder,
   }
 }
 
@@ -889,18 +1224,24 @@ const POS = ({ onEditingStateChange = () => {} }) => {
     barTables,
     diningTables,
     availableProducts,
+    cubetaConfig,
     totalItems,
     total,
     cart,
+    displayCart,
     canDecreaseOrRemoveFromOccupiedTable,
     showFinalizeConfirm,
+    showCubetaBuilder,
     handleSelectTable,
     handleSaveAndExit,
     addToCart,
+    handleOpenCubetaBuilder,
     changeQuantity,
     removeFromCart,
     handleRequestFinalizeSale,
     handleFinalizeSale,
+    handleConfirmCubetaBuilder,
+    setShowCubetaBuilder,
   } = usePosController({ onEditingStateChange })
 
   if (loading) return <div style={{ padding: '20px' }}>Iniciando terminal de venta...</div>
@@ -935,21 +1276,27 @@ const POS = ({ onEditingStateChange = () => {} }) => {
       selectedTable={selectedTable}
       selectedStationLabel={selectedStationLabel}
       availableProducts={availableProducts}
+      cubetaConfig={cubetaConfig}
       totalItems={totalItems}
       total={total}
       cart={cart}
+      displayCart={displayCart}
       canDecreaseOrRemoveFromOccupiedTable={canDecreaseOrRemoveFromOccupiedTable}
       showFinalizeConfirm={showFinalizeConfirm}
+      showCubetaBuilder={showCubetaBuilder}
       ticketData={ticketData}
       onNoticeClose={() => dispatch({ type: 'set_notice', notice: null })}
       onSaveAndExit={handleSaveAndExit}
       onAddToCart={addToCart}
+      onOpenCubetaBuilder={handleOpenCubetaBuilder}
       onChangeQuantity={changeQuantity}
       onRemoveFromCart={removeFromCart}
       onRequestFinalizeSale={handleRequestFinalizeSale}
       onCloseTicket={() => dispatch({ type: 'set_ticket_data', ticketData: null })}
       onCloseFinalizeConfirm={() => dispatch({ type: 'set_show_finalize_confirm', value: false })}
       onConfirmFinalizeSale={handleFinalizeSale}
+      onCloseCubetaBuilder={() => setShowCubetaBuilder(false)}
+      onConfirmCubetaBuilder={handleConfirmCubetaBuilder}
     />
   )
 }
@@ -1151,8 +1498,24 @@ const buildTicketPdf = async ({ ticket, dateLabel, timeLabel, ticketReference })
     y += itemNameLines.length * 3.7
     pdf.setFont('helvetica', 'normal')
     pdf.setFontSize(7.8)
-    pdf.text(`${item.quantity} x $${item.unitPrice.toFixed(2)}`, margin, y)
+    const detailPieces = item.totalPieces || item.details?.reduce((acc, detail) => acc + detail.quantity, 0) || 0
+    pdf.text(
+      item.details?.length > 0
+        ? `${detailPieces} piezas · $${item.unitPrice.toFixed(2)}`
+        : `${item.quantity} x $${item.unitPrice.toFixed(2)}`,
+      margin,
+      y
+    )
     y += 5
+
+    if (item.details?.length > 0) {
+      pdf.setFontSize(7.2)
+      item.details.forEach((detail) => {
+        pdf.text(`- ${detail.name} x${detail.quantity}`, margin + 2, y)
+        y += 3.5
+      })
+      y += 1.5
+    }
   })
 
   pdf.line(margin, y, headerRight, y)
@@ -1174,7 +1537,18 @@ const buildTicketPrintHtml = ({ ticket, dateLabel, timeLabel, ticketReference })
         <div class="ticket-row">
           <div>
             <div class="item-name">${item.name}</div>
-            <div class="item-meta">${item.quantity} x $${item.unitPrice.toFixed(2)}</div>
+            <div class="item-meta">${
+              item.details?.length > 0
+                ? `${item.totalPieces || item.details.reduce((acc, detail) => acc + detail.quantity, 0)} piezas · $${item.unitPrice.toFixed(2)}`
+                : `${item.quantity} x $${item.unitPrice.toFixed(2)}`
+            }</div>
+            ${
+              item.details?.length > 0
+                ? `<div class="bundle-details">${item.details
+                    .map((detail) => `<div class="bundle-detail">- ${detail.name} x${detail.quantity}</div>`)
+                    .join('')}</div>`
+                : ''
+            }
           </div>
           <strong>$${item.subtotal.toFixed(2)}</strong>
         </div>
@@ -1266,6 +1640,15 @@ const buildTicketPrintHtml = ({ ticket, dateLabel, timeLabel, ticketReference })
             margin-top: 4px;
             color: #6b7280;
             font-size: 13px;
+          }
+          .bundle-details {
+            margin-top: 8px;
+            display: grid;
+            gap: 4px;
+          }
+          .bundle-detail {
+            color: #475569;
+            font-size: 12px;
           }
           .total-row {
             display: flex;
@@ -1420,6 +1803,103 @@ const TicketModalHeader = ({
   </div>
 )
 
+const CubetaBuilderModal = ({ cubetaConfig, onCancel, onConfirm }) => {
+  const [selections, setSelections] = useState(() =>
+    Object.fromEntries((cubetaConfig?.products || []).map((product) => [product.sku, 0]))
+  )
+
+  const totalSelected = Object.values(selections).reduce((acc, value) => acc + value, 0)
+
+  const updateSelection = (sku, delta) => {
+    setSelections((current) => {
+      const targetProduct = cubetaConfig.products.find((product) => product.sku === sku)
+      if (!targetProduct) return current
+
+      const currentTotal = Object.values(current).reduce((acc, value) => acc + Number(value || 0), 0)
+      const nextValue = Math.max(0, Math.min((current[sku] || 0) + delta, targetProduct.remainingStock))
+      const otherSelections = currentTotal - (current[sku] || 0)
+
+      if (delta > 0 && otherSelections + nextValue > 10) {
+        return current
+      }
+
+      return {
+        ...current,
+        [sku]: nextValue,
+      }
+    })
+  }
+
+  return (
+    <div style={confirmOverlayStyle}>
+      <div
+        style={{
+          ...confirmCardStyle,
+          width: 'min(680px, calc(100vw - 32px))',
+          maxWidth: '680px',
+          maxHeight: 'calc(100vh - 32px)',
+          overflowY: 'auto',
+        }}
+      >
+        <div style={confirmBadgeStyle}>Armar {CUBETA_BUNDLE_LABEL}</div>
+        <h3 style={confirmTitleStyle}>Selecciona 10 cervezas</h3>
+        <p style={confirmTextStyle}>
+          La cubeta se cobra a precio fijo de $${CUBETA_FIXED_PRICE.toFixed(2)} y solo acepta los SKU permitidos con el mismo precio de venta.
+        </p>
+        <div style={cubetaSummaryStyle}>
+          <div style={confirmMetricStyle}>
+            <span style={confirmMetricLabelStyle}>Seleccionadas</span>
+            <strong style={confirmMetricValueStyle}>{totalSelected}/{CUBETA_REQUIRED_PIECES}</strong>
+          </div>
+          <div style={confirmMetricStyle}>
+            <span style={confirmMetricLabelStyle}>Precio fijo</span>
+            <strong style={confirmMetricValueStyle}>${Number(cubetaConfig.bundlePrice || 0).toFixed(2)}</strong>
+          </div>
+        </div>
+        <div style={cubetaListStyle}>
+          {cubetaConfig.products.map((product) => (
+            <div key={product.sku} style={cubetaProductRowStyle}>
+              <div style={{ minWidth: 0 }}>
+                <strong style={{ color: '#111827', display: 'block' }}>{product.name}</strong>
+                <div style={cubetaProductMetaStyle}>
+                  SKU {product.sku} · Stock disponible {product.remainingStock} · ${product.price.toFixed(2)}
+                </div>
+              </div>
+              <div style={quantityControlStyle}>
+                <button type="button" onClick={() => updateSelection(product.sku, -1)} style={qtyBtnStyle}>
+                  -
+                </button>
+                <span style={qtyValueStyle}>{selections[product.sku] || 0}</span>
+                <button
+                  type="button"
+                  onClick={() => updateSelection(product.sku, 1)}
+                  disabled={(selections[product.sku] || 0) >= product.remainingStock || totalSelected >= CUBETA_REQUIRED_PIECES}
+                  style={(selections[product.sku] || 0) >= product.remainingStock || totalSelected >= CUBETA_REQUIRED_PIECES ? disabledQtyBtnStyle : qtyBtnStyle}
+                >
+                  +
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={confirmActionsStyle}>
+          <button type="button" onClick={onCancel} style={confirmCancelBtnStyle}>
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={() => onConfirm(selections)}
+            disabled={totalSelected !== CUBETA_REQUIRED_PIECES}
+            style={totalSelected === CUBETA_REQUIRED_PIECES ? confirmApproveBtnStyle : disabledCheckoutBtnStyle}
+          >
+            Agregar cubeta
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 const TicketMeta = ({ ticketReference, dateLabel, timeLabel, tableNumber }) => (
   <div style={ticketMetaStyle}>
     {ticketReference && <div><strong>Folio de venta:</strong> {ticketReference}</div>}
@@ -1441,8 +1921,20 @@ const TicketItems = ({ items }) => (
         <div style={{ minWidth: 0 }}>
           <div style={ticketItemNameStyle}>{item.name}</div>
           <div style={ticketItemMetaStyle}>
-            {item.quantity} x ${item.unitPrice.toFixed(2)}
+            {item.details?.length > 0
+              ? `${item.totalPieces || item.details.reduce((acc, detail) => acc + detail.quantity, 0)} piezas · $${item.unitPrice.toFixed(2)}`
+              : `${item.quantity} x $${item.unitPrice.toFixed(2)}`}
           </div>
+          {item.details?.length > 0 && (
+            <div style={ticketBundleDetailsStyle}>
+              {item.details.map((detail) => (
+                <div key={`${item.name}-${detail.name}`} style={ticketBundleDetailStyle}>
+                  <span>{detail.name}</span>
+                  <strong>x{detail.quantity}</strong>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
         <strong style={{ color: '#111827' }}>${item.subtotal.toFixed(2)}</strong>
       </div>
@@ -1698,6 +2190,16 @@ const productCategoryPillStyle = {
   marginBottom: '10px',
 }
 
+const cubetaPillStyle = {
+  ...productCategoryPillStyle,
+  backgroundColor: '#ecfccb',
+  color: '#3f6212',
+}
+
+const cubetaCardStyle = {
+  background: 'linear-gradient(145deg, #ffffff 0%, #f7fee7 100%)',
+}
+
 const getCartContainerStyle = (isTablet, isMobile) => ({
   backgroundColor: '#ffffff',
   padding: isMobile ? '16px' : '20px',
@@ -1787,6 +2289,30 @@ const qtyValueStyle = {
   textAlign: 'center',
   fontWeight: '700',
   color: '#0f172a',
+}
+
+const cartBundleBadgeStyle = {
+  alignSelf: 'flex-start',
+  backgroundColor: '#ecfccb',
+  color: '#3f6212',
+  borderRadius: '999px',
+  padding: '4px 10px',
+  fontSize: '0.72rem',
+  fontWeight: '700',
+}
+
+const bundleDetailListStyle = {
+  marginTop: '10px',
+  display: 'grid',
+  gap: '6px',
+}
+
+const bundleDetailRowStyle = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: '10px',
+  color: '#475569',
+  fontSize: '0.8rem',
 }
 
 const deleteBtnStyle = {
@@ -1973,6 +2499,33 @@ const confirmApproveBtnStyle = {
   fontWeight: '800',
   cursor: 'pointer',
 }
+
+const cubetaSummaryStyle = {
+  ...confirmSummaryStyle,
+  marginBottom: '18px',
+}
+
+const cubetaListStyle = {
+  display: 'grid',
+  gap: '12px',
+}
+
+const cubetaProductRowStyle = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  gap: '14px',
+  padding: '14px 16px',
+  border: '1px solid #e2e8f0',
+  borderRadius: '14px',
+  backgroundColor: '#f8fafc',
+}
+
+const cubetaProductMetaStyle = {
+  color: '#64748b',
+  fontSize: '0.82rem',
+  marginTop: '4px',
+}
 const ticketOverlayStyle = {
   position: 'fixed',
   inset: 0,
@@ -2104,6 +2657,20 @@ const ticketItemMetaStyle = {
   color: '#6b7280',
   fontSize: '0.88rem',
   marginTop: '3px',
+}
+
+const ticketBundleDetailsStyle = {
+  marginTop: '8px',
+  display: 'grid',
+  gap: '4px',
+}
+
+const ticketBundleDetailStyle = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: '12px',
+  color: '#475569',
+  fontSize: '0.8rem',
 }
 
 const ticketTotalStyle = {

@@ -12,6 +12,7 @@ const isManagerRoleName = (value: string | null | undefined) =>
   ['manager', 'administrador operativo'].includes(normalizeRoleName(value))
 const isWaiterRoleName = (value: string | null | undefined) => normalizeRoleName(value) === 'mesero'
 const CUBETA_BUNDLE_TYPE = 'cubeta'
+const CAGUAMITA_BUNDLE_TYPE = 'cubeta_caguamita'
 const CUBETA_ALLOWED_SKUS = new Set([
   '75004132',
   '7501064115400',
@@ -19,9 +20,31 @@ const CUBETA_ALLOWED_SKUS = new Set([
   '750106696971',
   '7501064101465',
 ])
+const CAGUAMITA_ALLOWED_SKUS = new Set(['7503024416459'])
 const CUBETA_REQUIRED_PIECES = 10
 const CUBETA_FIXED_PRICE = 320
 const CUBETA_FIXED_UNIT_PRICE = CUBETA_FIXED_PRICE / CUBETA_REQUIRED_PIECES
+const CAGUAMITA_REQUIRED_PIECES = 5
+const CAGUAMITA_FIXED_PRICE = 130
+const CAGUAMITA_FIXED_UNIT_PRICE = CAGUAMITA_FIXED_PRICE / CAGUAMITA_REQUIRED_PIECES
+const BUNDLE_RULES = {
+  [CUBETA_BUNDLE_TYPE]: {
+    label: 'Cubeta Mixta',
+    allowedSkus: CUBETA_ALLOWED_SKUS,
+    requiredPieces: CUBETA_REQUIRED_PIECES,
+    fixedPrice: CUBETA_FIXED_PRICE,
+    fixedUnitPrice: CUBETA_FIXED_UNIT_PRICE,
+    requireSharedBasePrice: true,
+  },
+  [CAGUAMITA_BUNDLE_TYPE]: {
+    label: 'Cubeta Caguamita',
+    allowedSkus: CAGUAMITA_ALLOWED_SKUS,
+    requiredPieces: CAGUAMITA_REQUIRED_PIECES,
+    fixedPrice: CAGUAMITA_FIXED_PRICE,
+    fixedUnitPrice: CAGUAMITA_FIXED_UNIT_PRICE,
+    requireSharedBasePrice: false,
+  },
+}
 const appError = (message: string, status = 400) => Object.assign(new Error(message), { status })
 
 type RoleLinkRow = {
@@ -127,7 +150,7 @@ const validateCubetaBundles = (
   items: OrderItem[],
   materialRows: Array<{ id: string; sku?: string | null; categories?: { name?: string | null } | { name?: string | null }[] | null }>
 ) => {
-  const cubetaItems = items.filter((item) => normalizeRoleName(item.bundle_type) === CUBETA_BUNDLE_TYPE)
+  const cubetaItems = items.filter((item) => Boolean(BUNDLE_RULES[normalizeRoleName(item.bundle_type)]))
   if (cubetaItems.length === 0) return
 
   const materialById = new Map(materialRows.map((row) => [row.id, row]))
@@ -143,6 +166,12 @@ const validateCubetaBundles = (
   }, new Map<string, OrderItem[]>())
 
   for (const [bundleId, rows] of bundleRows.entries()) {
+    const bundleType = normalizeRoleName(rows[0]?.bundle_type)
+    const rule = BUNDLE_RULES[bundleType]
+    if (!rule) {
+      throw appError(`La cubeta ${bundleId} tiene un tipo de bundle no soportado.`, 400)
+    }
+
     let totalQuantity = 0
     let effectiveTotal = 0
     let baseUnitPrice = 0
@@ -153,38 +182,40 @@ const validateCubetaBundles = (
       const categoryName = normalizeRoleName(readCategoryName(material?.categories ?? null))
       const candidateBaseUnitPrice = row.base_unit_price && row.base_unit_price > 0 ? row.base_unit_price : row.unit_price
 
-      if (!material || !materialSku || !CUBETA_ALLOWED_SKUS.has(materialSku)) {
-        throw appError(`La cubeta ${bundleId} contiene un SKU no permitido.`, 400)
+      if (!material || !materialSku || !rule.allowedSkus.has(materialSku)) {
+        throw appError(`${rule.label} ${bundleId} contiene un SKU no permitido.`, 400)
       }
 
       if (categoryName !== 'cerveza') {
-        throw appError(`La cubeta ${bundleId} contiene un producto fuera de la categoria Cerveza.`, 400)
+        throw appError(`${rule.label} ${bundleId} contiene un producto fuera de la categoria Cerveza.`, 400)
       }
 
-      if (candidateBaseUnitPrice <= 0) {
-        throw appError(`La cubeta ${bundleId} no tiene precio base valido.`, 400)
-      }
+      if (rule.requireSharedBasePrice) {
+        if (candidateBaseUnitPrice <= 0) {
+          throw appError(`${rule.label} ${bundleId} no tiene precio base valido.`, 400)
+        }
 
-      if (baseUnitPrice === 0) {
-        baseUnitPrice = candidateBaseUnitPrice
-      } else if (Math.abs(baseUnitPrice - candidateBaseUnitPrice) > 0.01) {
-        throw appError(`La cubeta ${bundleId} requiere que todos los SKU compartan el mismo precio de venta.`, 400)
+        if (baseUnitPrice === 0) {
+          baseUnitPrice = candidateBaseUnitPrice
+        } else if (Math.abs(baseUnitPrice - candidateBaseUnitPrice) > 0.01) {
+          throw appError(`${rule.label} ${bundleId} requiere que todos los SKU compartan el mismo precio de venta.`, 400)
+        }
       }
 
       totalQuantity += row.quantity
       effectiveTotal += row.unit_price * row.quantity
 
-      if (Math.abs(row.unit_price - CUBETA_FIXED_UNIT_PRICE) > 0.01) {
-        throw appError(`La cubeta ${bundleId} debe registrar cada pieza a $${CUBETA_FIXED_UNIT_PRICE.toFixed(2)}.`, 400)
+      if (Math.abs(row.unit_price - rule.fixedUnitPrice) > 0.01) {
+        throw appError(`${rule.label} ${bundleId} debe registrar cada pieza a $${rule.fixedUnitPrice.toFixed(2)}.`, 400)
       }
     }
 
-    if (totalQuantity !== CUBETA_REQUIRED_PIECES) {
-      throw appError(`La cubeta ${bundleId} debe contener exactamente ${CUBETA_REQUIRED_PIECES} piezas.`, 400)
+    if (totalQuantity !== rule.requiredPieces) {
+      throw appError(`${rule.label} ${bundleId} debe contener exactamente ${rule.requiredPieces} piezas.`, 400)
     }
 
-    if (Math.abs(effectiveTotal - CUBETA_FIXED_PRICE) > 0.01) {
-      throw appError(`La cubeta ${bundleId} debe sumar exactamente $${CUBETA_FIXED_PRICE.toFixed(2)}.`, 400)
+    if (Math.abs(effectiveTotal - rule.fixedPrice) > 0.01) {
+      throw appError(`${rule.label} ${bundleId} debe sumar exactamente $${rule.fixedPrice.toFixed(2)}.`, 400)
     }
   }
 }

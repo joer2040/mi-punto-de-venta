@@ -16,11 +16,18 @@ const CUBETA_ALLOWED_SKUS = [
   '750106696971',
   '7501064101465',
 ]
+const CAGUAMITA_SKU = '7503024416459'
 const CUBETA_BUNDLE_TYPE = 'cubeta'
-const CUBETA_BUNDLE_LABEL = 'Cubeta'
+const CAGUAMITA_BUNDLE_TYPE = 'cubeta_caguamita'
+const CUBETA_BUNDLE_LABEL = 'Cubeta Mixta'
+const CAGUAMITA_BUNDLE_LABEL = 'Cubeta Caguamita'
 const CUBETA_REQUIRED_PIECES = 10
 const CUBETA_FIXED_PRICE = 320
 const CUBETA_FIXED_UNIT_PRICE = CUBETA_FIXED_PRICE / CUBETA_REQUIRED_PIECES
+const CAGUAMITA_REQUIRED_PIECES = 5
+const CAGUAMITA_FIXED_PRICE = 130
+const CAGUAMITA_FIXED_UNIT_PRICE = CAGUAMITA_FIXED_PRICE / CAGUAMITA_REQUIRED_PIECES
+const BUNDLE_TYPES = new Set([CUBETA_BUNDLE_TYPE, CAGUAMITA_BUNDLE_TYPE])
 let jsPdfModulePromise = null
 
 const loadJsPdf = async () => {
@@ -50,10 +57,10 @@ const getStationDisplayName = (table) => {
 
 const getStationTypeName = (table) => (isBarStation(table) ? 'Barra' : 'Mesa')
 const normalizeText = (value) => String(value || '').trim().toLowerCase()
-const buildBundleId = () =>
+const buildBundleId = (bundleType = CUBETA_BUNDLE_TYPE) =>
   typeof crypto !== 'undefined' && crypto.randomUUID
-    ? `cubeta-${crypto.randomUUID()}`
-    : `cubeta-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+    ? `${bundleType}-${crypto.randomUUID()}`
+    : `${bundleType}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 
 const getBaseUnitPrice = (item) => {
   const parsedBase = Number(item?.base_unit_price)
@@ -99,7 +106,7 @@ const buildDisplayCartItems = (cart = []) => {
   const standaloneItems = []
 
   cart.forEach((item) => {
-    if (item.bundle_id && item.bundle_type === CUBETA_BUNDLE_TYPE) {
+    if (item.bundle_id && BUNDLE_TYPES.has(item.bundle_type)) {
       const currentBundle = bundleGroups.get(item.bundle_id) || []
       currentBundle.push(item)
       bundleGroups.set(item.bundle_id, currentBundle)
@@ -219,9 +226,65 @@ const buildCubetaConfig = (availableProducts = [], cart = []) => {
   return {
     isAvailable: true,
     disabledReason: null,
+    bundleType: CUBETA_BUNDLE_TYPE,
+    bundleLabel: CUBETA_BUNDLE_LABEL,
+    requiredPieces: CUBETA_REQUIRED_PIECES,
+    fixedUnitPrice: CUBETA_FIXED_UNIT_PRICE,
     unitPrice,
     bundlePrice: CUBETA_FIXED_PRICE,
     products: normalizedProducts,
+  }
+}
+
+const buildCaguamitaConfig = (availableProducts = [], cart = []) => {
+  const currentQuantities = getCartMaterialQuantityMap(cart)
+  const product = availableProducts.find((item) => String(item?.materials?.sku || '').trim() === CAGUAMITA_SKU)
+
+  if (!product) {
+    return {
+      isAvailable: false,
+      disabledReason: 'Cubeta Caguamita no disponible: falta el SKU configurado en el catalogo de venta.',
+      products: [],
+    }
+  }
+
+  const materialId = product.materials?.id
+  const currentReserved = currentQuantities.get(materialId) || 0
+  const normalizedProduct = {
+    sku: product.materials?.sku,
+    materialId,
+    name: product.materials?.name,
+    price: Number(product.precio_venta || 0),
+    categoryName: product.materials?.categories?.name,
+    stockActual: Number(product.stock_actual || 0),
+    remainingStock: Math.max(Number(product.stock_actual || 0) - currentReserved, 0),
+  }
+
+  if (normalizeText(normalizedProduct.categoryName) !== 'cerveza') {
+    return {
+      isAvailable: false,
+      disabledReason: 'Cubeta Caguamita solo se habilita con producto de categoria Cerveza.',
+      products: [normalizedProduct],
+    }
+  }
+
+  if (normalizedProduct.remainingStock < CAGUAMITA_REQUIRED_PIECES) {
+    return {
+      isAvailable: false,
+      disabledReason: 'No hay suficientes existencias para completar una Cubeta Caguamita.',
+      products: [normalizedProduct],
+    }
+  }
+
+  return {
+    isAvailable: true,
+    disabledReason: null,
+    bundleType: CAGUAMITA_BUNDLE_TYPE,
+    bundleLabel: CAGUAMITA_BUNDLE_LABEL,
+    requiredPieces: CAGUAMITA_REQUIRED_PIECES,
+    fixedUnitPrice: CAGUAMITA_FIXED_UNIT_PRICE,
+    bundlePrice: CAGUAMITA_FIXED_PRICE,
+    products: [normalizedProduct],
   }
 }
 
@@ -417,7 +480,8 @@ const ProductCatalog = ({
   totalItems,
   onAddToCart,
   cubetaConfig,
-  onOpenCubetaBuilder,
+  caguamitaConfig,
+  onOpenBundleBuilder,
 }) => (
   <>
     <div style={heroCardStyle}>
@@ -448,7 +512,7 @@ const ProductCatalog = ({
     <div style={getProductGridStyle(isMobile)}>
       <button
         type="button"
-        onClick={onOpenCubetaBuilder}
+        onClick={() => onOpenBundleBuilder('cubeta')}
         disabled={!canOperatePOS || !cubetaConfig?.isAvailable}
         style={{
           ...cubetaCardStyle,
@@ -467,11 +531,40 @@ const ProductCatalog = ({
           ${Number(cubetaConfig?.bundlePrice || 0).toFixed(2)}
         </div>
         <div style={{ fontSize: '0.78rem', color: '#475569', marginTop: '10px', lineHeight: 1.45 }}>
-          Precio fijo de cubeta con 10 cervezas permitidas.
+          Precio fijo de cubeta mixta con 10 cervezas permitidas.
         </div>
         {!cubetaConfig?.isAvailable && (
           <div style={{ fontSize: '0.78rem', color: '#b91c1c', marginTop: '10px', lineHeight: 1.45 }}>
             {cubetaConfig?.disabledReason}
+          </div>
+        )}
+      </button>
+      <button
+        type="button"
+        onClick={() => onOpenBundleBuilder('caguamita')}
+        disabled={!canOperatePOS || !caguamitaConfig?.isAvailable}
+        style={{
+          ...cubetaCardStyle,
+          ...getProductCardStyle(isMobile),
+          opacity: !caguamitaConfig?.isAvailable ? 0.55 : 1,
+          cursor: !canOperatePOS || !caguamitaConfig?.isAvailable ? 'not-allowed' : 'pointer',
+          textAlign: 'left',
+          width: '100%',
+        }}
+      >
+        <div style={cubetaPillStyle}>Bundle virtual</div>
+        <div style={{ fontWeight: 'bold', color: '#1f2937', fontSize: isMobile ? '0.95rem' : '1rem' }}>
+          {CAGUAMITA_BUNDLE_LABEL}
+        </div>
+        <div style={{ color: '#0f766e', fontWeight: 'bold', marginTop: '10px', fontSize: isMobile ? '1.1rem' : '1.2rem' }}>
+          ${Number(caguamitaConfig?.bundlePrice || 0).toFixed(2)}
+        </div>
+        <div style={{ fontSize: '0.78rem', color: '#475569', marginTop: '10px', lineHeight: 1.45 }}>
+          Precio fijo con 5 piezas del SKU {CAGUAMITA_SKU}.
+        </div>
+        {!caguamitaConfig?.isAvailable && (
+          <div style={{ fontSize: '0.78rem', color: '#b91c1c', marginTop: '10px', lineHeight: 1.45 }}>
+            {caguamitaConfig?.disabledReason}
           </div>
         )}
       </button>
@@ -552,10 +645,10 @@ const CartPanel = ({
             <div style={{ minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                 <div style={{ fontSize: '0.95rem', color: '#0f172a', fontWeight: '700' }}>{item.name}</div>
-                {item.kind === 'bundle' && <span style={cartBundleBadgeStyle}>10 piezas</span>}
+                {item.kind === 'bundle' && <span style={cartBundleBadgeStyle}>{item.totalPieces} piezas</span>}
               </div>
               <div style={{ fontSize: '0.82rem', color: '#64748b', marginTop: '4px' }}>
-                {item.kind === 'bundle' ? `$${item.subtotal.toFixed(2)} por cubeta` : `$${item.unit_price} c/u`}
+                {item.kind === 'bundle' ? `$${item.subtotal.toFixed(2)} por bundle` : `$${item.unit_price} c/u`}
               </div>
               {item.kind === 'bundle' && (
                 <div style={bundleDetailListStyle}>
@@ -574,7 +667,7 @@ const CartPanel = ({
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                   <span style={qtyValueStyle}>1</span>
                   <button onClick={() => onRemoveFromCart(item.id)} disabled={!canOperatePOS || !canDecreaseOrRemoveFromOccupiedTable} style={canOperatePOS && canDecreaseOrRemoveFromOccupiedTable ? deleteBtnStyle : disabledDeleteBtnStyle} type="button">
-                    Quitar cubeta
+                    Quitar bundle
                   </button>
                 </div>
               ) : (
@@ -621,6 +714,7 @@ const ActiveOrderView = ({
   selectedStationLabel,
   availableProducts,
   cubetaConfig,
+  caguamitaConfig,
   totalItems,
   total,
   cart,
@@ -632,7 +726,7 @@ const ActiveOrderView = ({
   onNoticeClose,
   onSaveAndExit,
   onAddToCart,
-  onOpenCubetaBuilder,
+  onOpenBundleBuilder,
   onChangeQuantity,
   onRemoveFromCart,
   onRequestFinalizeSale,
@@ -663,9 +757,10 @@ const ActiveOrderView = ({
           canOperatePOS={canOperatePOS}
           availableProducts={availableProducts}
           cubetaConfig={cubetaConfig}
+          caguamitaConfig={caguamitaConfig}
           totalItems={totalItems}
           onAddToCart={onAddToCart}
-          onOpenCubetaBuilder={onOpenCubetaBuilder}
+          onOpenBundleBuilder={onOpenBundleBuilder}
         />
       </section>
 
@@ -695,7 +790,7 @@ const ActiveOrderView = ({
     )}
     {showCubetaBuilder && (
       <CubetaBuilderModal
-        cubetaConfig={cubetaConfig}
+        cubetaConfig={showCubetaBuilder === 'caguamita' ? caguamitaConfig : cubetaConfig}
         onCancel={onCloseCubetaBuilder}
         onConfirm={onConfirmCubetaBuilder}
       />
@@ -1009,6 +1104,8 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
   const totalItems = cart.reduce((acc, curr) => acc + curr.quantity, 0)
   const availableProducts = inventory.filter((item) => item.materials?.categories?.is_for_sale === true)
   const cubetaConfig = buildCubetaConfig(availableProducts, cart)
+  const caguamitaConfig = buildCaguamitaConfig(availableProducts, cart)
+  const activeBundleConfig = showCubetaBuilder === 'caguamita' ? caguamitaConfig : cubetaConfig
   const displayCart = buildDisplayCartItems(cart)
   const barTables = tables.filter((table) => isBarStation(table))
   const diningTables = tables.filter((table) => !isBarStation(table))
@@ -1031,36 +1128,37 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
     }
   }
 
-  const handleOpenCubetaBuilder = () => {
+  const handleOpenCubetaBuilder = (bundleKind = 'cubeta') => {
     if (!canOperatePOS) return
-    if (!cubetaConfig.isAvailable) {
-      showNotice(cubetaConfig.disabledReason || 'Cubeta no disponible en este momento.', 'warning')
+    const targetConfig = bundleKind === 'caguamita' ? caguamitaConfig : cubetaConfig
+    if (!targetConfig.isAvailable) {
+      showNotice(targetConfig.disabledReason || 'Bundle no disponible en este momento.', 'warning')
       return
     }
 
-    setShowCubetaBuilder(true)
+    setShowCubetaBuilder(bundleKind)
   }
 
   const handleConfirmCubetaBuilder = (selections) => {
-    if (!cubetaConfig.isAvailable) {
-      showNotice(cubetaConfig.disabledReason || 'Cubeta no disponible en este momento.', 'warning')
+    if (!activeBundleConfig.isAvailable) {
+      showNotice(activeBundleConfig.disabledReason || 'Bundle no disponible en este momento.', 'warning')
       return
     }
 
     const totalSelected = Object.values(selections || {}).reduce((acc, value) => acc + Number(value || 0), 0)
-    if (totalSelected !== CUBETA_REQUIRED_PIECES) {
-      showNotice(`La cubeta requiere exactamente ${CUBETA_REQUIRED_PIECES} piezas.`, 'warning')
+    if (totalSelected !== activeBundleConfig.requiredPieces) {
+      showNotice(`${activeBundleConfig.bundleLabel} requiere exactamente ${activeBundleConfig.requiredPieces} piezas.`, 'warning')
       return
     }
 
-    const hasSelection = cubetaConfig.products.some((product) => Number(selections?.[product.sku] || 0) > 0)
+    const hasSelection = activeBundleConfig.products.some((product) => Number(selections?.[product.sku] || 0) > 0)
     if (!hasSelection) {
-      showNotice('Selecciona al menos un producto para armar la cubeta.', 'warning')
+      showNotice('Selecciona al menos un producto para armar el bundle.', 'warning')
       return
     }
 
-    const bundleId = buildBundleId()
-    const bundleRows = cubetaConfig.products.flatMap((product) => {
+    const bundleId = buildBundleId(activeBundleConfig.bundleType)
+    const bundleRows = activeBundleConfig.products.flatMap((product) => {
       const quantity = Number(selections?.[product.sku] || 0)
       if (quantity <= 0) return []
 
@@ -1069,12 +1167,12 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
           material_id: product.materialId,
           name: product.name,
           base_unit_price: product.price,
-          unit_price: CUBETA_FIXED_UNIT_PRICE,
+          unit_price: activeBundleConfig.fixedUnitPrice,
           quantity,
           is_extra: false,
           bundle_id: bundleId,
-          bundle_type: CUBETA_BUNDLE_TYPE,
-          bundle_label: CUBETA_BUNDLE_LABEL,
+          bundle_type: activeBundleConfig.bundleType,
+          bundle_label: activeBundleConfig.bundleLabel,
         },
       ]
     })
@@ -1084,7 +1182,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
       cart: [...cart, ...bundleRows],
     })
     setShowCubetaBuilder(false)
-    showNotice('Cubeta agregada a la cuenta.', 'success')
+    showNotice(`${activeBundleConfig.bundleLabel} agregada a la cuenta.`, 'success')
   }
 
   const handleRequestFinalizeSale = () => {
@@ -1188,6 +1286,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
     total,
     cart,
     cubetaConfig,
+    caguamitaConfig,
     displayCart,
     canDecreaseOrRemoveFromOccupiedTable,
     showFinalizeConfirm,
@@ -1225,6 +1324,7 @@ const POS = ({ onEditingStateChange = () => {} }) => {
     diningTables,
     availableProducts,
     cubetaConfig,
+    caguamitaConfig,
     totalItems,
     total,
     cart,
@@ -1277,6 +1377,7 @@ const POS = ({ onEditingStateChange = () => {} }) => {
       selectedStationLabel={selectedStationLabel}
       availableProducts={availableProducts}
       cubetaConfig={cubetaConfig}
+      caguamitaConfig={caguamitaConfig}
       totalItems={totalItems}
       total={total}
       cart={cart}
@@ -1288,7 +1389,7 @@ const POS = ({ onEditingStateChange = () => {} }) => {
       onNoticeClose={() => dispatch({ type: 'set_notice', notice: null })}
       onSaveAndExit={handleSaveAndExit}
       onAddToCart={addToCart}
-      onOpenCubetaBuilder={handleOpenCubetaBuilder}
+      onOpenBundleBuilder={handleOpenCubetaBuilder}
       onChangeQuantity={changeQuantity}
       onRemoveFromCart={removeFromCart}
       onRequestFinalizeSale={handleRequestFinalizeSale}
@@ -1819,7 +1920,7 @@ const CubetaBuilderModal = ({ cubetaConfig, onCancel, onConfirm }) => {
       const nextValue = Math.max(0, Math.min((current[sku] || 0) + delta, targetProduct.remainingStock))
       const otherSelections = currentTotal - (current[sku] || 0)
 
-      if (delta > 0 && otherSelections + nextValue > 10) {
+      if (delta > 0 && otherSelections + nextValue > cubetaConfig.requiredPieces) {
         return current
       }
 
@@ -1841,15 +1942,15 @@ const CubetaBuilderModal = ({ cubetaConfig, onCancel, onConfirm }) => {
           overflowY: 'auto',
         }}
       >
-        <div style={confirmBadgeStyle}>Armar {CUBETA_BUNDLE_LABEL}</div>
-        <h3 style={confirmTitleStyle}>Selecciona 10 cervezas</h3>
+        <div style={confirmBadgeStyle}>Armar {cubetaConfig.bundleLabel}</div>
+        <h3 style={confirmTitleStyle}>Selecciona {cubetaConfig.requiredPieces} piezas</h3>
         <p style={confirmTextStyle}>
-          La cubeta se cobra a precio fijo de $${CUBETA_FIXED_PRICE.toFixed(2)} y solo acepta los SKU permitidos con el mismo precio de venta.
+          {cubetaConfig.bundleLabel} se cobra a precio fijo de ${Number(cubetaConfig.bundlePrice || 0).toFixed(2)}.
         </p>
         <div style={cubetaSummaryStyle}>
           <div style={confirmMetricStyle}>
             <span style={confirmMetricLabelStyle}>Seleccionadas</span>
-            <strong style={confirmMetricValueStyle}>{totalSelected}/{CUBETA_REQUIRED_PIECES}</strong>
+            <strong style={confirmMetricValueStyle}>{totalSelected}/{cubetaConfig.requiredPieces}</strong>
           </div>
           <div style={confirmMetricStyle}>
             <span style={confirmMetricLabelStyle}>Precio fijo</span>
@@ -1873,8 +1974,8 @@ const CubetaBuilderModal = ({ cubetaConfig, onCancel, onConfirm }) => {
                 <button
                   type="button"
                   onClick={() => updateSelection(product.sku, 1)}
-                  disabled={(selections[product.sku] || 0) >= product.remainingStock || totalSelected >= CUBETA_REQUIRED_PIECES}
-                  style={(selections[product.sku] || 0) >= product.remainingStock || totalSelected >= CUBETA_REQUIRED_PIECES ? disabledQtyBtnStyle : qtyBtnStyle}
+                  disabled={(selections[product.sku] || 0) >= product.remainingStock || totalSelected >= cubetaConfig.requiredPieces}
+                  style={(selections[product.sku] || 0) >= product.remainingStock || totalSelected >= cubetaConfig.requiredPieces ? disabledQtyBtnStyle : qtyBtnStyle}
                 >
                   +
                 </button>
@@ -1889,10 +1990,10 @@ const CubetaBuilderModal = ({ cubetaConfig, onCancel, onConfirm }) => {
           <button
             type="button"
             onClick={() => onConfirm(selections)}
-            disabled={totalSelected !== CUBETA_REQUIRED_PIECES}
-            style={totalSelected === CUBETA_REQUIRED_PIECES ? confirmApproveBtnStyle : disabledCheckoutBtnStyle}
+            disabled={totalSelected !== cubetaConfig.requiredPieces}
+            style={totalSelected === cubetaConfig.requiredPieces ? confirmApproveBtnStyle : disabledCheckoutBtnStyle}
           >
-            Agregar cubeta
+            Agregar {cubetaConfig.bundleLabel}
           </button>
         </div>
       </div>

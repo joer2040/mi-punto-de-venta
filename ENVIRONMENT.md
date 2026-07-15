@@ -1,16 +1,21 @@
-﻿# Separacion de ambientes
+# Separacion de ambientes
 
-El proyecto ahora soporta configuracion separada para `development` y `production`.
+Este proyecto separa `development` y `production` a nivel de frontend, backend y operacion.
 
-## Localhost
+## Regla base
 
-Usa un archivo local no versionado llamado:
+Para una separacion real necesitas dos backends distintos:
 
-```bash
-.env.development.local
-```
+- un proyecto Supabase para `development`
+- un proyecto Supabase para `production`
 
-Contenido esperado:
+Si ambos ambientes usan el mismo proyecto Supabase, la separacion del frontend no evita que ambos escriban sobre la misma base de datos.
+
+## Development local
+
+Usa `.env.development.local`, archivo local no versionado.
+
+Variables base:
 
 ```bash
 VITE_APP_ENV=development
@@ -19,38 +24,29 @@ VITE_SUPABASE_URL_DEV=https://tu-proyecto-dev.supabase.co
 VITE_SUPABASE_ANON_KEY_DEV=tu-anon-key-dev
 ```
 
-Si por alguna razon necesitas apuntar localmente a produccion, debes hacerlo de forma explicita:
-
-```bash
-VITE_BACKEND_ENV=production
-VITE_ALLOW_PROD_BACKEND_IN_DEV=true
-```
-
-Si quieres ejecutar scripts SQL remotos contra Supabase desde terminal, agrega tambien:
+Si necesitas ejecutar SQL remoto contra `development` desde terminal:
 
 ```bash
 SUPABASE_DB_URL_DEV=postgresql://postgres:tu-password-dev@db.tu-proyecto-dev.supabase.co:5432/postgres
 ```
 
-Para las Edge Functions protegidas agrega tambien:
+Si necesitas variables para Edge Functions protegidas en `development`:
 
 ```bash
 PROJECT_PUBLISHABLE_KEY=tu-publishable-key-dev
 SERVICE_ROLE_KEY=tu-service-role-key-dev
 ```
 
-En nuestros despliegues actuales la validacion de sesion ya no usa
-`PROJECT_LEGACY_SERVICE_ROLE_KEY` ni llamadas manuales a `/auth/v1/user`.
-El patron correcto es:
+Si por una razon excepcional necesitas apuntar localmente al backend de `production`, debe ser explicito:
 
-- `requestClient` con `PROJECT_PUBLISHABLE_KEY` o `SUPABASE_ANON_KEY`
-- `Authorization` reenviado desde el request
-- `requestClient.auth.getUser()` para resolver al usuario
-- `adminClient` separado con `SERVICE_ROLE_KEY` o `SUPABASE_SERVICE_ROLE_KEY`
+```bash
+VITE_BACKEND_ENV=production
+VITE_ALLOW_PROD_BACKEND_IN_DEV=true
+```
 
-## Vercel / Produccion
+## Production en Vercel
 
-Configura en Vercel las variables del ambiente de produccion:
+Configura estas variables en Vercel para `production`:
 
 ```bash
 VITE_APP_ENV=production
@@ -59,65 +55,68 @@ VITE_SUPABASE_URL_PROD=https://tu-proyecto-prod.supabase.co
 VITE_SUPABASE_ANON_KEY_PROD=tu-anon-key-prod
 ```
 
-Para ejecutar scripts SQL remotos contra produccion desde terminal, agrega tambien:
+Si necesitas ejecutar SQL remoto contra `production` desde terminal:
 
 ```bash
 SUPABASE_DB_URL_PROD=postgresql://postgres:tu-password-prod@db.tu-proyecto-prod.supabase.co:5432/postgres
 ```
 
-Para las Edge Functions desplegadas en produccion agrega tambien:
+Si necesitas variables para Edge Functions protegidas en `production`:
 
 ```bash
 PROJECT_PUBLISHABLE_KEY=tu-publishable-key-prod
 SERVICE_ROLE_KEY=tu-service-role-key-prod
 ```
 
-Si el proyecto usa tokens `ES256`, las funciones protegidas deben desplegarse con
-`--no-verify-jwt`. De lo contrario, Supabase puede rechazar la peticion antes de
-ejecutar tu codigo con errores como `Unsupported JWT algorithm ES256`.
+## SQL por ambiente
 
-## Ejecutar SQL por ambiente
+El repo incluye scripts para aplicar archivos `.sql` al ambiente correcto sin usar el SQL Editor.
 
-El repo ahora incluye scripts para aplicar archivos `.sql` al ambiente correcto sin entrar al SQL Editor.
-
-Desarrollo:
+Development:
 
 ```powershell
 npm run supabase:sql:dev -- -File sql/dev/2026-04-18_seed_tables.sql
 ```
 
-Produccion:
+Production:
 
 ```powershell
 npm run supabase:sql:prod -- -File sql/prod/2026-04-18_hotfix.sql -AllowProduction
 ```
 
-Regla sugerida:
+Usa esta regla:
 
 - cambios estructurales permanentes: `supabase/migrations/`
-- parches o cargas puntuales solo de un ambiente: `sql/dev/` o `sql/prod/`
+- parches o cargas puntuales de un solo ambiente: `sql/dev/` o `sql/prod/`
 
-## Edge Functions
+## Edge Functions protegidas
 
-Las funciones protegidas hoy asumen:
+Las funciones protegidas deben asumir:
 
 - `SUPABASE_URL`
 - `PROJECT_PUBLISHABLE_KEY` o `SUPABASE_ANON_KEY`
 - `SERVICE_ROLE_KEY` o `SUPABASE_SERVICE_ROLE_KEY`
 
-Y deben desplegarse con:
+Patron de autenticacion actual:
+
+- `requestClient` con `PROJECT_PUBLISHABLE_KEY` o `SUPABASE_ANON_KEY`
+- `Authorization` reenviado desde el request
+- `requestClient.auth.getUser()` para resolver al usuario
+- `adminClient` separado con `SERVICE_ROLE_KEY` o `SUPABASE_SERVICE_ROLE_KEY`
+
+No usar:
+
+- `PROJECT_LEGACY_SERVICE_ROLE_KEY`
+- validacion manual via `/auth/v1/user`
+
+Si el proyecto usa tokens `ES256`, las funciones protegidas deben desplegarse con `--no-verify-jwt`. Si no, Supabase puede rechazar la peticion antes de ejecutar el codigo con errores como `Unsupported JWT algorithm ES256`.
+
+Deploy esperado:
 
 ```powershell
 npm exec supabase functions deploy <nombre-funcion> -- --project-ref <project-ref> --no-verify-jwt
 ```
 
-Consulta [SUPABASE_EDGE_FUNCTION_AUTH.md](C:/Users/jaime/OneDrive/Documentos/OneDrive/Escritorio%20Nube/Project%20Codex/pventa/mi-punto-de-venta/docs/SUPABASE_EDGE_FUNCTION_AUTH.md) para la guia operativa completa.
+Guia completa:
 
-## Nota importante
-
-Para una separacion real necesitas dos backends distintos:
-
-- un proyecto Supabase para desarrollo
-- un proyecto Supabase para produccion
-
-Si ambos ambientes usan el mismo proyecto Supabase, entonces aunque Vercel y localhost esten separados a nivel de frontend, seguiran escribiendo sobre la misma base de datos.
+- [SUPABASE_EDGE_FUNCTION_AUTH.md](C:/Users/jaime/OneDrive/Documentos/OneDrive/Escritorio%20Nube/Project%20Codex/pventa/mi-punto-de-venta/docs/SUPABASE_EDGE_FUNCTION_AUTH.md)

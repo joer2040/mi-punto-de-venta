@@ -1,13 +1,19 @@
 import { createClient } from '@supabase/supabase-js'
 
+const resolveEnvironmentName = (value, variableName) => {
+  const normalizedValue = String(value || '').trim().toLowerCase()
+
+  if (!['development', 'production'].includes(normalizedValue)) {
+    throw new Error(`${variableName} debe configurarse como development o production.`)
+  }
+
+  return normalizedValue
+}
+
 const resolveSupabaseConfig = () => {
   const isDev = import.meta.env.DEV
-  const appEnv = import.meta.env.VITE_APP_ENV || (isDev ? 'development' : 'production')
-  const backendEnv = import.meta.env.VITE_BACKEND_ENV || (isDev ? 'development' : 'production')
-
-  if (!['development', 'production'].includes(backendEnv)) {
-    throw new Error('VITE_BACKEND_ENV debe ser development o production.')
-  }
+  const appEnv = resolveEnvironmentName(import.meta.env.VITE_APP_ENV, 'VITE_APP_ENV')
+  const backendEnv = resolveEnvironmentName(import.meta.env.VITE_BACKEND_ENV, 'VITE_BACKEND_ENV')
 
   const candidates = backendEnv === 'development'
     ? [

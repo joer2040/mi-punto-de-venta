@@ -5,8 +5,6 @@ import { providerService } from '../api/providerService'
 import { useResponsive } from '../lib/useResponsive'
 
 const EDITION_PIN = '2024'
-const normalizeCategoryName = (value) => (value || '').trim().toLowerCase()
-const isExtraCategoryName = (value) => normalizeCategoryName(value) === 'extras'
 
 const normalizeMaterials = (rows = []) =>
   rows.map((row, index) => {
@@ -23,6 +21,7 @@ const normalizeMaterials = (rows = []) =>
       providerId: material.provider_id || '',
       providerName: material.providers?.name || 'Sin proveedor',
       categoryName: category.name || 'Sin categoria',
+      isInternalProduction: category.is_internal_production === true,
       categoryId: material.cat_id || category.id || null,
       price: Number(row.precio_venta ?? row.price ?? 0),
       stock: Number(row.stock_actual ?? row.stock ?? 0),
@@ -112,7 +111,7 @@ const InventoryMobileList = ({
       const skuSaveKey = `${item.rowKey}:sku`
       const nameSaveKey = `${item.rowKey}:name`
       const priceSaveKey = `${item.rowKey}:price`
-      const isExtraCategory = isExtraCategoryName(item.categoryName)
+      const isInternalProduction = item.isInternalProduction
 
       return (
         <article key={item.rowKey} style={mobileCardStyle}>
@@ -152,7 +151,7 @@ const InventoryMobileList = ({
 
           <div style={mobileFieldBlockStyle}>
             <div style={mobileMetaLabelStyle}>Proveedor</div>
-            {manualEditUnlocked && !isExtraCategory ? (
+            {manualEditUnlocked && !isInternalProduction ? (
               <select
                 value={item.providerId}
                 onChange={(event) => onFieldChange(item.rowKey, 'providerId', event.target.value)}
@@ -168,7 +167,7 @@ const InventoryMobileList = ({
               </select>
             ) : (
               <div style={mobileSkuTextStyle}>
-                {isExtraCategory ? 'Produccion interna' : item.providerName}
+                {isInternalProduction ? 'Produccion interna' : item.providerName}
               </div>
             )}
           </div>
@@ -233,7 +232,7 @@ const InventoryDesktopTable = ({
           const skuSaveKey = `${item.rowKey}:sku`
           const nameSaveKey = `${item.rowKey}:name`
           const priceSaveKey = `${item.rowKey}:price`
-          const isExtraCategory = isExtraCategoryName(item.categoryName)
+          const isInternalProduction = item.isInternalProduction
 
           return (
             <tr key={item.rowKey} style={bodyRowStyle}>
@@ -264,7 +263,7 @@ const InventoryDesktopTable = ({
                 )}
               </td>
               <td style={bodyCellStyle}>
-                {manualEditUnlocked && !isExtraCategory ? (
+                {manualEditUnlocked && !isInternalProduction ? (
                   <select
                     value={item.providerId}
                     onChange={(event) => onFieldChange(item.rowKey, 'providerId', event.target.value)}
@@ -279,7 +278,7 @@ const InventoryDesktopTable = ({
                     ))}
                   </select>
                 ) : (
-                  isExtraCategory ? 'Produccion interna' : item.providerName
+                  isInternalProduction ? 'Produccion interna' : item.providerName
                 )}
               </td>
               <td style={bodyCellStyle}>
@@ -373,7 +372,7 @@ const Inventory = () => {
       if (field === 'sku' || field === 'name' || field === 'providerId') {
         const nextField = field === 'providerId' ? 'provider_id' : field
         const nextValue =
-          field === 'providerId' && isExtraCategoryName(item.categoryName)
+          field === 'providerId' && item.isInternalProduction
             ? ''
             : item[field]
         await materialService.updateMaterialField(item.materialId, nextField, nextValue)

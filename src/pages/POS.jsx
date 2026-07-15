@@ -295,6 +295,14 @@ const getStationShortName = (table) => {
   return rawValue || 'General'
 }
 
+const shouldPersistTableOrder = (table, items) =>
+  Boolean(table) &&
+  !(
+    table.status === 'libre' &&
+    !table.current_order_id &&
+    (items?.length ?? 0) === 0
+  )
+
 const createInitialPosState = () => ({
   inventory: [],
   tables: [],
@@ -569,8 +577,8 @@ const ProductCatalog = ({
         )}
       </button>
       {availableProducts.map((item) => {
-        const isExtra = item.materials?.categories?.name === 'Extras'
-        const isOutOfStock = !isExtra && item.stock_actual <= 0
+        const isInventoried = item.materials?.categories?.is_inventoried === true
+        const isOutOfStock = isInventoried && item.stock_actual <= 0
         const isProductDisabled = !canOperatePOS || isOutOfStock
 
         return (
@@ -886,7 +894,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
   }, [onEditingStateChange, selectedTable])
 
   useEffect(() => {
-    if (!selectedTable || isHydratingTable) return undefined
+    if (isHydratingTable || !shouldPersistTableOrder(selectedTable, cart)) return undefined
 
     const persistCurrentTable = async () => {
       try {
@@ -915,7 +923,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
       const table = latestTableRef.current
       const items = latestCartRef.current
 
-      if (!table) return
+      if (!shouldPersistTableOrder(table, items)) return
 
       persistTableOrder(table, items, {
         lockWaiterEditing: isWaiter && items.length > 0,
@@ -1002,6 +1010,11 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
   const handleSaveAndExit = async () => {
     if (!canOperatePOS || !selectedTable) return
 
+    if (!shouldPersistTableOrder(selectedTable, cart)) {
+      dispatch({ type: 'leave_selected_table' })
+      return
+    }
+
     try {
       const persistedTable = await persistTableOrder(selectedTable, cart, {
         lockWaiterEditing: isWaiter && cart.length > 0,
@@ -1020,21 +1033,21 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
 
   const addToCart = (item) => {
     if (!canOperatePOS) return
-    const isExtra = item.materials?.categories?.name === 'Extras'
+    const isInventoried = item.materials?.categories?.is_inventoried === true
 
     if (item.precio_venta <= 0) {
       showNotice('Este producto no tiene precio de venta asignado.', 'warning')
       return
     }
 
-    if (!isExtra && item.stock_actual <= 0) {
+    if (isInventoried && item.stock_actual <= 0) {
       showNotice('No hay existencias de este producto.', 'warning')
       return
     }
 
     const existing = cart.find((c) => c.material_id === item.materials.id && !c.bundle_id)
 
-    if (!isExtra && existing && existing.quantity >= item.stock_actual) {
+    if (isInventoried && existing && existing.quantity >= item.stock_actual) {
       showNotice(`Solo hay ${item.stock_actual} unidades disponibles.`, 'warning')
       return
     }
@@ -1056,7 +1069,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
             name: item.materials.name,
             unit_price: item.precio_venta,
             quantity: 1,
-            is_extra: isExtra,
+            is_inventoried: isInventoried,
           },
         ],
       })
@@ -1218,17 +1231,16 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
 
       const normalizedCart = cart.map((item) => {
         const inventoryItem = inventoryByMaterialId.get(item.material_id)
-        const categoryName = inventoryItem?.materials?.categories?.name
-        const isExtra = categoryName === 'Extras' || item.is_extra === true
+        const isInventoried = inventoryItem?.materials?.categories?.is_inventoried === true
 
         return {
           ...item,
-          is_extra: isExtra,
+          is_inventoried: isInventoried,
         }
       })
 
       const requestedQuantityByMaterial = normalizedCart.reduce((map, item) => {
-        if (item.is_extra) return map
+        if (!item.is_inventoried) return map
 
         map.set(item.material_id, (map.get(item.material_id) || 0) + Number(item.quantity || 0))
         return map

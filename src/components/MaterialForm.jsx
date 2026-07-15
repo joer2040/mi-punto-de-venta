@@ -3,7 +3,12 @@ import { materialService } from '../api/materialService'
 import { providerService } from '../api/providerService'
 import { useResponsive } from '../lib/useResponsive'
 
-const normalizeCategoryName = (value) => (value || '').trim().toLowerCase()
+const normalizeCategoryName = (value) =>
+  (value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
 
 const createInitialCatalogState = () => ({
   categories: [],
@@ -47,14 +52,14 @@ const MaterialForm = ({ onMaterialAdded }) => {
 
     const { sku, name, provider_id, cat_id, buy_uom_id, sell_uom_id } = formData
     const selectedCategory = categories.find((c) => c.id === cat_id)
-    const isExtraCategory = normalizeCategoryName(selectedCategory?.name) === 'extras'
+    const isInternalProduction = selectedCategory?.is_internal_production === true
 
     if (!sku || !name || !cat_id || !buy_uom_id || !sell_uom_id) {
       alert('Todos los campos son obligatorios')
       return
     }
 
-    if (!isExtraCategory && !provider_id) {
+    if (!isInternalProduction && !provider_id) {
       alert('Debes seleccionar un proveedor para este material')
       return
     }
@@ -62,7 +67,7 @@ const MaterialForm = ({ onMaterialAdded }) => {
     try {
       await materialService.createMaterial({
         ...formData,
-        provider_id: isExtraCategory ? '' : formData.provider_id,
+        provider_id: isInternalProduction ? '' : formData.provider_id,
       })
       alert('Material creado con exito')
       setFormData({
@@ -81,8 +86,8 @@ const MaterialForm = ({ onMaterialAdded }) => {
   }
 
   const selectedCategory = categories.find((c) => c.id === formData.cat_id)
-  const isExtraCategory = normalizeCategoryName(selectedCategory?.name) === 'extras'
-  const isBottleCategory = selectedCategory?.name === 'Botellas/Otros'
+  const isInternalProduction = selectedCategory?.is_internal_production === true
+  const isBottleCategory = normalizeCategoryName(selectedCategory?.name) === 'botella'
 
   return (
     <form onSubmit={handleSubmit} style={getFormStyle(isMobile)}>
@@ -121,9 +126,10 @@ const MaterialForm = ({ onMaterialAdded }) => {
             style={inputStyle}
             value={formData.provider_id}
             onChange={(e) => setFormData({ ...formData, provider_id: e.target.value })}
-            disabled={isExtraCategory}
+            disabled={isInternalProduction}
+            required={!isInternalProduction}
           >
-            <option value="">{isExtraCategory ? 'Produccion interna (sin proveedor)...' : 'Selecciona un proveedor...'}</option>
+            <option value="">{isInternalProduction ? 'Producción Interna' : 'Selecciona un proveedor...'}</option>
             {providers.map((provider) => (
               <option key={provider.id} value={provider.id}>
                 {provider.name} ({provider.rfc})
@@ -141,12 +147,12 @@ const MaterialForm = ({ onMaterialAdded }) => {
             onChange={(e) => {
               const nextCategoryId = e.target.value
               const nextCategory = categories.find((category) => category.id === nextCategoryId)
-              const nextIsExtraCategory = normalizeCategoryName(nextCategory?.name) === 'extras'
+              const nextIsInternalProduction = nextCategory?.is_internal_production === true
 
               setFormData({
                 ...formData,
                 cat_id: nextCategoryId,
-                provider_id: nextIsExtraCategory ? '' : formData.provider_id,
+                provider_id: nextIsInternalProduction ? '' : formData.provider_id,
               })
             }}
           >
@@ -207,21 +213,21 @@ const MaterialForm = ({ onMaterialAdded }) => {
         </div>
       </div>
 
-      {isExtraCategory && (
+      {isInternalProduction && (
         <div style={helperInfoStyle}>
-          Los materiales de la categoria Extras se consideran de produccion interna y no llevan proveedor.
+          Los materiales de produccion interna no llevan proveedor.
         </div>
       )}
 
       {providers.length === 0 && (
         <div style={helperWarningStyle}>
-          {isExtraCategory
-            ? 'Puedes registrar materiales Extras sin proveedor.'
+          {isInternalProduction
+            ? 'Puedes registrar materiales de produccion interna sin proveedor.'
             : 'Primero debes crear al menos un proveedor para poder registrar materiales.'}
         </div>
       )}
 
-      <button type="submit" style={btnStyle} disabled={providers.length === 0 && !isExtraCategory}>Guardar Material</button>
+      <button type="submit" style={btnStyle} disabled={providers.length === 0 && !isInternalProduction}>Guardar Material</button>
     </form>
   )
 }

@@ -92,7 +92,8 @@ export const materialService = {
             id,
             name,
             is_for_sale,
-            is_inventoried
+            is_inventoried,
+            is_internal_production
           )
         ),
         centers ( id, name )

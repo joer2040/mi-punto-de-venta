@@ -220,49 +220,6 @@ const validateCubetaBundles = (
   }
 }
 
-const padDocumentSegment = (value: number, length = 2) => String(value).padStart(length, '0')
-
-const buildSaleDocumentNumber = (date: Date, sequence: number) =>
-  [
-    padDocumentSegment(date.getDate()),
-    padDocumentSegment(date.getMonth() + 1),
-    date.getFullYear(),
-    padDocumentSegment(date.getHours()),
-    padDocumentSegment(date.getMinutes()),
-    padDocumentSegment(sequence),
-  ].join('')
-
-const getDayBounds = (dateValue: string) => {
-  const date = new Date(dateValue)
-  const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0)
-  const nextDay = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1, 0, 0, 0, 0)
-
-  return {
-    dayStart: dayStart.toISOString(),
-    nextDay: nextDay.toISOString(),
-  }
-}
-
-const getDailySaleDocumentNumber = async (adminClient: ReturnType<typeof createClient>, saleId: string, createdAt: string) => {
-  const { dayStart, nextDay } = getDayBounds(createdAt)
-
-  const { data, error } = await adminClient
-    .from('sales')
-    .select('id, created_at')
-    .gte('created_at', dayStart)
-    .lt('created_at', nextDay)
-    .order('created_at', { ascending: true })
-    .order('id', { ascending: true })
-
-  if (error) throw error
-
-  const saleDate = new Date(createdAt)
-  const saleIndex = (data || []).findIndex((item) => item.id === saleId)
-  const sequence = saleIndex >= 0 ? saleIndex + 1 : (data?.length || 0) + 1
-
-  return buildSaleDocumentNumber(saleDate, sequence)
-}
-
 const loadCallerContext = async (adminClient: ReturnType<typeof createClient>, userId: string) => {
   const { data: profile, error: profileError } = await adminClient
     .from('app_profiles')
@@ -324,19 +281,6 @@ const loadTableState = async (adminClient: ReturnType<typeof createClient>, tabl
   }
 
   return { table, order }
-}
-
-const loadOpenCashSession = async (adminClient: ReturnType<typeof createClient>) => {
-  const { data, error } = await adminClient
-    .from('cash_sessions')
-    .select('id, status')
-    .eq('status', 'open')
-    .order('opened_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  if (error) throw error
-  return data
 }
 
 Deno.serve(async (req) => {
@@ -484,163 +428,33 @@ Deno.serve(async (req) => {
         return json({ error: 'Como mesero solo puedes agregar productos o aumentar cantidades antes de cobrar.' }, 403)
       }
 
-      const totalAmount = computeTotal(items)
-
-      const { data: center, error: centerError } = await adminClient
-        .from('centers')
-        .select('id')
-        .limit(1)
-        .single()
-
-      if (centerError || !center) {
-        return json({ error: 'No se encontro un centro de inventario para procesar la venta.' }, 400)
-      }
-
-      const isCashPayment = normalizeRoleName(paymentMethod) === 'efectivo'
-      let openCashSession = null
-      if (isCashPayment) {
-        openCashSession = await loadOpenCashSession(adminClient)
-        if (!openCashSession) {
-          return json({ error: 'No hay una caja abierta. Debes abrir caja antes de finalizar ventas en efectivo.' }, 409)
-        }
-      }
-
       const materialIds = Array.from(new Set(items.map((item) => item.material_id)))
-      const [{ data: inventoryRows, error: inventoryError }, { data: materialRows, error: materialError }] =
-        await Promise.all([
-          adminClient
-            .from('inventory')
-            .select('material_id, stock_actual')
-            .eq('center_id', center.id)
-            .in('material_id', materialIds),
-          adminClient
-            .from('materials')
-            .select('id, sku, categories:cat_id(name)')
-            .in('id', materialIds),
-        ])
+      const { data: materialRows, error: materialError } = await adminClient
+        .from('materials')
+        .select('id, sku, categories:cat_id(name, is_inventoried)')
+        .in('id', materialIds)
 
-      if (inventoryError) throw inventoryError
       if (materialError) throw materialError
-
-      const stockByMaterial = new Map((inventoryRows || []).map((row) => [row.material_id, toNumber(row.stock_actual)]))
-      const isExtraByMaterial = new Map(
-        (materialRows || []).map((row) => [row.id, normalizeRoleName(readCategoryName(row.categories)) === 'extras'])
-      )
 
       validateCubetaBundles(items, materialRows || [])
 
-      const chargeableItems = items.filter((item) => !isExtraByMaterial.get(item.material_id))
-
-      const requestedQuantityByMaterial = chargeableItems.reduce((map, item) => {
-        map.set(item.material_id, (map.get(item.material_id) || 0) + item.quantity)
-        return map
-      }, new Map<string, number>())
-
-      for (const [materialId, requestedQuantity] of requestedQuantityByMaterial.entries()) {
-        const availableStock = stockByMaterial.get(materialId) || 0
-        const materialName = chargeableItems.find((item) => item.material_id === materialId)?.name || 'este producto'
-        if (requestedQuantity > availableStock) {
-          return json(
-            {
-              error: `No hay stock suficiente para ${materialName}. Disponible: ${availableStock}, solicitado: ${requestedQuantity}.`,
-            },
-            400
-          )
-        }
-      }
-
-      const { data: sale, error: saleError } = await adminClient
-        .from('sales')
-        .insert([
-          {
-            center_id: center.id,
-            total_amount: totalAmount,
-            payment_method: paymentMethod,
-            cash_session_id: openCashSession?.id || null,
-          },
-        ])
-        .select()
-        .single()
-
-      if (saleError || !sale) throw saleError
-
-      const documentNumber = await getDailySaleDocumentNumber(adminClient, sale.id, sale.created_at)
-
-      const { data: updatedSale, error: documentError } = await adminClient
-        .from('sales')
-        .update({ document_number: documentNumber })
-        .eq('id', sale.id)
-        .select()
-        .single()
-
-      if (documentError || !updatedSale) throw documentError
-
-      const saleItems = chargeableItems.map((item) => ({
-        sale_id: updatedSale.id,
+      const rpcItems = items.map((item) => ({
         material_id: item.material_id,
         quantity: item.quantity,
         unit_price: item.unit_price,
       }))
 
-      if (saleItems.length > 0) {
-        const { error: saleItemsError } = await adminClient.from('sale_items').insert(saleItems)
-        if (saleItemsError) throw saleItemsError
-      }
-
-      const movementRows = saleItems.map((item) => {
-        const afterStock = stockByMaterial.get(item.material_id) || 0
-        const beforeStock = afterStock + item.quantity
-
-        return {
-          center_id: center.id,
-          material_id: item.material_id,
-          movement_type: 'sale',
-          direction: 'out',
-          quantity: item.quantity,
-          before_stock: beforeStock,
-          after_stock: afterStock,
-          unit_cost: null,
-          unit_price: item.unit_price,
-          reference_table: 'sales',
-          reference_id: updatedSale.id,
-          reference_number: documentNumber,
-          reason_code: 'sale_ticket',
-          notes: 'Salida de inventario por venta',
-          performed_by: user.id,
-        }
+      const { data: finalizedSale, error: finalizeError } = await adminClient.rpc('finalize_pos_sale', {
+        p_table_id: table.id,
+        p_items: rpcItems,
+        p_payment_method: paymentMethod,
+        p_performed_by: user.id,
       })
 
-      if (movementRows.length > 0) {
-        const { error: movementError } = await adminClient.from('inventory_movements').insert(movementRows)
-        if (movementError) {
-          console.warn('No se pudo registrar inventory_movements:', movementError)
-        }
-      }
-
-      const { error: freeTableError } = await adminClient
-        .from('tables')
-        .update({
-          status: 'libre',
-          current_order_id: null,
-        })
-        .eq('id', table.id)
-
-      if (freeTableError) throw freeTableError
-
-      if (table.current_order_id) {
-        const { error: deleteOrderError } = await adminClient
-          .from('table_orders')
-          .delete()
-          .eq('id', table.current_order_id)
-
-        if (deleteOrderError) throw deleteOrderError
-      }
+      if (finalizeError) throw appError(finalizeError.message, 400)
 
       return json({
-        sale: {
-          ...updatedSale,
-          document_number: documentNumber,
-        },
+        sale: finalizedSale,
       })
     }
 

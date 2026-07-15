@@ -34,7 +34,6 @@ const normalizeRoleName = (value: string | null | undefined) => (value || '').tr
 const normalizeText = (value: unknown) => String(value ?? '').trim().toLowerCase()
 const isManagerRoleName = (value: string | null | undefined) =>
   ['manager', 'administrador operativo'].includes(normalizeRoleName(value))
-const isExtrasCategoryName = (value: string | null | undefined) => normalizeRoleName(value) === 'extras'
 const GENERAL_PROVIDER_NAME = 'Proveedor General'
 const PURCHASE_DUPLICATE_WINDOW_SECONDS = 120
 const toNumber = (value: unknown, fallback = 0) => {
@@ -749,7 +748,7 @@ Deno.serve(async (req) => {
 
       const { data: categorySnapshot, error: categoryError } = await adminClient
         .from('categories')
-        .select('id, name')
+        .select('id, name, is_internal_production')
         .eq('id', catId)
         .maybeSingle()
 
@@ -758,9 +757,9 @@ Deno.serve(async (req) => {
         return json({ error: 'La categoria seleccionada no existe.' }, 400)
       }
 
-      const isExtraCategory = isExtrasCategoryName(categorySnapshot.name)
+      const isInternalProduction = categorySnapshot.is_internal_production === true
 
-      if (!isExtraCategory) {
+      if (!isInternalProduction) {
         if (!providerId) {
           return json({ error: 'Debes seleccionar un proveedor para este material.' }, 400)
         }
@@ -783,7 +782,7 @@ Deno.serve(async (req) => {
           {
             sku,
             name,
-            provider_id: isExtraCategory ? null : providerId,
+            provider_id: isInternalProduction ? null : providerId,
             cat_id: catId,
             buy_uom_id: buyUomId,
             sell_uom_id: sellUomId,
@@ -1085,15 +1084,15 @@ Deno.serve(async (req) => {
         const providerId = String(value ?? '').trim()
         const { data: categorySnapshot, error: categoryError } = await adminClient
           .from('categories')
-          .select('id, name')
+          .select('id, name, is_internal_production')
           .eq('id', String(materialSnapshot.cat_id ?? '').trim())
           .maybeSingle()
 
         if (categoryError) throw categoryError
 
-        const isExtraCategory = isExtrasCategoryName(categorySnapshot?.name)
+        const isInternalProduction = categorySnapshot?.is_internal_production === true
 
-        if (!providerId && !isExtraCategory) {
+        if (!providerId && !isInternalProduction) {
           return json({ error: 'Debes seleccionar un proveedor valido.' }, 400)
         }
 

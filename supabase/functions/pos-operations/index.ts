@@ -27,6 +27,7 @@ const CUBETA_FIXED_UNIT_PRICE = CUBETA_FIXED_PRICE / CUBETA_REQUIRED_PIECES
 const CAGUAMITA_REQUIRED_PIECES = 5
 const CAGUAMITA_FIXED_PRICE = 130
 const CAGUAMITA_FIXED_UNIT_PRICE = CAGUAMITA_FIXED_PRICE / CAGUAMITA_REQUIRED_PIECES
+const CASH_PAYMENT_METHOD = 'Efectivo'
 const BUNDLE_RULES = {
   [CUBETA_BUNDLE_TYPE]: {
     label: 'Cubeta Mixta',
@@ -220,47 +221,50 @@ const validateCubetaBundles = (
   }
 }
 
-const padDocumentSegment = (value: number, length = 2) => String(value).padStart(length, '0')
+const buildCanonicalSaleItems = (
+  items: OrderItem[],
+  materialRows: Array<{
+    id: string
+    name?: string | null
+    sku?: string | null
+    categories?: { name?: string | null } | { name?: string | null }[] | null
+  }>,
+  inventoryRows: Array<{ material_id: string; precio_venta?: number | string | null }>
+) => {
+  const materialById = new Map(materialRows.map((row) => [row.id, row]))
+  const inventoryByMaterialId = new Map(inventoryRows.map((row) => [row.material_id, row]))
 
-const buildSaleDocumentNumber = (date: Date, sequence: number) =>
-  [
-    padDocumentSegment(date.getDate()),
-    padDocumentSegment(date.getMonth() + 1),
-    date.getFullYear(),
-    padDocumentSegment(date.getHours()),
-    padDocumentSegment(date.getMinutes()),
-    padDocumentSegment(sequence),
-  ].join('')
+  return items.map((item) => {
+    const material = materialById.get(item.material_id)
+    const inventory = inventoryByMaterialId.get(item.material_id)
+    const baseUnitPrice = Number(inventory?.precio_venta ?? 0)
+    const bundleId = String(item.bundle_id ?? '').trim()
+    const bundleType = normalizeRoleName(item.bundle_type)
 
-const getDayBounds = (dateValue: string) => {
-  const date = new Date(dateValue)
-  const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0)
-  const nextDay = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1, 0, 0, 0, 0)
+    if (!material || !inventory || !Number.isFinite(baseUnitPrice) || baseUnitPrice <= 0) {
+      throw appError('La venta contiene materiales sin precio de venta valido.', 400)
+    }
 
-  return {
-    dayStart: dayStart.toISOString(),
-    nextDay: nextDay.toISOString(),
-  }
-}
+    if (Boolean(bundleId) !== Boolean(bundleType)) {
+      throw appError('Cada bundle debe incluir identificador y tipo.', 400)
+    }
 
-const getDailySaleDocumentNumber = async (adminClient: ReturnType<typeof createClient>, saleId: string, createdAt: string) => {
-  const { dayStart, nextDay } = getDayBounds(createdAt)
+    if (bundleType && !BUNDLE_RULES[bundleType]) {
+      throw appError('La venta contiene un tipo de bundle no soportado.', 400)
+    }
 
-  const { data, error } = await adminClient
-    .from('sales')
-    .select('id, created_at')
-    .gte('created_at', dayStart)
-    .lt('created_at', nextDay)
-    .order('created_at', { ascending: true })
-    .order('id', { ascending: true })
+    const bundleRule = bundleType ? BUNDLE_RULES[bundleType] : null
 
-  if (error) throw error
-
-  const saleDate = new Date(createdAt)
-  const saleIndex = (data || []).findIndex((item) => item.id === saleId)
-  const sequence = saleIndex >= 0 ? saleIndex + 1 : (data?.length || 0) + 1
-
-  return buildSaleDocumentNumber(saleDate, sequence)
+    return {
+      ...item,
+      name: String(material.name ?? item.name ?? '').trim(),
+      base_unit_price: baseUnitPrice,
+      unit_price: bundleRule?.fixedUnitPrice ?? baseUnitPrice,
+      bundle_id: bundleId || undefined,
+      bundle_type: bundleType || undefined,
+      bundle_label: bundleRule?.label,
+    }
+  })
 }
 
 const loadCallerContext = async (adminClient: ReturnType<typeof createClient>, userId: string) => {
@@ -326,19 +330,6 @@ const loadTableState = async (adminClient: ReturnType<typeof createClient>, tabl
   return { table, order }
 }
 
-const loadOpenCashSession = async (adminClient: ReturnType<typeof createClient>) => {
-  const { data, error } = await adminClient
-    .from('cash_sessions')
-    .select('id, status')
-    .eq('status', 'open')
-    .order('opened_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  if (error) throw error
-  return data
-}
-
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -380,22 +371,48 @@ Deno.serve(async (req) => {
       const tableId = String(body.table_id ?? '')
       const items = normalizeItems(body.items)
       const lockWaiterEditing = Boolean(body.lock_waiter_editing)
+      const hasExpectedOrderId = Object.prototype.hasOwnProperty.call(body, 'expected_order_id')
+      const expectedOrderId = body.expected_order_id == null
+        ? null
+        : String(body.expected_order_id).trim() || null
 
       if (!tableId) return json({ error: 'Falta table_id.' }, 400)
+      if (!hasExpectedOrderId) return json({ error: 'Falta expected_order_id.' }, 400)
 
       const { table, order } = await loadTableState(adminClient, tableId)
+
+      if (hasExpectedOrderId && (table.current_order_id ?? null) !== expectedOrderId) {
+        return json({ error: 'El pedido activo de la mesa cambio antes de guardar.' }, 409)
+      }
+
+      if (table.current_order_id && !order) {
+        return json({ error: 'El pedido activo de la mesa no existe.' }, 409)
+      }
 
       if (caller.isWaiter && order?.waiter_edit_locked && !waiterCanModifyItems(order.items || [], items)) {
         return json({ error: 'Como mesero solo puedes agregar productos o aumentar cantidades en una mesa ya guardada.' }, 403)
       }
 
       if (items.length === 0) {
-        const { error: tableError } = await adminClient
+        let tableUpdate = adminClient
           .from('tables')
           .update({ status: 'libre', current_order_id: null })
           .eq('id', table.id)
 
+        if (hasExpectedOrderId) {
+          tableUpdate = expectedOrderId
+            ? tableUpdate.eq('current_order_id', expectedOrderId)
+            : tableUpdate.is('current_order_id', null)
+        }
+
+        const { data: updatedTable, error: tableError } = await tableUpdate
+          .select('id, number, status, current_order_id')
+          .maybeSingle()
+
         if (tableError) throw tableError
+        if (!updatedTable) {
+          return json({ error: 'El pedido activo de la mesa cambio antes de guardar.' }, 409)
+        }
 
         if (table.current_order_id) {
           const { error: deleteError } = await adminClient
@@ -407,11 +424,7 @@ Deno.serve(async (req) => {
         }
 
         return json({
-          table: {
-            ...table,
-            status: 'libre',
-            current_order_id: null,
-          },
+          table: updatedTable,
           order: null,
         })
       }
@@ -429,10 +442,14 @@ Deno.serve(async (req) => {
             waiter_edit_locked: nextWaiterLock,
           })
           .eq('id', order.id)
+          .eq('table_id', table.id)
           .select('id, table_id, items, total, waiter_edit_locked')
-          .single()
+          .maybeSingle()
 
         if (updateError) throw updateError
+        if (!updatedOrder) {
+          return json({ error: 'El pedido activo de la mesa cambio antes de guardar.' }, 409)
+        }
         persistedOrder = updatedOrder
       } else {
         const { data: createdOrder, error: insertError } = await adminClient
@@ -452,17 +469,42 @@ Deno.serve(async (req) => {
         persistedOrder = createdOrder
       }
 
-      const { data: updatedTable, error: tableUpdateError } = await adminClient
+      let tableUpdate = adminClient
         .from('tables')
         .update({
           status: 'ocupada',
           current_order_id: persistedOrder.id,
         })
         .eq('id', table.id)
+
+      if (order?.id) {
+        tableUpdate = tableUpdate
+          .eq('status', 'ocupada')
+          .eq('current_order_id', order.id)
+      } else if (hasExpectedOrderId) {
+        tableUpdate = tableUpdate
+          .eq('status', 'libre')
+          .is('current_order_id', null)
+      }
+
+      const { data: updatedTable, error: tableUpdateError } = await tableUpdate
         .select('id, number, status, current_order_id')
-        .single()
+        .maybeSingle()
 
       if (tableUpdateError) throw tableUpdateError
+      if (!updatedTable) {
+        if (!order?.id && persistedOrder?.id) {
+          const { error: cleanupError } = await adminClient
+            .from('table_orders')
+            .delete()
+            .eq('id', persistedOrder.id)
+            .eq('table_id', table.id)
+
+          if (cleanupError) throw cleanupError
+        }
+
+        return json({ error: 'El pedido activo de la mesa cambio antes de guardar.' }, 409)
+      }
 
       return json({
         table: updatedTable,
@@ -473,173 +515,106 @@ Deno.serve(async (req) => {
     if (action === 'finalize_sale') {
       const tableId = String(body.table_id ?? '')
       const items = normalizeItems(body.items)
-      const paymentMethod = String(body.payment_method ?? 'Efectivo')
+      const paymentMethod = String(body.payment_method ?? CASH_PAYMENT_METHOD).trim()
+      const hasExpectedOrderId = Object.prototype.hasOwnProperty.call(body, 'expected_order_id')
+      const requestedOrderId = String(body.expected_order_id ?? '').trim()
 
       if (!tableId) return json({ error: 'Falta table_id.' }, 400)
       if (items.length === 0) return json({ error: 'La mesa no tiene productos para cobrar.' }, 400)
+      if (!hasExpectedOrderId || !requestedOrderId) {
+        return json({ error: 'Falta expected_order_id para finalizar la venta.' }, 400)
+      }
+      if (normalizeRoleName(paymentMethod) !== normalizeRoleName(CASH_PAYMENT_METHOD)) {
+        return json({ error: 'Metodo de pago no soportado.' }, 400)
+      }
 
       const { table, order } = await loadTableState(adminClient, tableId)
+
+      if (normalizeRoleName(table.status) !== 'ocupada' || !table.current_order_id || !order) {
+        return json({ error: 'La mesa no tiene un pedido activo o la venta ya fue finalizada.' }, 409)
+      }
+
+      if (hasExpectedOrderId && requestedOrderId !== table.current_order_id) {
+        return json({ error: 'El pedido activo de la mesa cambio antes de la finalizacion.' }, 409)
+      }
+
+      const expectedOrderId = requestedOrderId
 
       if (caller.isWaiter && order?.waiter_edit_locked && !waiterCanModifyItems(order.items || [], items)) {
         return json({ error: 'Como mesero solo puedes agregar productos o aumentar cantidades antes de cobrar.' }, 403)
       }
 
-      const totalAmount = computeTotal(items)
-
-      const { data: center, error: centerError } = await adminClient
-        .from('centers')
-        .select('id')
-        .limit(1)
-        .single()
-
-      if (centerError || !center) {
-        return json({ error: 'No se encontro un centro de inventario para procesar la venta.' }, 400)
-      }
-
-      const isCashPayment = normalizeRoleName(paymentMethod) === 'efectivo'
-      let openCashSession = null
-      if (isCashPayment) {
-        openCashSession = await loadOpenCashSession(adminClient)
-        if (!openCashSession) {
-          return json({ error: 'No hay una caja abierta. Debes abrir caja antes de finalizar ventas en efectivo.' }, 409)
-        }
-      }
-
       const materialIds = Array.from(new Set(items.map((item) => item.material_id)))
-      const [{ data: inventoryRows, error: inventoryError }, { data: materialRows, error: materialError }] =
-        await Promise.all([
-          adminClient
-            .from('inventory')
-            .select('material_id, stock_actual')
-            .eq('center_id', center.id)
-            .in('material_id', materialIds),
-          adminClient
-            .from('materials')
-            .select('id, sku, categories:cat_id(name)')
-            .in('id', materialIds),
-        ])
+      const { data: materialRows, error: materialError } = await adminClient
+        .from('materials')
+        .select('id, name, sku, categories:cat_id(name, is_inventoried)')
+        .in('id', materialIds)
 
-      if (inventoryError) throw inventoryError
       if (materialError) throw materialError
 
-      const stockByMaterial = new Map((inventoryRows || []).map((row) => [row.material_id, toNumber(row.stock_actual)]))
-      const isExtraByMaterial = new Map(
-        (materialRows || []).map((row) => [row.id, normalizeRoleName(readCategoryName(row.categories)) === 'extras'])
-      )
+      const { data: centerRows, error: centerError } = await adminClient
+        .from('centers')
+        .select('id, name')
 
-      validateCubetaBundles(items, materialRows || [])
+      if (centerError) throw centerError
 
-      const chargeableItems = items.filter((item) => !isExtraByMaterial.get(item.material_id))
-
-      const requestedQuantityByMaterial = chargeableItems.reduce((map, item) => {
-        map.set(item.material_id, (map.get(item.material_id) || 0) + item.quantity)
-        return map
-      }, new Map<string, number>())
-
-      for (const [materialId, requestedQuantity] of requestedQuantityByMaterial.entries()) {
-        const availableStock = stockByMaterial.get(materialId) || 0
-        const materialName = chargeableItems.find((item) => item.material_id === materialId)?.name || 'este producto'
-        if (requestedQuantity > availableStock) {
-          return json(
-            {
-              error: `No hay stock suficiente para ${materialName}. Disponible: ${availableStock}, solicitado: ${requestedQuantity}.`,
-            },
-            400
-          )
-        }
+      const saleCenters = (centerRows || []).filter((center) => normalizeRoleName(center.name) === 'bar principal')
+      if (saleCenters.length !== 1) {
+        throw appError('No se pudo identificar un unico centro Bar Principal.', 400)
       }
 
-      const { data: sale, error: saleError } = await adminClient
-        .from('sales')
-        .insert([
-          {
-            center_id: center.id,
-            total_amount: totalAmount,
-            payment_method: paymentMethod,
-            cash_session_id: openCashSession?.id || null,
-          },
-        ])
-        .select()
-        .single()
+      const { data: inventoryRows, error: inventoryError } = await adminClient
+        .from('inventory')
+        .select('material_id, precio_venta')
+        .eq('center_id', saleCenters[0].id)
+        .in('material_id', materialIds)
 
-      if (saleError || !sale) throw saleError
+      if (inventoryError) throw inventoryError
 
-      const documentNumber = await getDailySaleDocumentNumber(adminClient, sale.id, sale.created_at)
+      const canonicalItems = buildCanonicalSaleItems(items, materialRows || [], inventoryRows || [])
+      validateCubetaBundles(canonicalItems, materialRows || [])
 
-      const { data: updatedSale, error: documentError } = await adminClient
-        .from('sales')
-        .update({ document_number: documentNumber })
-        .eq('id', sale.id)
-        .select()
-        .single()
-
-      if (documentError || !updatedSale) throw documentError
-
-      const saleItems = chargeableItems.map((item) => ({
-        sale_id: updatedSale.id,
+      const rpcItems = canonicalItems.map((item) => ({
+        order_id: expectedOrderId,
         material_id: item.material_id,
         quantity: item.quantity,
         unit_price: item.unit_price,
+        bundle_id: item.bundle_id ?? null,
+        bundle_type: item.bundle_type ?? null,
       }))
 
-      if (saleItems.length > 0) {
-        const { error: saleItemsError } = await adminClient.from('sale_items').insert(saleItems)
-        if (saleItemsError) throw saleItemsError
-      }
-
-      const movementRows = saleItems.map((item) => {
-        const afterStock = stockByMaterial.get(item.material_id) || 0
-        const beforeStock = afterStock + item.quantity
-
-        return {
-          center_id: center.id,
-          material_id: item.material_id,
-          movement_type: 'sale',
-          direction: 'out',
-          quantity: item.quantity,
-          before_stock: beforeStock,
-          after_stock: afterStock,
-          unit_cost: null,
-          unit_price: item.unit_price,
-          reference_table: 'sales',
-          reference_id: updatedSale.id,
-          reference_number: documentNumber,
-          reason_code: 'sale_ticket',
-          notes: 'Salida de inventario por venta',
-          performed_by: user.id,
-        }
+      const { data: finalizedSale, error: finalizeError } = await adminClient.rpc('finalize_pos_sale', {
+        p_table_id: table.id,
+        p_items: rpcItems,
+        p_payment_method: CASH_PAYMENT_METHOD,
+        p_performed_by: user.id,
       })
 
-      if (movementRows.length > 0) {
-        const { error: movementError } = await adminClient.from('inventory_movements').insert(movementRows)
-        if (movementError) {
-          console.warn('No se pudo registrar inventory_movements:', movementError)
-        }
+      if (finalizeError) {
+        const normalizedError = normalizeRoleName(finalizeError.message)
+        const status = normalizedError.includes('pedido activo') || normalizedError.includes('ya fue finalizada')
+          ? 409
+          : 400
+        throw appError(finalizeError.message, status)
       }
 
-      const { error: freeTableError } = await adminClient
-        .from('tables')
-        .update({
-          status: 'libre',
-          current_order_id: null,
-        })
-        .eq('id', table.id)
-
-      if (freeTableError) throw freeTableError
-
-      if (table.current_order_id) {
-        const { error: deleteOrderError } = await adminClient
-          .from('table_orders')
-          .delete()
-          .eq('id', table.current_order_id)
-
-        if (deleteOrderError) throw deleteOrderError
-      }
+      const responseItems = Array.isArray(finalizedSale?.items) && finalizedSale.items.length > 0
+        ? finalizedSale.items
+        : canonicalItems.map((item) => ({
+            material_id: item.material_id,
+            name: item.name,
+            quantity: item.quantity,
+            unit_price: item.unit_price,
+            base_unit_price: item.base_unit_price,
+            bundle_id: item.bundle_id ?? null,
+            bundle_type: item.bundle_type ?? null,
+            bundle_label: item.bundle_label ?? null,
+          }))
 
       return json({
         sale: {
-          ...updatedSale,
-          document_number: documentNumber,
+          ...(finalizedSale || {}),
+          items: responseItems,
         },
       })
     }

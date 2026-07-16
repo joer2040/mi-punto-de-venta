@@ -22,7 +22,7 @@ const STORAGE_KEY = 'mi-punto-de-venta.current-page'
 const IDLE_TIMEOUT_MS = 10 * 60 * 1000
 const SESSION_EXPIRED_MESSAGE_KEY = 'mi-punto-de-venta.session-expired-message'
 const SHOW_DEV_BADGE =
-  import.meta.env.DEV && String(import.meta.env.VITE_SHOW_DEV_BADGE).toLowerCase() === 'true'
+  String(import.meta.env.VITE_SHOW_DEV_BADGE).toLowerCase() === 'true'
 
 const PAGE_LABELS = {
   home: 'Inicio',

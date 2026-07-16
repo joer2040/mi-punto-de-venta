@@ -16,15 +16,20 @@ const json = (body: Record<string, unknown>, status = 200) =>
     },
   })
 
-const resolveAuthenticatedUser = async (requestClient: ReturnType<typeof createClient>) => {
-  const { data, error } = await requestClient.auth.getUser()
+const resolveAuthenticatedUser = async (supabaseUrl: string, authApiKey: string, authorization: string) => {
+  const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
+    headers: {
+      apikey: authApiKey,
+      Authorization: authorization,
+    },
+  })
 
-  if (error || !data?.user) {
+  if (!response.ok) {
     return { user: null, error: new Error('Sesion invalida o expirada.') }
   }
 
   return {
-    user: data.user,
+    user: await response.json(),
     error: null,
   }
 }
@@ -34,7 +39,6 @@ const normalizeRoleName = (value: string | null | undefined) => (value || '').tr
 const normalizeText = (value: unknown) => String(value ?? '').trim().toLowerCase()
 const isManagerRoleName = (value: string | null | undefined) =>
   ['manager', 'administrador operativo'].includes(normalizeRoleName(value))
-const isExtrasCategoryName = (value: string | null | undefined) => normalizeRoleName(value) === 'extras'
 const GENERAL_PROVIDER_NAME = 'Proveedor General'
 const PURCHASE_DUPLICATE_WINDOW_SECONDS = 120
 const toNumber = (value: unknown, fallback = 0) => {
@@ -477,26 +481,23 @@ Deno.serve(async (req) => {
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
-    const publishableKey =
-      Deno.env.get('PROJECT_PUBLISHABLE_KEY') || Deno.env.get('SUPABASE_ANON_KEY')!
     const serviceRoleKey =
       Deno.env.get('SERVICE_ROLE_KEY') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    const authApiKey = Deno.env.get('PROJECT_LEGACY_SERVICE_ROLE_KEY') || serviceRoleKey
     const authorization = req.headers.get('Authorization')
 
     if (!authorization) {
       return json({ error: 'No se recibio token de autenticacion.' }, 401)
     }
 
-    const requestClient = createClient(supabaseUrl, publishableKey, {
-      global: {
-        headers: {
-          Authorization: authorization,
-        },
-      },
-    })
     const adminClient = createClient(supabaseUrl, serviceRoleKey)
+    const accessToken = authorization.replace(/^Bearer\s+/i, '').trim()
 
-    const { user, error: userError } = await resolveAuthenticatedUser(requestClient)
+    const { user, error: userError } = await resolveAuthenticatedUser(
+      supabaseUrl,
+      authApiKey,
+      `Bearer ${accessToken}`
+    )
 
     if (userError || !user) {
       return json({ error: 'Sesion invalida o expirada.' }, 401)
@@ -749,7 +750,7 @@ Deno.serve(async (req) => {
 
       const { data: categorySnapshot, error: categoryError } = await adminClient
         .from('categories')
-        .select('id, name')
+        .select('id, name, is_internal_production')
         .eq('id', catId)
         .maybeSingle()
 
@@ -758,9 +759,9 @@ Deno.serve(async (req) => {
         return json({ error: 'La categoria seleccionada no existe.' }, 400)
       }
 
-      const isExtraCategory = isExtrasCategoryName(categorySnapshot.name)
+      const isInternalProduction = categorySnapshot.is_internal_production === true
 
-      if (!isExtraCategory) {
+      if (!isInternalProduction) {
         if (!providerId) {
           return json({ error: 'Debes seleccionar un proveedor para este material.' }, 400)
         }
@@ -783,7 +784,7 @@ Deno.serve(async (req) => {
           {
             sku,
             name,
-            provider_id: isExtraCategory ? null : providerId,
+            provider_id: isInternalProduction ? null : providerId,
             cat_id: catId,
             buy_uom_id: buyUomId,
             sell_uom_id: sellUomId,
@@ -1085,15 +1086,15 @@ Deno.serve(async (req) => {
         const providerId = String(value ?? '').trim()
         const { data: categorySnapshot, error: categoryError } = await adminClient
           .from('categories')
-          .select('id, name')
+          .select('id, name, is_internal_production')
           .eq('id', String(materialSnapshot.cat_id ?? '').trim())
           .maybeSingle()
 
         if (categoryError) throw categoryError
 
-        const isExtraCategory = isExtrasCategoryName(categorySnapshot?.name)
+        const isInternalProduction = categorySnapshot?.is_internal_production === true
 
-        if (!providerId && !isExtraCategory) {
+        if (!providerId && !isInternalProduction) {
           return json({ error: 'Debes seleccionar un proveedor valido.' }, 400)
         }
 

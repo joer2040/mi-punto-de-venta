@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useReducer, useRef, useState } from 'react'
+﻿import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { cashControlService } from '../api/cashControlService'
 import { materialService } from '../api/materialService'
 import { posService } from '../api/posService'
@@ -295,6 +295,14 @@ const getStationShortName = (table) => {
   return rawValue || 'General'
 }
 
+const shouldPersistTableOrder = (table, items) =>
+  Boolean(table) &&
+  !(
+    table.status === 'libre' &&
+    !table.current_order_id &&
+    (items?.length ?? 0) === 0
+  )
+
 const createInitialPosState = () => ({
   inventory: [],
   tables: [],
@@ -306,6 +314,7 @@ const createInitialPosState = () => ({
   isHydratingTable: false,
   waiterEditLocked: false,
   showFinalizeConfirm: false,
+  isFinalizingSale: false,
 })
 
 const posReducer = (state, action) => {
@@ -346,6 +355,11 @@ const posReducer = (state, action) => {
       return {
         ...state,
         showFinalizeConfirm: action.value,
+      }
+    case 'set_finalizing_sale':
+      return {
+        ...state,
+        isFinalizingSale: action.value,
       }
     case 'set_selected_table':
       return {
@@ -569,8 +583,8 @@ const ProductCatalog = ({
         )}
       </button>
       {availableProducts.map((item) => {
-        const isExtra = item.materials?.categories?.name === 'Extras'
-        const isOutOfStock = !isExtra && item.stock_actual <= 0
+        const isInventoried = item.materials?.categories?.is_inventoried === true
+        const isOutOfStock = isInventoried && item.stock_actual <= 0
         const isProductDisabled = !canOperatePOS || isOutOfStock
 
         return (
@@ -809,6 +823,8 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
   const canFullyEditOccupiedTable = isSuperadmin || isManager
   const latestTableRef = useRef(null)
   const latestCartRef = useRef([])
+  const finalizeSaleInFlightRef = useRef(false)
+  const tableOrderSaveQueueRef = useRef(Promise.resolve(null))
   const {
     inventory,
     tables,
@@ -820,7 +836,40 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
     isHydratingTable,
     waiterEditLocked,
     showFinalizeConfirm,
+    isFinalizingSale,
   } = state
+
+  const persistTableOrder = useCallback(async (table, items, options = {}) => {
+    const { table: persistedTable, order } = await posService.saveTableOrder({
+      table_id: table.id,
+      expected_order_id: table.current_order_id ?? null,
+      items,
+      lock_waiter_editing: Boolean(options.lockWaiterEditing),
+    })
+
+    latestTableRef.current = persistedTable
+    dispatch({ type: 'set_waiter_edit_locked', value: Boolean(order?.waiter_edit_locked) })
+    return persistedTable
+  }, [])
+
+  const queueTableOrderSave = useCallback((options = {}) => {
+    if (finalizeSaleInFlightRef.current) {
+      return Promise.resolve(latestTableRef.current)
+    }
+
+    const saveOperation = tableOrderSaveQueueRef.current
+      .catch(() => null)
+      .then(() => {
+        const table = latestTableRef.current
+        const items = latestCartRef.current
+
+        if (!shouldPersistTableOrder(table, items)) return table
+        return persistTableOrder(table, items, options)
+      })
+
+    tableOrderSaveQueueRef.current = saveOperation.catch(() => null)
+    return saveOperation
+  }, [persistTableOrder])
 
   useEffect(() => {
     const loadData = async () => {
@@ -886,11 +935,11 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
   }, [onEditingStateChange, selectedTable])
 
   useEffect(() => {
-    if (!selectedTable || isHydratingTable) return undefined
+    if (isHydratingTable || !shouldPersistTableOrder(selectedTable, cart)) return undefined
 
     const persistCurrentTable = async () => {
       try {
-        const persistedTable = await persistTableOrder(selectedTable, cart)
+        const persistedTable = await queueTableOrderSave()
         if (
           persistedTable &&
           (
@@ -908,16 +957,16 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
 
     persistCurrentTable()
     return undefined
-  }, [cart, isHydratingTable, selectedTable])
+  }, [cart, isHydratingTable, queueTableOrderSave, selectedTable])
 
   useEffect(() => {
     const handlePageHide = () => {
       const table = latestTableRef.current
       const items = latestCartRef.current
 
-      if (!table) return
+      if (!shouldPersistTableOrder(table, items)) return
 
-      persistTableOrder(table, items, {
+      queueTableOrderSave({
         lockWaiterEditing: isWaiter && items.length > 0,
       }).catch((error) => {
         console.error('Error al guardar la mesa al salir de la pantalla:', error)
@@ -926,7 +975,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
 
     window.addEventListener('pagehide', handlePageHide)
     return () => window.removeEventListener('pagehide', handlePageHide)
-  }, [isWaiter])
+  }, [isWaiter, queueTableOrderSave])
 
   const showNotice = (message, type = 'info') => {
     dispatch({ type: 'set_notice', notice: { message, type } })
@@ -956,6 +1005,8 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
   }
 
   const handleSelectTable = async (table) => {
+    if (finalizeSaleInFlightRef.current) return
+
     try {
       dispatch({ type: 'hydrate_table_start', table })
 
@@ -988,22 +1039,16 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
     }
   }
 
-  const persistTableOrder = async (table, items, options = {}) => {
-    const { table: persistedTable, order } = await posService.saveTableOrder({
-      table_id: table.id,
-      items,
-      lock_waiter_editing: Boolean(options.lockWaiterEditing),
-    })
-
-    dispatch({ type: 'set_waiter_edit_locked', value: Boolean(order?.waiter_edit_locked) })
-    return persistedTable
-  }
-
   const handleSaveAndExit = async () => {
-    if (!canOperatePOS || !selectedTable) return
+    if (!canOperatePOS || finalizeSaleInFlightRef.current || !selectedTable) return
+
+    if (!shouldPersistTableOrder(selectedTable, cart)) {
+      dispatch({ type: 'leave_selected_table' })
+      return
+    }
 
     try {
-      const persistedTable = await persistTableOrder(selectedTable, cart, {
+      const persistedTable = await queueTableOrderSave({
         lockWaiterEditing: isWaiter && cart.length > 0,
       })
       if (persistedTable) {
@@ -1019,22 +1064,22 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
   }
 
   const addToCart = (item) => {
-    if (!canOperatePOS) return
-    const isExtra = item.materials?.categories?.name === 'Extras'
+    if (!canOperatePOS || finalizeSaleInFlightRef.current) return
+    const isInventoried = item.materials?.categories?.is_inventoried === true
 
     if (item.precio_venta <= 0) {
       showNotice('Este producto no tiene precio de venta asignado.', 'warning')
       return
     }
 
-    if (!isExtra && item.stock_actual <= 0) {
+    if (isInventoried && item.stock_actual <= 0) {
       showNotice('No hay existencias de este producto.', 'warning')
       return
     }
 
     const existing = cart.find((c) => c.material_id === item.materials.id && !c.bundle_id)
 
-    if (!isExtra && existing && existing.quantity >= item.stock_actual) {
+    if (isInventoried && existing && existing.quantity >= item.stock_actual) {
       showNotice(`Solo hay ${item.stock_actual} unidades disponibles.`, 'warning')
       return
     }
@@ -1056,7 +1101,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
             name: item.materials.name,
             unit_price: item.precio_venta,
             quantity: 1,
-            is_extra: isExtra,
+            is_inventoried: isInventoried,
           },
         ],
       })
@@ -1064,7 +1109,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
   }
 
   const changeQuantity = (id, delta) => {
-    if (!canOperatePOS) return
+    if (!canOperatePOS || finalizeSaleInFlightRef.current) return
     if (delta < 0 && !canDecreaseOrRemoveFromOccupiedTable) {
       showNotice('Los meseros no pueden disminuir cantidades en una mesa ya ocupada. Solo un manager puede hacerlo.', 'warning')
       return
@@ -1084,7 +1129,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
   }
 
   const removeFromCart = (id) => {
-    if (!canOperatePOS) return
+    if (!canOperatePOS || finalizeSaleInFlightRef.current) return
     if (!canDecreaseOrRemoveFromOccupiedTable) {
       showNotice('Los meseros no pueden remover productos de una mesa ya ocupada. Solo un manager puede hacerlo.', 'warning')
       return
@@ -1117,6 +1162,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
 
   const buildTicketData = (sale, items, table, documentNumber) => {
     const chargedAt = sale?.created_at || new Date().toISOString()
+    const authoritativeTotal = Number(sale?.total_amount)
 
     return {
       saleId: sale?.id,
@@ -1124,12 +1170,14 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
       chargedAt,
       tableNumber: getStationDisplayName(table),
       items: buildTicketDisplayItems(items, { includeBundleDetails: false }),
-      total: items.reduce((acc, item) => acc + parseFloat(item.unit_price) * parseFloat(item.quantity), 0),
+      total: Number.isFinite(authoritativeTotal)
+        ? authoritativeTotal
+        : items.reduce((acc, item) => acc + parseFloat(item.unit_price) * parseFloat(item.quantity), 0),
     }
   }
 
   const handleOpenCubetaBuilder = (bundleKind = 'cubeta') => {
-    if (!canOperatePOS) return
+    if (!canOperatePOS || finalizeSaleInFlightRef.current) return
     const targetConfig = bundleKind === 'caguamita' ? caguamitaConfig : cubetaConfig
     if (!targetConfig.isAvailable) {
       showNotice(targetConfig.disabledReason || 'Bundle no disponible en este momento.', 'warning')
@@ -1140,6 +1188,8 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
   }
 
   const handleConfirmCubetaBuilder = (selections) => {
+    if (!canOperatePOS || finalizeSaleInFlightRef.current) return
+
     if (!activeBundleConfig.isAvailable) {
       showNotice(activeBundleConfig.disabledReason || 'Bundle no disponible en este momento.', 'warning')
       return
@@ -1188,15 +1238,44 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
   const handleRequestFinalizeSale = () => {
     if (!canOperatePOS) return
     if (!selectedTable || cart.length === 0) return
+    if (finalizeSaleInFlightRef.current) return
+    if (normalizeText(selectedTable.status) !== 'ocupada' || !selectedTable.current_order_id) {
+      showNotice('Espera a que el pedido termine de guardarse antes de finalizar.', 'info')
+      return
+    }
     dispatch({ type: 'set_show_finalize_confirm', value: true })
   }
 
   const handleFinalizeSale = async () => {
     if (!canOperatePOS) return
     if (!selectedTable || cart.length === 0) return
+    if (finalizeSaleInFlightRef.current) return
+    if (normalizeText(selectedTable.status) !== 'ocupada' || !selectedTable.current_order_id) {
+      dispatch({ type: 'set_show_finalize_confirm', value: false })
+      showNotice('El pedido ya no esta activo o todavia no termina de guardarse.', 'warning')
+      return
+    }
+
+    finalizeSaleInFlightRef.current = true
+    dispatch({ type: 'set_finalizing_sale', value: true })
 
     try {
       dispatch({ type: 'set_show_finalize_confirm', value: false })
+      await tableOrderSaveQueueRef.current
+
+      const finalizingTable = latestTableRef.current
+      const finalizingCart = latestCartRef.current
+
+      if (
+        !finalizingTable ||
+        normalizeText(finalizingTable.status) !== 'ocupada' ||
+        !finalizingTable.current_order_id ||
+        finalizingCart.length === 0
+      ) {
+        showNotice('El pedido ya no esta activo o todavia no termina de guardarse.', 'warning')
+        return
+      }
+
       const cashSessionOverview = await cashControlService.getSessionOverview()
       if (cashSessionOverview?.session?.status !== 'open') {
         showNotice('No hay una caja abierta. Debes abrir caja antes de registrar ventas en efectivo.', 'warning')
@@ -1216,19 +1295,18 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
           .map((item) => [item.materials?.id, item])
       )
 
-      const normalizedCart = cart.map((item) => {
+      const normalizedCart = finalizingCart.map((item) => {
         const inventoryItem = inventoryByMaterialId.get(item.material_id)
-        const categoryName = inventoryItem?.materials?.categories?.name
-        const isExtra = categoryName === 'Extras' || item.is_extra === true
+        const isInventoried = inventoryItem?.materials?.categories?.is_inventoried === true
 
         return {
           ...item,
-          is_extra: isExtra,
+          is_inventoried: isInventoried,
         }
       })
 
       const requestedQuantityByMaterial = normalizedCart.reduce((map, item) => {
-        if (item.is_extra) return map
+        if (!item.is_inventoried) return map
 
         map.set(item.material_id, (map.get(item.material_id) || 0) + Number(item.quantity || 0))
         return map
@@ -1246,21 +1324,35 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
 
 
       const { sale } = await posService.finalizeSale({
-        table_id: selectedTable.id,
+        table_id: finalizingTable.id,
+        expected_order_id: finalizingTable.current_order_id,
         items: normalizedCart,
         payment_method: 'Efectivo',
       })
       const documentNumber = sale?.document_number || null
+      const canonicalTicketItems = Array.isArray(sale?.items) && sale.items.length > 0
+        ? sale.items.map((item) => ({
+            ...item,
+            quantity: Number(item.quantity || 0),
+            unit_price: Number(item.unit_price || 0),
+            base_unit_price: Number(item.base_unit_price || item.unit_price || 0),
+          }))
+        : normalizedCart
       dispatch({
         type: 'set_ticket_data',
-        ticketData: buildTicketData(sale, normalizedCart, selectedTable, documentNumber),
+        ticketData: buildTicketData(sale, canonicalTicketItems, finalizingTable, documentNumber),
       })
       showNotice('Venta realizada con exito', 'success')
+      latestTableRef.current = null
+      latestCartRef.current = []
       dispatch({ type: 'leave_selected_table' })
       await Promise.all([loadInventory(), loadTables()])
     } catch (error) {
       console.error('Error en la venta:', error)
       alert(`Hubo un error al procesar la venta: ${error.message || 'Error desconocido'}`)
+    } finally {
+      finalizeSaleInFlightRef.current = false
+      dispatch({ type: 'set_finalizing_sale', value: false })
     }
   }
 
@@ -1268,7 +1360,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
     dispatch,
     isMobile,
     isTablet,
-    canOperatePOS,
+    canOperatePOS: canOperatePOS && !isFinalizingSale,
     selectedTable,
     selectedStationLabel,
     loading,

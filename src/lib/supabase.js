@@ -1,11 +1,21 @@
 import { createClient } from '@supabase/supabase-js'
 
+const resolveEnvironmentName = (value, variableName) => {
+  const normalizedValue = String(value || '').trim().toLowerCase()
+
+  if (!['development', 'production'].includes(normalizedValue)) {
+    throw new Error(`${variableName} debe configurarse como development o production.`)
+  }
+
+  return normalizedValue
+}
+
 const resolveSupabaseConfig = () => {
   const isDev = import.meta.env.DEV
-  const appEnv = import.meta.env.VITE_APP_ENV || (isDev ? 'development' : 'production')
-  const backendEnv = import.meta.env.VITE_BACKEND_ENV || 'unknown'
+  const appEnv = resolveEnvironmentName(import.meta.env.VITE_APP_ENV, 'VITE_APP_ENV')
+  const backendEnv = resolveEnvironmentName(import.meta.env.VITE_BACKEND_ENV, 'VITE_BACKEND_ENV')
 
-  const candidates = isDev
+  const candidates = backendEnv === 'development'
     ? [
         {
           url: import.meta.env.VITE_SUPABASE_URL_DEV,
@@ -37,18 +47,24 @@ const resolveSupabaseConfig = () => {
       key: undefined,
     }
 
-  const isProdBackendInDev = isDev && backendEnv === 'production'
-  const allowProdBackendInDev = import.meta.env.VITE_ALLOW_PROD_BACKEND_IN_DEV === 'true'
+  const isProductionApp = appEnv === 'production'
+  const isProductionBackend = backendEnv === 'production'
+  const allowProdBackendInLocalDev =
+    isDev && import.meta.env.VITE_ALLOW_PROD_BACKEND_IN_DEV === 'true'
 
-  if (isDev && (!selected.url || !selected.key)) {
+  if (isProductionApp && !isProductionBackend) {
+    throw new Error('VITE_APP_ENV=production requiere VITE_BACKEND_ENV=production.')
+  }
+
+  if (!isProductionApp && isProductionBackend && !allowProdBackendInLocalDev) {
     throw new Error(
-      'Faltan variables de entorno DEV para Supabase. Crea .env.development.local con VITE_SUPABASE_URL_DEV y VITE_SUPABASE_ANON_KEY_DEV.'
+      'Una aplicacion no productiva no puede usar el backend de produccion sin autorizacion local explicita.'
     )
   }
 
-  if (isProdBackendInDev && !allowProdBackendInDev) {
+  if (!selected.url || !selected.key) {
     throw new Error(
-      'Localhost esta intentando usar un backend de produccion. Configura variables DEV separadas o define VITE_ALLOW_PROD_BACKEND_IN_DEV=true de forma temporal.'
+      `Faltan variables de entorno ${backendEnv} para Supabase.`
     )
   }
 

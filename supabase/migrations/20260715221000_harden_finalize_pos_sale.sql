@@ -1,0 +1,546 @@
+-- Fase 2.3: endurece el cierre atomico de ventas.
+-- La funcion conserva su firma publica, pero deja de confiar en precios y
+-- metodos de pago proporcionados por el cliente.
+
+create or replace function public.finalize_pos_sale(
+  p_table_id uuid,
+  p_items jsonb,
+  p_payment_method text,
+  p_performed_by uuid
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path to public, pg_temp
+as $$
+declare
+  v_table public.tables%rowtype;
+  v_order public.table_orders%rowtype;
+  v_expected_order_id uuid;
+  v_center_id uuid;
+  v_cash_session_id uuid;
+  v_sale_id uuid;
+  v_sale_created_at timestamptz;
+  v_document_number text;
+  v_payment_method text;
+  v_sequence integer;
+  v_total_amount numeric(12,2);
+  v_invalid_count integer;
+  v_missing_count integer;
+  v_ambiguous_count integer;
+  v_day_start timestamptz;
+  v_day_end timestamptz;
+  v_sale jsonb;
+  v_cash_session_count integer;
+begin
+  if p_table_id is null then
+    raise exception 'Falta table_id.';
+  end if;
+
+  if p_performed_by is null then
+    raise exception 'Falta performed_by.';
+  end if;
+
+  if p_items is null or jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items) = 0 then
+    raise exception 'La mesa no tiene productos para cobrar.';
+  end if;
+
+  if lower(trim(coalesce(p_payment_method, ''))) <> lower('Efectivo') then
+    raise exception 'Metodo de pago no soportado.';
+  end if;
+
+  v_payment_method := 'Efectivo';
+
+  select *
+    into v_table
+  from public.tables
+  where id = p_table_id
+  for update;
+
+  if not found then
+    raise exception 'Mesa no encontrada.';
+  end if;
+
+  if lower(trim(coalesce(v_table.status, ''))) <> lower('ocupada')
+     or v_table.current_order_id is null then
+    raise exception 'La mesa no tiene un pedido activo o la venta ya fue finalizada.';
+  end if;
+
+  select *
+    into v_order
+  from public.table_orders
+  where id = v_table.current_order_id
+    and table_id = v_table.id
+  for update;
+
+  if not found then
+    raise exception 'Pedido abierto no encontrado para la mesa %.', v_table.id;
+  end if;
+
+  select count(*)
+    into v_ambiguous_count
+  from public.centers
+  where lower(trim(name)) = lower('Bar Principal');
+
+  if v_ambiguous_count = 0 then
+    raise exception 'No se encontro el centro Bar Principal.';
+  end if;
+
+  if v_ambiguous_count > 1 then
+    raise exception 'Se encontro mas de un centro Bar Principal.';
+  end if;
+
+  select id
+    into v_center_id
+  from public.centers
+  where lower(trim(name)) = lower('Bar Principal');
+
+  create temporary table if not exists pg_temp.finalize_pos_sale_raw_items_v2 (
+    order_id_text text,
+    material_id_text text,
+    quantity_text text,
+    bundle_id_text text,
+    bundle_type_text text
+  ) on commit drop;
+
+  truncate table pg_temp.finalize_pos_sale_raw_items_v2;
+
+  insert into pg_temp.finalize_pos_sale_raw_items_v2 (
+    order_id_text,
+    material_id_text,
+    quantity_text,
+    bundle_id_text,
+    bundle_type_text
+  )
+  select trim(order_id),
+         trim(material_id),
+         trim(quantity),
+         nullif(trim(bundle_id), ''),
+         nullif(lower(trim(bundle_type)), '')
+  from jsonb_to_recordset(p_items) as item(
+    order_id text,
+    material_id text,
+    quantity text,
+    bundle_id text,
+    bundle_type text
+  );
+
+  select count(*)
+    into v_invalid_count
+  from pg_temp.finalize_pos_sale_raw_items_v2
+  where coalesce(order_id_text, '') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+     or coalesce(material_id_text, '') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+     or coalesce(quantity_text, '') !~ '^[0-9]+(\.[0-9]+)?$'
+     or case
+          when coalesce(quantity_text, '') ~ '^[0-9]+(\.[0-9]+)?$'
+            then quantity_text::numeric <= 0
+          else true
+        end
+     or (bundle_id_text is null) <> (bundle_type_text is null)
+     or coalesce(bundle_type_text, '') not in ('', 'cubeta', 'cubeta_caguamita');
+
+  if v_invalid_count > 0 then
+    raise exception 'La lista de articulos contiene valores invalidos.';
+  end if;
+
+  select count(distinct order_id_text)
+    into v_ambiguous_count
+  from pg_temp.finalize_pos_sale_raw_items_v2;
+
+  if v_ambiguous_count <> 1 then
+    raise exception 'La lista de articulos no identifica un unico pedido.';
+  end if;
+
+  select min(order_id_text)::uuid
+    into v_expected_order_id
+  from pg_temp.finalize_pos_sale_raw_items_v2;
+
+  if v_expected_order_id is distinct from v_order.id then
+    raise exception 'El pedido activo de la mesa cambio antes de la finalizacion.';
+  end if;
+
+  select count(*)
+    into v_invalid_count
+  from pg_temp.finalize_pos_sale_raw_items_v2
+  where bundle_type_text is not null
+    and quantity_text::numeric <> trunc(quantity_text::numeric);
+
+  if v_invalid_count > 0 then
+    raise exception 'Los bundles solo admiten cantidades enteras.';
+  end if;
+
+  select count(*)
+    into v_ambiguous_count
+  from (
+    select bundle_id_text
+    from pg_temp.finalize_pos_sale_raw_items_v2
+    where bundle_id_text is not null
+    group by bundle_id_text
+    having count(distinct bundle_type_text) > 1
+  ) mixed_bundle_types;
+
+  if v_ambiguous_count > 0 then
+    raise exception 'Un bundle no puede mezclar tipos distintos.';
+  end if;
+
+  select count(*)
+    into v_missing_count
+  from pg_temp.finalize_pos_sale_raw_items_v2 item
+  left join public.materials material
+    on material.id = item.material_id_text::uuid
+  where material.id is null;
+
+  if v_missing_count > 0 then
+    raise exception 'La venta contiene materiales inexistentes.';
+  end if;
+
+  select count(*)
+    into v_missing_count
+  from pg_temp.finalize_pos_sale_raw_items_v2 item
+  join public.materials material
+    on material.id = item.material_id_text::uuid
+  left join public.categories category
+    on category.id = material.cat_id
+  where category.id is null
+     or category.is_for_sale is not true;
+
+  if v_missing_count > 0 then
+    raise exception 'La venta contiene materiales sin categoria vendible.';
+  end if;
+
+  perform inventory.id
+  from public.inventory inventory
+  join (
+    select distinct material_id_text::uuid as material_id
+    from pg_temp.finalize_pos_sale_raw_items_v2
+  ) item
+    on item.material_id = inventory.material_id
+  where inventory.center_id = v_center_id
+  order by inventory.material_id
+  for update of inventory;
+
+  select count(*)
+    into v_missing_count
+  from pg_temp.finalize_pos_sale_raw_items_v2 item
+  left join public.inventory inventory
+    on inventory.material_id = item.material_id_text::uuid
+   and inventory.center_id = v_center_id
+  where inventory.id is null
+     or inventory.precio_venta is null
+     or inventory.precio_venta <= 0;
+
+  if v_missing_count > 0 then
+    raise exception 'La venta contiene materiales sin precio de venta valido.';
+  end if;
+
+  select count(*)
+    into v_invalid_count
+  from pg_temp.finalize_pos_sale_raw_items_v2 item
+  join public.materials material
+    on material.id = item.material_id_text::uuid
+  join public.categories category
+    on category.id = material.cat_id
+  where item.bundle_type_text = 'cubeta'
+    and (
+      coalesce(material.sku, '') not in (
+        '75004132',
+        '7501064115400',
+        '7501064101410',
+        '750106696971',
+        '7501064101465'
+      )
+      or lower(trim(category.name)) <> lower('Cerveza')
+    );
+
+  if v_invalid_count > 0 then
+    raise exception 'La Cubeta Mixta contiene un producto no permitido.';
+  end if;
+
+  select count(*)
+    into v_invalid_count
+  from (
+    select bundle_id_text
+    from pg_temp.finalize_pos_sale_raw_items_v2
+    where bundle_type_text = 'cubeta'
+    group by bundle_id_text
+    having sum(quantity_text::numeric) <> 10
+  ) invalid_cubeta_quantities;
+
+  if v_invalid_count > 0 then
+    raise exception 'La Cubeta Mixta debe contener exactamente 10 piezas.';
+  end if;
+
+  select count(*)
+    into v_invalid_count
+  from (
+    select item.bundle_id_text
+    from pg_temp.finalize_pos_sale_raw_items_v2 item
+    join public.inventory inventory
+      on inventory.material_id = item.material_id_text::uuid
+     and inventory.center_id = v_center_id
+    where item.bundle_type_text = 'cubeta'
+    group by item.bundle_id_text
+    having count(distinct inventory.precio_venta) <> 1
+  ) invalid_cubeta_prices;
+
+  if v_invalid_count > 0 then
+    raise exception 'La Cubeta Mixta requiere productos con el mismo precio base.';
+  end if;
+
+  select count(*)
+    into v_invalid_count
+  from pg_temp.finalize_pos_sale_raw_items_v2 item
+  join public.materials material
+    on material.id = item.material_id_text::uuid
+  join public.categories category
+    on category.id = material.cat_id
+  where item.bundle_type_text = 'cubeta_caguamita'
+    and (
+      coalesce(material.sku, '') <> '7503024416459'
+      or lower(trim(category.name)) <> lower('Cerveza')
+    );
+
+  if v_invalid_count > 0 then
+    raise exception 'La Cubeta Caguamita contiene un producto no permitido.';
+  end if;
+
+  select count(*)
+    into v_invalid_count
+  from (
+    select bundle_id_text
+    from pg_temp.finalize_pos_sale_raw_items_v2
+    where bundle_type_text = 'cubeta_caguamita'
+    group by bundle_id_text
+    having sum(quantity_text::numeric) <> 5
+  ) invalid_caguamita_quantities;
+
+  if v_invalid_count > 0 then
+    raise exception 'La Cubeta Caguamita debe contener exactamente 5 piezas.';
+  end if;
+
+  create temporary table if not exists pg_temp.finalize_pos_sale_items_v2 (
+    material_id uuid,
+    quantity numeric(12,4),
+    unit_price numeric(12,2)
+  ) on commit drop;
+
+  truncate table pg_temp.finalize_pos_sale_items_v2;
+
+  insert into pg_temp.finalize_pos_sale_items_v2 (material_id, quantity, unit_price)
+  select priced.material_id,
+         sum(priced.quantity)::numeric(12,4),
+         priced.unit_price
+  from (
+    select item.material_id_text::uuid as material_id,
+           item.quantity_text::numeric as quantity,
+           case item.bundle_type_text
+             when 'cubeta' then 32.00::numeric(12,2)
+             when 'cubeta_caguamita' then 26.00::numeric(12,2)
+             else inventory.precio_venta::numeric(12,2)
+           end as unit_price
+    from pg_temp.finalize_pos_sale_raw_items_v2 item
+    join public.inventory inventory
+      on inventory.material_id = item.material_id_text::uuid
+     and inventory.center_id = v_center_id
+  ) priced
+  group by priced.material_id, priced.unit_price;
+
+  select count(*)
+    into v_missing_count
+  from pg_temp.finalize_pos_sale_raw_items_v2 raw_item
+  where not exists (
+    select 1
+    from pg_temp.finalize_pos_sale_items_v2 canonical_item
+    where canonical_item.material_id = raw_item.material_id_text::uuid
+  );
+
+  if v_missing_count > 0 then
+    raise exception 'No se pudo construir la lista canonica completa de la venta.';
+  end if;
+
+  select coalesce(sum(quantity * unit_price), 0)::numeric(12,2)
+    into v_total_amount
+  from pg_temp.finalize_pos_sale_items_v2;
+
+  if v_total_amount <= 0 then
+    raise exception 'El total de la venta debe ser mayor que cero.';
+  end if;
+
+  select count(*)
+    into v_cash_session_count
+  from public.cash_sessions
+  where status = 'open';
+
+  if v_cash_session_count > 1 then
+    raise exception 'Se encontro mas de una caja abierta.';
+  end if;
+
+  select id
+    into v_cash_session_id
+  from public.cash_sessions
+  where status = 'open'
+  for update;
+
+  if v_cash_session_id is null then
+    raise exception 'No hay una caja abierta. Debes abrir caja antes de finalizar ventas en efectivo.';
+  end if;
+
+  v_sale_created_at := now();
+  v_day_start := date_trunc('day', v_sale_created_at at time zone 'UTC') at time zone 'UTC';
+  v_day_end := v_day_start + interval '1 day';
+
+  perform pg_advisory_xact_lock(
+    hashtext('finalize_pos_sale_document:' || to_char(v_day_start at time zone 'UTC', 'YYYYMMDD'))
+  );
+
+  select count(*) + 1
+    into v_sequence
+  from public.sales
+  where created_at >= v_day_start
+    and created_at < v_day_end;
+
+  v_document_number :=
+    to_char(v_sale_created_at at time zone 'UTC', 'DDMMYYYYHH24MI') ||
+    lpad(v_sequence::text, 2, '0');
+
+  insert into public.sales (
+    center_id,
+    total_amount,
+    payment_method,
+    cash_session_id,
+    created_at,
+    document_number
+  )
+  values (
+    v_center_id,
+    v_total_amount,
+    v_payment_method,
+    v_cash_session_id,
+    v_sale_created_at,
+    v_document_number
+  )
+  returning id into v_sale_id;
+
+  insert into public.sale_items (sale_id, material_id, quantity, unit_price)
+  select v_sale_id,
+         material_id,
+         quantity,
+         unit_price
+  from pg_temp.finalize_pos_sale_items_v2;
+
+  insert into public.inventory_movements (
+    center_id,
+    material_id,
+    movement_type,
+    direction,
+    quantity,
+    before_stock,
+    after_stock,
+    unit_cost,
+    unit_price,
+    reference_table,
+    reference_id,
+    reference_number,
+    reason_code,
+    notes,
+    performed_by
+  )
+  select v_center_id,
+         item.material_id,
+         'sale',
+         'out',
+         item.quantity,
+         inventory.stock_actual + item.quantity,
+         inventory.stock_actual,
+         null,
+         item.unit_price,
+         'sales',
+         v_sale_id,
+         v_document_number,
+         'sale_ticket',
+         'Salida de inventario por venta',
+         p_performed_by::text
+  from (
+    select material_id,
+           sum(quantity)::numeric(12,4) as quantity,
+           round(sum(quantity * unit_price) / sum(quantity), 2)::numeric(12,2) as unit_price
+    from pg_temp.finalize_pos_sale_items_v2
+    group by material_id
+  ) item
+  join public.materials material
+    on material.id = item.material_id
+  join public.categories category
+    on category.id = material.cat_id
+  join public.inventory inventory
+    on inventory.material_id = item.material_id
+   and inventory.center_id = v_center_id
+  where category.is_inventoried is true;
+
+  update public.tables
+     set status = 'libre',
+         current_order_id = null
+   where id = v_table.id
+     and lower(trim(coalesce(status, ''))) = lower('ocupada')
+     and current_order_id = v_order.id;
+
+  if not found then
+    raise exception 'El pedido activo de la mesa cambio durante la finalizacion.';
+  end if;
+
+  delete from public.table_orders
+  where id = v_order.id
+    and table_id = v_table.id;
+
+  if not found then
+    raise exception 'No se pudo consumir el pedido activo de la mesa.';
+  end if;
+
+  select to_jsonb(sale_row) || jsonb_build_object(
+           'items',
+           coalesce(
+             (
+               select jsonb_agg(
+                        jsonb_build_object(
+                          'material_id', item.material_id_text::uuid,
+                          'name', material.name,
+                          'quantity', item.quantity_text::numeric,
+                          'unit_price',
+                            case item.bundle_type_text
+                              when 'cubeta' then 32.00::numeric(12,2)
+                              when 'cubeta_caguamita' then 26.00::numeric(12,2)
+                              else inventory.precio_venta::numeric(12,2)
+                            end,
+                          'base_unit_price', inventory.precio_venta::numeric(12,2),
+                          'bundle_id', item.bundle_id_text,
+                          'bundle_type', item.bundle_type_text,
+                          'bundle_label',
+                            case item.bundle_type_text
+                              when 'cubeta' then 'Cubeta Mixta'
+                              when 'cubeta_caguamita' then 'Cubeta Caguamita'
+                              else null
+                            end
+                        )
+                        order by item.bundle_id_text nulls last, material.name, item.material_id_text
+                      )
+               from pg_temp.finalize_pos_sale_raw_items_v2 item
+               join public.materials material
+                 on material.id = item.material_id_text::uuid
+               join public.inventory inventory
+                 on inventory.material_id = material.id
+                and inventory.center_id = v_center_id
+             ),
+             '[]'::jsonb
+           )
+         )
+    into v_sale
+  from public.sales sale_row
+  where sale_row.id = v_sale_id;
+
+  return v_sale;
+end;
+$$;
+
+revoke all on function public.finalize_pos_sale(uuid, jsonb, text, uuid)
+  from public, anon, authenticated;
+grant execute on function public.finalize_pos_sale(uuid, jsonb, text, uuid)
+  to service_role;

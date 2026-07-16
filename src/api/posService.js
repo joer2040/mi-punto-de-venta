@@ -42,17 +42,19 @@ const invokePosOperation = async (action, payload) => {
 }
 
 export const posService = {
-  async saveTableOrder({ table_id, items, lock_waiter_editing = false }) {
+  async saveTableOrder({ table_id, expected_order_id = null, items, lock_waiter_editing = false }) {
     return invokePosOperation('save_table_order', {
       table_id,
+      expected_order_id,
       items: items || [],
       lock_waiter_editing,
     })
   },
 
-  async finalizeSale({ table_id, items, payment_method = 'Efectivo' }) {
+  async finalizeSale({ table_id, expected_order_id, items, payment_method = 'Efectivo' }) {
     return invokePosOperation('finalize_sale', {
       table_id,
+      expected_order_id,
       items: items || [],
       payment_method,
     })

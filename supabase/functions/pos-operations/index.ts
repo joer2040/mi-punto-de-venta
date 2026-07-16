@@ -27,6 +27,7 @@ const CUBETA_FIXED_UNIT_PRICE = CUBETA_FIXED_PRICE / CUBETA_REQUIRED_PIECES
 const CAGUAMITA_REQUIRED_PIECES = 5
 const CAGUAMITA_FIXED_PRICE = 130
 const CAGUAMITA_FIXED_UNIT_PRICE = CAGUAMITA_FIXED_PRICE / CAGUAMITA_REQUIRED_PIECES
+const CASH_PAYMENT_METHOD = 'Efectivo'
 const BUNDLE_RULES = {
   [CUBETA_BUNDLE_TYPE]: {
     label: 'Cubeta Mixta',
@@ -220,6 +221,52 @@ const validateCubetaBundles = (
   }
 }
 
+const buildCanonicalSaleItems = (
+  items: OrderItem[],
+  materialRows: Array<{
+    id: string
+    name?: string | null
+    sku?: string | null
+    categories?: { name?: string | null } | { name?: string | null }[] | null
+  }>,
+  inventoryRows: Array<{ material_id: string; precio_venta?: number | string | null }>
+) => {
+  const materialById = new Map(materialRows.map((row) => [row.id, row]))
+  const inventoryByMaterialId = new Map(inventoryRows.map((row) => [row.material_id, row]))
+
+  return items.map((item) => {
+    const material = materialById.get(item.material_id)
+    const inventory = inventoryByMaterialId.get(item.material_id)
+    const baseUnitPrice = Number(inventory?.precio_venta ?? 0)
+    const bundleId = String(item.bundle_id ?? '').trim()
+    const bundleType = normalizeRoleName(item.bundle_type)
+
+    if (!material || !inventory || !Number.isFinite(baseUnitPrice) || baseUnitPrice <= 0) {
+      throw appError('La venta contiene materiales sin precio de venta valido.', 400)
+    }
+
+    if (Boolean(bundleId) !== Boolean(bundleType)) {
+      throw appError('Cada bundle debe incluir identificador y tipo.', 400)
+    }
+
+    if (bundleType && !BUNDLE_RULES[bundleType]) {
+      throw appError('La venta contiene un tipo de bundle no soportado.', 400)
+    }
+
+    const bundleRule = bundleType ? BUNDLE_RULES[bundleType] : null
+
+    return {
+      ...item,
+      name: String(material.name ?? item.name ?? '').trim(),
+      base_unit_price: baseUnitPrice,
+      unit_price: bundleRule?.fixedUnitPrice ?? baseUnitPrice,
+      bundle_id: bundleId || undefined,
+      bundle_type: bundleType || undefined,
+      bundle_label: bundleRule?.label,
+    }
+  })
+}
+
 const loadCallerContext = async (adminClient: ReturnType<typeof createClient>, userId: string) => {
   const { data: profile, error: profileError } = await adminClient
     .from('app_profiles')
@@ -324,22 +371,48 @@ Deno.serve(async (req) => {
       const tableId = String(body.table_id ?? '')
       const items = normalizeItems(body.items)
       const lockWaiterEditing = Boolean(body.lock_waiter_editing)
+      const hasExpectedOrderId = Object.prototype.hasOwnProperty.call(body, 'expected_order_id')
+      const expectedOrderId = body.expected_order_id == null
+        ? null
+        : String(body.expected_order_id).trim() || null
 
       if (!tableId) return json({ error: 'Falta table_id.' }, 400)
+      if (!hasExpectedOrderId) return json({ error: 'Falta expected_order_id.' }, 400)
 
       const { table, order } = await loadTableState(adminClient, tableId)
+
+      if (hasExpectedOrderId && (table.current_order_id ?? null) !== expectedOrderId) {
+        return json({ error: 'El pedido activo de la mesa cambio antes de guardar.' }, 409)
+      }
+
+      if (table.current_order_id && !order) {
+        return json({ error: 'El pedido activo de la mesa no existe.' }, 409)
+      }
 
       if (caller.isWaiter && order?.waiter_edit_locked && !waiterCanModifyItems(order.items || [], items)) {
         return json({ error: 'Como mesero solo puedes agregar productos o aumentar cantidades en una mesa ya guardada.' }, 403)
       }
 
       if (items.length === 0) {
-        const { error: tableError } = await adminClient
+        let tableUpdate = adminClient
           .from('tables')
           .update({ status: 'libre', current_order_id: null })
           .eq('id', table.id)
 
+        if (hasExpectedOrderId) {
+          tableUpdate = expectedOrderId
+            ? tableUpdate.eq('current_order_id', expectedOrderId)
+            : tableUpdate.is('current_order_id', null)
+        }
+
+        const { data: updatedTable, error: tableError } = await tableUpdate
+          .select('id, number, status, current_order_id')
+          .maybeSingle()
+
         if (tableError) throw tableError
+        if (!updatedTable) {
+          return json({ error: 'El pedido activo de la mesa cambio antes de guardar.' }, 409)
+        }
 
         if (table.current_order_id) {
           const { error: deleteError } = await adminClient
@@ -351,11 +424,7 @@ Deno.serve(async (req) => {
         }
 
         return json({
-          table: {
-            ...table,
-            status: 'libre',
-            current_order_id: null,
-          },
+          table: updatedTable,
           order: null,
         })
       }
@@ -373,10 +442,14 @@ Deno.serve(async (req) => {
             waiter_edit_locked: nextWaiterLock,
           })
           .eq('id', order.id)
+          .eq('table_id', table.id)
           .select('id, table_id, items, total, waiter_edit_locked')
-          .single()
+          .maybeSingle()
 
         if (updateError) throw updateError
+        if (!updatedOrder) {
+          return json({ error: 'El pedido activo de la mesa cambio antes de guardar.' }, 409)
+        }
         persistedOrder = updatedOrder
       } else {
         const { data: createdOrder, error: insertError } = await adminClient
@@ -396,17 +469,42 @@ Deno.serve(async (req) => {
         persistedOrder = createdOrder
       }
 
-      const { data: updatedTable, error: tableUpdateError } = await adminClient
+      let tableUpdate = adminClient
         .from('tables')
         .update({
           status: 'ocupada',
           current_order_id: persistedOrder.id,
         })
         .eq('id', table.id)
+
+      if (order?.id) {
+        tableUpdate = tableUpdate
+          .eq('status', 'ocupada')
+          .eq('current_order_id', order.id)
+      } else if (hasExpectedOrderId) {
+        tableUpdate = tableUpdate
+          .eq('status', 'libre')
+          .is('current_order_id', null)
+      }
+
+      const { data: updatedTable, error: tableUpdateError } = await tableUpdate
         .select('id, number, status, current_order_id')
-        .single()
+        .maybeSingle()
 
       if (tableUpdateError) throw tableUpdateError
+      if (!updatedTable) {
+        if (!order?.id && persistedOrder?.id) {
+          const { error: cleanupError } = await adminClient
+            .from('table_orders')
+            .delete()
+            .eq('id', persistedOrder.id)
+            .eq('table_id', table.id)
+
+          if (cleanupError) throw cleanupError
+        }
+
+        return json({ error: 'El pedido activo de la mesa cambio antes de guardar.' }, 409)
+      }
 
       return json({
         table: updatedTable,
@@ -417,12 +515,30 @@ Deno.serve(async (req) => {
     if (action === 'finalize_sale') {
       const tableId = String(body.table_id ?? '')
       const items = normalizeItems(body.items)
-      const paymentMethod = String(body.payment_method ?? 'Efectivo')
+      const paymentMethod = String(body.payment_method ?? CASH_PAYMENT_METHOD).trim()
+      const hasExpectedOrderId = Object.prototype.hasOwnProperty.call(body, 'expected_order_id')
+      const requestedOrderId = String(body.expected_order_id ?? '').trim()
 
       if (!tableId) return json({ error: 'Falta table_id.' }, 400)
       if (items.length === 0) return json({ error: 'La mesa no tiene productos para cobrar.' }, 400)
+      if (!hasExpectedOrderId || !requestedOrderId) {
+        return json({ error: 'Falta expected_order_id para finalizar la venta.' }, 400)
+      }
+      if (normalizeRoleName(paymentMethod) !== normalizeRoleName(CASH_PAYMENT_METHOD)) {
+        return json({ error: 'Metodo de pago no soportado.' }, 400)
+      }
 
       const { table, order } = await loadTableState(adminClient, tableId)
+
+      if (normalizeRoleName(table.status) !== 'ocupada' || !table.current_order_id || !order) {
+        return json({ error: 'La mesa no tiene un pedido activo o la venta ya fue finalizada.' }, 409)
+      }
+
+      if (hasExpectedOrderId && requestedOrderId !== table.current_order_id) {
+        return json({ error: 'El pedido activo de la mesa cambio antes de la finalizacion.' }, 409)
+      }
+
+      const expectedOrderId = requestedOrderId
 
       if (caller.isWaiter && order?.waiter_edit_locked && !waiterCanModifyItems(order.items || [], items)) {
         return json({ error: 'Como mesero solo puedes agregar productos o aumentar cantidades antes de cobrar.' }, 403)
@@ -431,30 +547,75 @@ Deno.serve(async (req) => {
       const materialIds = Array.from(new Set(items.map((item) => item.material_id)))
       const { data: materialRows, error: materialError } = await adminClient
         .from('materials')
-        .select('id, sku, categories:cat_id(name, is_inventoried)')
+        .select('id, name, sku, categories:cat_id(name, is_inventoried)')
         .in('id', materialIds)
 
       if (materialError) throw materialError
 
-      validateCubetaBundles(items, materialRows || [])
+      const { data: centerRows, error: centerError } = await adminClient
+        .from('centers')
+        .select('id, name')
 
-      const rpcItems = items.map((item) => ({
+      if (centerError) throw centerError
+
+      const saleCenters = (centerRows || []).filter((center) => normalizeRoleName(center.name) === 'bar principal')
+      if (saleCenters.length !== 1) {
+        throw appError('No se pudo identificar un unico centro Bar Principal.', 400)
+      }
+
+      const { data: inventoryRows, error: inventoryError } = await adminClient
+        .from('inventory')
+        .select('material_id, precio_venta')
+        .eq('center_id', saleCenters[0].id)
+        .in('material_id', materialIds)
+
+      if (inventoryError) throw inventoryError
+
+      const canonicalItems = buildCanonicalSaleItems(items, materialRows || [], inventoryRows || [])
+      validateCubetaBundles(canonicalItems, materialRows || [])
+
+      const rpcItems = canonicalItems.map((item) => ({
+        order_id: expectedOrderId,
         material_id: item.material_id,
         quantity: item.quantity,
         unit_price: item.unit_price,
+        bundle_id: item.bundle_id ?? null,
+        bundle_type: item.bundle_type ?? null,
       }))
 
       const { data: finalizedSale, error: finalizeError } = await adminClient.rpc('finalize_pos_sale', {
         p_table_id: table.id,
         p_items: rpcItems,
-        p_payment_method: paymentMethod,
+        p_payment_method: CASH_PAYMENT_METHOD,
         p_performed_by: user.id,
       })
 
-      if (finalizeError) throw appError(finalizeError.message, 400)
+      if (finalizeError) {
+        const normalizedError = normalizeRoleName(finalizeError.message)
+        const status = normalizedError.includes('pedido activo') || normalizedError.includes('ya fue finalizada')
+          ? 409
+          : 400
+        throw appError(finalizeError.message, status)
+      }
+
+      const responseItems = Array.isArray(finalizedSale?.items) && finalizedSale.items.length > 0
+        ? finalizedSale.items
+        : canonicalItems.map((item) => ({
+            material_id: item.material_id,
+            name: item.name,
+            quantity: item.quantity,
+            unit_price: item.unit_price,
+            base_unit_price: item.base_unit_price,
+            bundle_id: item.bundle_id ?? null,
+            bundle_type: item.bundle_type ?? null,
+            bundle_label: item.bundle_label ?? null,
+          }))
 
       return json({
-        sale: finalizedSale,
+        sale: {
+          ...(finalizedSale || {}),
+          items: responseItems,
+        },
       })
     }
 

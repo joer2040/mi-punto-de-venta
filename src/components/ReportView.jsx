@@ -1,4 +1,4 @@
-﻿import React, { useMemo, useState } from 'react'
+﻿import { useMemo, useState } from 'react'
 import { clampRowsPerPage, downloadReportAsExcel, getPageSizeOptions } from '../lib/reportUtils'
 
 const paginationArrowStyle = {

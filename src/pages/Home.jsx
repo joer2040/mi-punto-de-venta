@@ -1,4 +1,3 @@
-﻿import React from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import logoCarreta from '../assets/la_carreta_sin_fondo.png'
 import { useResponsive } from '../lib/useResponsive'

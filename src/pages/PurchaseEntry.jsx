@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useReducer } from 'react';
+import { useEffect, useMemo, useReducer } from 'react';
 import { materialService } from '../api/materialService';
 import { providerService } from '../api/providerService';
 import { useAuth } from '../contexts/AuthContext';

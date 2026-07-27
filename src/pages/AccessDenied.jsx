@@ -1,5 +1,3 @@
-import React from 'react'
-
 const AccessDenied = () => (
   <div style={pageStyle}>
     <div style={cardStyle}>

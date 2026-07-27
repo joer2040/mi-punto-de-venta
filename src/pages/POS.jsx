@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+﻿import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { cashControlService } from '../api/cashControlService'
 import { materialService } from '../api/materialService'
 import { posService } from '../api/posService'

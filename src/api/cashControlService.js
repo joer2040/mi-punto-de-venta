@@ -27,7 +27,9 @@ const invokeCashOperation = async (action, payload = {}) => {
       let parsedJson = null
       try {
         parsedJson = await jsonResponse.json()
-      } catch {}
+      } catch {
+        // The response may contain plain text instead of JSON.
+      }
 
       if (parsedJson?.error) {
         throw new Error(parsedJson.error)
@@ -36,7 +38,9 @@ const invokeCashOperation = async (action, payload = {}) => {
       let errorText = ''
       try {
         errorText = await textResponse.text()
-      } catch {}
+      } catch {
+        // Fall through to the original Supabase error below.
+      }
 
       if (errorText) {
         throw new Error(errorText)

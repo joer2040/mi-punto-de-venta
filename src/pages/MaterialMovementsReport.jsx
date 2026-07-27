@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useReducer } from 'react'
+import { useEffect, useMemo, useReducer } from 'react'
 import ReportView from '../components/ReportView'
 import { materialService } from '../api/materialService'
 import { formatDateTime } from '../lib/reportUtils'

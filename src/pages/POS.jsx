@@ -7,6 +7,7 @@ import { ACTION_KEYS, PAGE_PERMISSION_MAP } from '../lib/permissionConfig'
 import { supabase } from '../lib/supabase'
 import { useResponsive } from '../lib/useResponsive'
 import logoCarreta from '../assets/la_carreta_sin_fondo.png'
+import { colors, space, type, radius, shadow } from '../lib/designTokens'
 
 const TICKET_WIDTH_MM = 80
 const CUBETA_ALLOWED_SKUS = [
@@ -498,7 +499,7 @@ const ProductCatalog = ({
   onOpenBundleBuilder,
 }) => (
   <>
-    <div style={heroCardStyle}>
+    <div style={{ ...heroCardStyle, ...(isMobile && { display: 'none' }) }}>
       <div>
         <h2 style={{ color: '#1f2937', margin: 0, fontSize: isMobile ? '1.35rem' : '1.65rem' }}>Productos Disponibles</h2>
         <p style={{ ...mutedTextStyle, margin: '8px 0 0 0' }}>
@@ -637,8 +638,10 @@ const CartPanel = ({
   onChangeQuantity,
   onRemoveFromCart,
   onRequestFinalizeSale,
+  outerRef,
+  checkoutHeight,
 }) => (
-  <section style={getCartContainerStyle(isTablet, isMobile)}>
+  <section style={{ ...getCartContainerStyle(isTablet, isMobile), ...(isMobile && checkoutHeight > 0 ? { paddingBottom: checkoutHeight } : {}) }}>
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
       <div>
         <h3 style={{ margin: 0, color: '#1f2937' }}>Cuenta Actual</h3>
@@ -707,7 +710,7 @@ const CartPanel = ({
       )}
     </div>
 
-    <div style={checkoutPanelStyle}>
+    <div ref={outerRef} style={getCheckoutPanelStyle(isMobile)}>
       <div style={checkoutRowStyle}>
         <span>Total</span>
         <strong>${total.toFixed(2)}</strong>
@@ -749,68 +752,87 @@ const ActiveOrderView = ({
   onConfirmFinalizeSale,
   onCloseCubetaBuilder,
   onConfirmCubetaBuilder,
-}) => (
-  <>
-    {notice && <NoticeBanner notice={notice} onClose={onNoticeClose} />}
-    <div style={getWorkspaceStyle(isTablet, isMobile)}>
-      <section>
-        <div style={topBarStyle(isMobile)}>
-          <button onClick={onSaveAndExit} disabled={!canOperatePOS} style={canOperatePOS ? btnSecondaryStyle : disabledSecondaryBtnStyle}>
-            Volver a Barras y Mesas
-          </button>
-          <div style={tableInfoCardStyle}>
-            <span style={tableInfoLabelStyle}>Atendiendo</span>
-            <strong style={{ color: '#1f2937', fontSize: isMobile ? '1rem' : '1.15rem' }}>
-              {selectedStationLabel}
-            </strong>
+}) => {
+  const cartRef = useRef(null)
+  const [cartPanelHeight, setCartPanelHeight] = useState(0)
+
+  useEffect(() => {
+    if (!isMobile || !cartRef.current) return undefined
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (!entry) return
+      setCartPanelHeight(entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height)
+    })
+    observer.observe(cartRef.current)
+    return () => observer.disconnect()
+  }, [isMobile])
+
+  return (
+    <>
+      {notice && <NoticeBanner notice={notice} onClose={onNoticeClose} />}
+      <div style={getWorkspaceStyle(isTablet, isMobile)}>
+        <section>
+          <div style={topBarStyle(isMobile)}>
+            <button onClick={onSaveAndExit} disabled={!canOperatePOS} style={canOperatePOS ? btnSecondaryStyle : disabledSecondaryBtnStyle}>
+              Volver a Barras y Mesas
+            </button>
+            <div style={tableInfoCardStyle}>
+              <span style={tableInfoLabelStyle}>Atendiendo</span>
+              <strong style={{ color: '#1f2937', fontSize: isMobile ? '1rem' : '1.15rem' }}>
+                {selectedStationLabel}
+              </strong>
+            </div>
           </div>
-        </div>
 
-        <ProductCatalog
+          <ProductCatalog
+            isMobile={isMobile}
+            canOperatePOS={canOperatePOS}
+            availableProducts={availableProducts}
+            cubetaConfig={cubetaConfig}
+            caguamitaConfig={caguamitaConfig}
+            totalItems={totalItems}
+            onAddToCart={onAddToCart}
+            onOpenBundleBuilder={onOpenBundleBuilder}
+          />
+        </section>
+
+        <CartPanel
+          isTablet={isTablet}
           isMobile={isMobile}
-          canOperatePOS={canOperatePOS}
-          availableProducts={availableProducts}
-          cubetaConfig={cubetaConfig}
-          caguamitaConfig={caguamitaConfig}
+          cart={cart}
+          displayCart={displayCart}
+          total={total}
           totalItems={totalItems}
-          onAddToCart={onAddToCart}
-          onOpenBundleBuilder={onOpenBundleBuilder}
+          canOperatePOS={canOperatePOS}
+          canDecreaseOrRemoveFromOccupiedTable={canDecreaseOrRemoveFromOccupiedTable}
+          onChangeQuantity={onChangeQuantity}
+          onRemoveFromCart={onRemoveFromCart}
+          onRequestFinalizeSale={onRequestFinalizeSale}
+          outerRef={cartRef}
+          checkoutHeight={cartPanelHeight}
         />
-      </section>
-
-      <CartPanel
-        isTablet={isTablet}
-        isMobile={isMobile}
-        cart={cart}
-        displayCart={displayCart}
-        total={total}
-        totalItems={totalItems}
-        canOperatePOS={canOperatePOS}
-        canDecreaseOrRemoveFromOccupiedTable={canDecreaseOrRemoveFromOccupiedTable}
-        onChangeQuantity={onChangeQuantity}
-        onRemoveFromCart={onRemoveFromCart}
-        onRequestFinalizeSale={onRequestFinalizeSale}
-      />
-    </div>
-    {ticketData && <TicketModal ticket={ticketData} onClose={onCloseTicket} />}
-    {showFinalizeConfirm && (
-      <FinalizeSaleModal
-        table={selectedTable}
-        total={total}
-        totalItems={totalItems}
-        onCancel={onCloseFinalizeConfirm}
-        onConfirm={onConfirmFinalizeSale}
-      />
-    )}
-    {showCubetaBuilder && (
-      <CubetaBuilderModal
-        cubetaConfig={showCubetaBuilder === 'caguamita' ? caguamitaConfig : cubetaConfig}
-        onCancel={onCloseCubetaBuilder}
-        onConfirm={onConfirmCubetaBuilder}
-      />
-    )}
-  </>
-)
+      </div>
+      {ticketData && <TicketModal ticket={ticketData} onClose={onCloseTicket} />}
+      {showFinalizeConfirm && (
+        <FinalizeSaleModal
+          table={selectedTable}
+          total={total}
+          totalItems={totalItems}
+          onCancel={onCloseFinalizeConfirm}
+          onConfirm={onConfirmFinalizeSale}
+        />
+      )}
+      {showCubetaBuilder && (
+        <CubetaBuilderModal
+          cubetaConfig={showCubetaBuilder === 'caguamita' ? caguamitaConfig : cubetaConfig}
+          onCancel={onCloseCubetaBuilder}
+          onConfirm={onConfirmCubetaBuilder}
+        />
+      )}
+    </>
+  )
+}
 
 const usePosController = ({ onEditingStateChange = () => {} }) => {
   const [state, dispatch] = useReducer(posReducer, undefined, createInitialPosState)
@@ -2184,129 +2206,131 @@ const showTicketNotice = (message) => {
 }
 
 const getContainerStyle = (isMobile) => ({
-  padding: isMobile ? '16px' : '24px',
-  backgroundColor: '#f8fafc',
+  padding: isMobile ? space[6] : space[8],
+  backgroundColor: colors.gray100,
   minHeight: '100vh',
 })
 
 const getWorkspaceStyle = (isTablet, isMobile) => ({
   display: 'grid',
   gridTemplateColumns: isTablet ? '1fr' : 'minmax(0, 1fr) 380px',
-  gap: isMobile ? '16px' : '20px',
-  padding: isMobile ? '12px' : '20px',
-  backgroundColor: '#f8fafc',
+  gap: isMobile ? space[6] : space[8],
+  padding: isMobile ? space[6] : space[8],
+  backgroundColor: colors.gray100,
   minHeight: '100vh',
   fontFamily: 'sans-serif',
 })
 
 const heroCardStyle = {
-  backgroundColor: '#ffffff',
-  borderRadius: '18px',
-  padding: '18px',
-  boxShadow: '0 10px 30px rgba(15, 23, 42, 0.08)',
-  marginBottom: '18px',
+  backgroundColor: colors.white,
+  borderRadius: radius.xl,
+  padding: space[7],
+  boxShadow: shadow.sm,
+  marginBottom: space[7],
   display: 'flex',
   justifyContent: 'space-between',
-  gap: '16px',
+  gap: space[8],
   flexWrap: 'wrap',
 }
 
 const mutedTextStyle = {
-  color: '#64748b',
-  fontSize: '0.9rem',
+  color: colors.gray500,
+  fontSize: type.sm,
   lineHeight: 1.4,
 }
 
 const getStatsGridStyle = (isMobile) => ({
   display: 'grid',
-  gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(2, 130px)',
-  gap: '10px',
+  gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(2, 120px)',
+  gap: space[5],
   width: isMobile ? '100%' : 'auto',
 })
 
 const statCardStyle = {
-  backgroundColor: '#f8fafc',
-  borderRadius: '14px',
-  padding: '12px 14px',
-  border: '1px solid #e2e8f0',
+  backgroundColor: colors.gray100,
+  borderRadius: radius.lg,
+  padding: `${space[4]} ${space[6]}`,
+  border: `1px solid ${colors.gray200}`,
   display: 'flex',
   flexDirection: 'column',
-  gap: '6px',
+  gap: space[2],
 }
 
 const statLabelStyle = {
-  color: '#64748b',
-  fontSize: '0.78rem',
+  color: colors.gray500,
+  fontSize: type.xs,
   textTransform: 'uppercase',
   letterSpacing: '0.04em',
 }
 
 const statValueStyle = {
-  color: '#0f172a',
-  fontSize: '1.2rem',
+  color: colors.gray900,
+  fontSize: type.xl,
 }
 
 const stationSectionsStyle = {
   display: 'grid',
-  gap: '18px',
+  gap: space[6],
 }
 
 const stationSectionStyle = {
-  backgroundColor: '#ffffff',
-  borderRadius: '18px',
-  padding: '18px',
-  boxShadow: '0 10px 30px rgba(15, 23, 42, 0.08)',
-  border: '1px solid #e2e8f0',
+  backgroundColor: colors.white,
+  borderRadius: radius.xl,
+  padding: space[7],
+  boxShadow: shadow.sm,
+  border: `1px solid ${colors.gray200}`,
 }
 
 const stationSectionHeaderStyle = {
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'flex-start',
-  gap: '12px',
+  gap: space[6],
   flexWrap: 'wrap',
-  marginBottom: '16px',
+  marginBottom: space[7],
 }
 
 const stationSectionTitleStyle = {
   margin: 0,
-  color: '#1f2937',
-  fontSize: '1.1rem',
+  color: colors.gray800,
+  fontSize: type.lg,
 }
 
 const stationSectionDescriptionStyle = {
-  ...mutedTextStyle,
-  margin: '6px 0 0 0',
+  color: colors.gray500,
+  fontSize: type.sm,
+  lineHeight: 1.4,
+  margin: `${space[3]} 0 0 0`,
 }
 
 const stationSectionCountStyle = {
-  backgroundColor: '#eff6ff',
-  color: '#1d4ed8',
-  borderRadius: '999px',
-  padding: '8px 12px',
-  fontWeight: '700',
-  fontSize: '0.78rem',
+  backgroundColor: colors.blue50,
+  color: colors.blue700,
+  borderRadius: radius.full,
+  padding: `${space[1]} ${space[5]}`,
+  fontWeight: type.bold,
+  fontSize: type.xs,
 }
 
 const emptyStationStateStyle = {
-  backgroundColor: '#f8fafc',
-  border: '1px dashed #cbd5e1',
-  borderRadius: '16px',
-  padding: '18px',
-  color: '#64748b',
-  fontWeight: '600',
+  backgroundColor: colors.gray100,
+  border: `1px dashed ${colors.gray300}`,
+  borderRadius: radius.lg,
+  padding: space[7],
+  color: colors.gray500,
+  fontWeight: type.medium,
 }
 
 const getTableGridStyle = (isMobile) => ({
   display: 'grid',
-  gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(auto-fill, minmax(170px, 1fr))',
-  gap: isMobile ? '12px' : '18px',
+  gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(auto-fill, minmax(160px, 1fr))',
+  gap: isMobile ? space[4] : space[5],
 })
 
 const getTableButtonStyle = (isMobile) => ({
-  minHeight: isMobile ? '132px' : '148px',
-  padding: isMobile ? '18px 14px' : '24px 18px',
-  borderRadius: '18px',
+  minHeight: isMobile ? '110px' : '120px',
+  padding: isMobile ? `${space[6]} ${space[5]}` : `${space[8]} ${space[7]}`,
+  borderRadius: radius.xl,
   border: 'none',
   color: 'white',
   cursor: 'pointer',
@@ -2320,10 +2344,10 @@ const getTableButtonStyle = (isMobile) => ({
 
 const tableStatusBadgeStyle = {
   backgroundColor: 'rgba(255,255,255,0.18)',
-  borderRadius: '999px',
-  padding: '6px 10px',
-  fontSize: '0.72rem',
-  fontWeight: '700',
+  borderRadius: radius.full,
+  padding: `${space[1]} ${space[5]}`,
+  fontSize: type.xs,
+  fontWeight: type.bold,
   letterSpacing: '0.04em',
 }
 
@@ -2332,61 +2356,66 @@ const topBarStyle = (isMobile) => ({
   justifyContent: 'space-between',
   alignItems: isMobile ? 'stretch' : 'center',
   flexDirection: isMobile ? 'column' : 'row',
-  gap: '12px',
-  marginBottom: '16px',
+  gap: space[6],
+  marginBottom: space[7],
 })
 
 const tableInfoCardStyle = {
-  backgroundColor: '#ffffff',
-  borderRadius: '14px',
-  padding: '12px 14px',
-  border: '1px solid #e2e8f0',
+  backgroundColor: colors.white,
+  borderRadius: radius.lg,
+  padding: `${space[4]} ${space[6]}`,
+  border: `1px solid ${colors.gray200}`,
   display: 'flex',
   flexDirection: 'column',
   minWidth: '140px',
 }
 
 const tableInfoLabelStyle = {
-  color: '#64748b',
-  fontSize: '0.78rem',
+  color: colors.gray500,
+  fontSize: type.xs,
   textTransform: 'uppercase',
   letterSpacing: '0.04em',
-  marginBottom: '4px',
+  marginBottom: space[2],
 }
 
 const getProductGridStyle = (isMobile) => ({
   display: 'grid',
-  gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(auto-fill, minmax(180px, 1fr))',
-  gap: isMobile ? '12px' : '16px',
+  gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(170px, 1fr))',
+  gap: isMobile ? space[4] : space[5],
 })
 
 const getProductCardStyle = (isMobile) => ({
-  padding: isMobile ? '14px 12px' : '16px',
-  backgroundColor: '#ffffff',
-  borderRadius: '16px',
-  boxShadow: '0 8px 20px rgba(15, 23, 42, 0.08)',
-  border: '1px solid #e2e8f0',
+  padding: isMobile ? `${space[5]} ${space[4]}` : space[6],
+  backgroundColor: colors.white,
+  borderRadius: radius.lg,
+  boxShadow: shadow.sm,
+  border: `1px solid ${colors.gray200}`,
   display: 'flex',
   flexDirection: 'column',
   textAlign: 'left',
-  minHeight: isMobile ? '150px' : '164px',
+  minHeight: isMobile ? '128px' : '140px',
 })
 
 const productCategoryPillStyle = {
   alignSelf: 'flex-start',
-  backgroundColor: '#eff6ff',
-  color: '#1d4ed8',
-  padding: '5px 10px',
-  borderRadius: '999px',
-  fontSize: '0.72rem',
-  fontWeight: '700',
-  marginBottom: '10px',
+  backgroundColor: colors.blue50,
+  color: colors.blue700,
+  padding: `${space[1]} ${space[5]}`,
+  borderRadius: radius.full,
+  fontSize: type.xs,
+  fontWeight: type.bold,
+  marginBottom: space[5],
 }
 
 const cubetaPillStyle = {
-  ...productCategoryPillStyle,
+  alignSelf: 'flex-start',
   backgroundColor: '#ecfccb',
   color: '#3f6212',
+  padding: `${space[1]} ${space[5]}`,
+  borderRadius: radius.full,
+  fontSize: type.xs,
+  fontWeight: type.bold,
+  marginBottom: space[5],
 }
 
 const cubetaCardStyle = {
@@ -2394,26 +2423,34 @@ const cubetaCardStyle = {
 }
 
 const getCartContainerStyle = (isTablet, isMobile) => ({
-  backgroundColor: '#ffffff',
-  padding: isMobile ? '16px' : '20px',
-  borderRadius: '18px',
-  boxShadow: '0 10px 30px rgba(15, 23, 42, 0.08)',
+  backgroundColor: colors.white,
+  padding: isMobile ? space[6] : space[8],
+  borderRadius: radius.xl,
+  boxShadow: shadow.sm,
   display: 'flex',
   flexDirection: 'column',
-  gap: '16px',
-  height: isTablet ? 'auto' : 'calc(100vh - 40px)',
-  maxHeight: isTablet ? 'none' : 'calc(100vh - 40px)',
-  position: isTablet ? 'static' : 'sticky',
-  top: isTablet ? 'auto' : '20px',
+  gap: space[6],
+  ...(isMobile ? {
+    // normal flow — checkout bar fixed separately
+  } : isTablet ? {
+    height: 'auto',
+    maxHeight: 'none',
+    position: 'static',
+  } : {
+    height: 'calc(100vh - 40px)',
+    maxHeight: 'calc(100vh - 40px)',
+    position: 'sticky',
+    top: '20px',
+  }),
 })
 
 const cartBadgeStyle = {
-  backgroundColor: '#ecfdf5',
-  color: '#047857',
-  borderRadius: '999px',
-  padding: '8px 12px',
-  fontWeight: '800',
-  fontSize: '0.95rem',
+  backgroundColor: colors.green50,
+  color: colors.green700,
+  borderRadius: radius.full,
+  padding: `${space[1]} ${space[5]}`,
+  fontWeight: type.black,
+  fontSize: type.md,
 }
 
 const cartListStyle = {
@@ -2421,14 +2458,14 @@ const cartListStyle = {
   overflowY: 'auto',
   display: 'flex',
   flexDirection: 'column',
-  gap: '10px',
+  gap: space[5],
 }
 
 const emptyCartStyle = {
-  backgroundColor: '#f8fafc',
-  border: '1px dashed #cbd5e1',
-  borderRadius: '16px',
-  padding: '18px',
+  backgroundColor: colors.gray100,
+  border: `1px dashed ${colors.gray300}`,
+  borderRadius: radius.lg,
+  padding: space[7],
   display: 'flex',
   flexDirection: 'column',
 }
@@ -2436,159 +2473,169 @@ const emptyCartStyle = {
 const cartItemStyle = {
   display: 'grid',
   gridTemplateColumns: 'minmax(0, 1fr)',
-  gap: '10px',
-  padding: '14px',
-  borderRadius: '14px',
-  backgroundColor: '#f8fafc',
-  border: '1px solid #e2e8f0',
+  gap: space[5],
+  padding: space[5],
+  borderRadius: radius.lg,
+  backgroundColor: colors.gray100,
+  border: `1px solid ${colors.gray200}`,
 }
 
 const cartActionsStyle = {
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'center',
-  gap: '10px',
+  gap: space[5],
   flexWrap: 'wrap',
 }
 
 const quantityControlStyle = {
   display: 'inline-flex',
   alignItems: 'center',
-  gap: '8px',
-  backgroundColor: '#ffffff',
-  borderRadius: '999px',
-  padding: '4px',
-  border: '1px solid #cbd5e1',
+  gap: space[4],
+  backgroundColor: colors.white,
+  borderRadius: radius.full,
+  padding: space[2],
+  border: `1px solid ${colors.gray300}`,
 }
 
 const qtyBtnStyle = {
-  width: '34px',
-  height: '34px',
+  width: '28px',
+  height: '28px',
   borderRadius: '50%',
   border: 'none',
-  backgroundColor: '#e2e8f0',
-  color: '#0f172a',
-  fontWeight: '800',
+  backgroundColor: colors.gray200,
+  color: colors.gray900,
+  fontWeight: type.black,
   cursor: 'pointer',
 }
 const disabledQtyBtnStyle = {
   ...qtyBtnStyle,
-  color: '#94a3b8',
+  color: colors.gray400,
   cursor: 'not-allowed',
 }
 
 const qtyValueStyle = {
   minWidth: '18px',
   textAlign: 'center',
-  fontWeight: '700',
-  color: '#0f172a',
+  fontWeight: type.bold,
+  color: colors.gray900,
 }
 
 const cartBundleBadgeStyle = {
   alignSelf: 'flex-start',
   backgroundColor: '#ecfccb',
   color: '#3f6212',
-  borderRadius: '999px',
-  padding: '4px 10px',
-  fontSize: '0.72rem',
-  fontWeight: '700',
+  borderRadius: radius.full,
+  padding: `${space[2]} ${space[5]}`,
+  fontSize: type.xs,
+  fontWeight: type.bold,
 }
 
 const bundleDetailListStyle = {
-  marginTop: '10px',
+  marginTop: space[5],
   display: 'grid',
-  gap: '6px',
+  gap: space[3],
 }
 
 const bundleDetailRowStyle = {
   display: 'flex',
   justifyContent: 'space-between',
-  gap: '10px',
-  color: '#475569',
-  fontSize: '0.8rem',
+  gap: space[5],
+  color: colors.gray600,
+  fontSize: type.sm,
 }
 
 const deleteBtnStyle = {
   background: 'none',
   border: 'none',
-  color: '#dc2626',
+  color: colors.red600,
   cursor: 'pointer',
-  fontSize: '0.88rem',
-  fontWeight: '700',
-  padding: '6px 0',
+  fontSize: type.sm,
+  fontWeight: type.bold,
+  padding: `${space[3]} 0`,
 }
 const disabledDeleteBtnStyle = {
   ...deleteBtnStyle,
-  color: '#94a3b8',
+  color: colors.gray400,
   cursor: 'not-allowed',
 }
 
-const checkoutPanelStyle = {
-  borderTop: '1px solid #e2e8f0',
-  paddingTop: '14px',
-}
+const getCheckoutPanelStyle = (isMobile) => ({
+  borderTop: `1px solid ${colors.gray200}`,
+  ...(isMobile ? {
+    position: 'fixed',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: colors.white,
+    padding: `${space[6]} ${space[6]} calc(${space[6]} + env(safe-area-inset-bottom, 0px))`,
+    zIndex: 200,
+  } : {
+    paddingTop: space[7],
+  }),
+})
 
 const checkoutRowStyle = {
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'center',
-  fontSize: '1.12rem',
-  fontWeight: '800',
-  color: '#0f172a',
+  fontSize: type.lg,
+  fontWeight: type.black,
+  color: colors.gray900,
 }
 
 const btnSecondaryStyle = {
-  padding: '12px 18px',
-  backgroundColor: '#1f2937',
+  padding: `${space[4]} ${space[9]}`,
+  backgroundColor: colors.gray800,
   color: 'white',
   border: 'none',
-  borderRadius: '12px',
+  borderRadius: radius.md,
   cursor: 'pointer',
-  fontWeight: '700',
-  fontSize: '0.95rem',
+  fontWeight: type.bold,
+  fontSize: type.md,
 }
 const disabledSecondaryBtnStyle = {
   ...btnSecondaryStyle,
-  backgroundColor: '#94a3b8',
+  backgroundColor: colors.gray400,
   cursor: 'not-allowed',
 }
 
 const checkoutBtnStyle = {
   width: '100%',
-  marginTop: '14px',
-  padding: '15px',
-  backgroundColor: '#16a34a',
+  marginTop: space[7],
+  padding: space[4],
+  backgroundColor: colors.green500,
   color: 'white',
   border: 'none',
-  borderRadius: '14px',
-  fontWeight: '800',
-  fontSize: '1rem',
+  borderRadius: radius.md,
+  fontWeight: type.black,
+  fontSize: type.base,
   cursor: 'pointer',
 }
 const disabledCheckoutBtnStyle = {
   ...checkoutBtnStyle,
-  backgroundColor: '#94a3b8',
+  backgroundColor: colors.gray400,
   cursor: 'not-allowed',
 }
 const readOnlyHintStyle = {
-  marginTop: '12px',
+  marginTop: space[6],
   display: 'inline-flex',
-  padding: '8px 12px',
-  borderRadius: '999px',
-  backgroundColor: '#edf2f7',
-  color: '#475569',
-  fontWeight: '700',
-  fontSize: '0.82rem',
+  padding: `${space[1]} ${space[5]}`,
+  borderRadius: radius.full,
+  backgroundColor: colors.gray200,
+  color: colors.gray600,
+  fontWeight: type.bold,
+  fontSize: type.xs,
 }
 const warningHintStyle = {
-  marginTop: '12px',
+  marginTop: space[6],
   display: 'inline-flex',
-  padding: '8px 12px',
-  borderRadius: '999px',
-  backgroundColor: '#fff7ed',
-  color: '#b45309',
-  fontWeight: '700',
-  fontSize: '0.82rem',
+  padding: `${space[1]} ${space[5]}`,
+  borderRadius: radius.full,
+  backgroundColor: colors.amber50,
+  color: colors.amber700,
+  fontWeight: type.bold,
+  fontSize: type.xs,
 }
 
 const confirmOverlayStyle = {
@@ -2598,126 +2645,129 @@ const confirmOverlayStyle = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  padding: '18px',
+  padding: space[9],
   zIndex: 1050,
 }
 
 const confirmCardStyle = {
   width: '100%',
   maxWidth: '460px',
-  backgroundColor: '#ffffff',
-  borderRadius: '24px',
+  backgroundColor: colors.white,
+  borderRadius: radius.xl,
   boxShadow: '0 28px 70px rgba(15, 23, 42, 0.28)',
-  padding: '24px',
-  border: '1px solid #fecaca',
+  padding: space[10],
+  border: `1px solid ${colors.red100}`,
 }
 
 const confirmBadgeStyle = {
   display: 'inline-flex',
   alignItems: 'center',
-  padding: '8px 12px',
-  borderRadius: '999px',
-  backgroundColor: '#fff7ed',
+  padding: `${space[1]} ${space[5]}`,
+  borderRadius: radius.full,
+  backgroundColor: colors.amber50,
   color: '#c2410c',
-  fontWeight: '800',
-  fontSize: '0.82rem',
-  marginBottom: '14px',
+  fontWeight: type.black,
+  fontSize: type.xs,
+  marginBottom: space[7],
 }
 
 const confirmTitleStyle = {
   margin: 0,
-  color: '#111827',
-  fontSize: '1.45rem',
+  color: colors.gray900,
+  fontSize: type['2xl'],
 }
 
 const confirmTextStyle = {
-  margin: '12px 0 0 0',
-  color: '#475569',
+  margin: `${space[6]} 0 0 0`,
+  color: colors.gray600,
   lineHeight: 1.65,
 }
 
 const confirmSummaryStyle = {
   display: 'grid',
   gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-  gap: '12px',
-  marginTop: '18px',
+  gap: space[6],
+  marginTop: space[9],
 }
 
 const confirmMetricStyle = {
-  backgroundColor: '#f8fafc',
-  border: '1px solid #e2e8f0',
-  borderRadius: '16px',
-  padding: '14px',
+  backgroundColor: colors.gray100,
+  border: `1px solid ${colors.gray200}`,
+  borderRadius: radius.lg,
+  padding: `${space[5]} ${space[6]}`,
   display: 'flex',
   flexDirection: 'column',
-  gap: '4px',
+  gap: space[2],
 }
 
 const confirmMetricLabelStyle = {
-  color: '#64748b',
-  fontSize: '0.78rem',
+  color: colors.gray500,
+  fontSize: type.xs,
   textTransform: 'uppercase',
   letterSpacing: '0.04em',
 }
 
 const confirmMetricValueStyle = {
-  color: '#0f172a',
-  fontSize: '1.1rem',
+  color: colors.gray900,
+  fontSize: type.lg,
 }
 
 const confirmActionsStyle = {
   display: 'flex',
   justifyContent: 'flex-end',
-  gap: '12px',
+  gap: space[5],
   flexWrap: 'wrap',
-  marginTop: '22px',
+  marginTop: space[9],
 }
 
 const confirmCancelBtnStyle = {
-  border: '1px solid #cbd5e1',
-  backgroundColor: '#ffffff',
-  color: '#334155',
-  borderRadius: '12px',
-  padding: '12px 16px',
-  fontWeight: '700',
+  border: `1px solid ${colors.gray300}`,
+  backgroundColor: colors.white,
+  color: colors.gray700,
+  borderRadius: radius.md,
+  padding: `${space[4]} ${space[8]}`,
+  fontWeight: type.bold,
   cursor: 'pointer',
 }
 
 const confirmApproveBtnStyle = {
   border: 'none',
-  backgroundColor: '#dc2626',
-  color: '#ffffff',
-  borderRadius: '12px',
-  padding: '12px 16px',
-  fontWeight: '800',
+  backgroundColor: colors.red600,
+  color: colors.white,
+  borderRadius: radius.md,
+  padding: `${space[4]} ${space[8]}`,
+  fontWeight: type.black,
   cursor: 'pointer',
 }
 
 const cubetaSummaryStyle = {
-  ...confirmSummaryStyle,
-  marginBottom: '18px',
+  display: 'grid',
+  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+  gap: space[6],
+  marginTop: space[9],
+  marginBottom: space[9],
 }
 
 const cubetaListStyle = {
   display: 'grid',
-  gap: '12px',
+  gap: space[6],
 }
 
 const cubetaProductRowStyle = {
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'center',
-  gap: '14px',
-  padding: '14px 16px',
-  border: '1px solid #e2e8f0',
-  borderRadius: '14px',
-  backgroundColor: '#f8fafc',
+  gap: space[7],
+  padding: `${space[5]} ${space[7]}`,
+  border: `1px solid ${colors.gray200}`,
+  borderRadius: radius.lg,
+  backgroundColor: colors.gray100,
 }
 
 const cubetaProductMetaStyle = {
-  color: '#64748b',
-  fontSize: '0.82rem',
-  marginTop: '4px',
+  color: colors.gray500,
+  fontSize: type.xs,
+  marginTop: space[2],
 }
 const ticketOverlayStyle = {
   position: 'fixed',
@@ -2726,7 +2776,7 @@ const ticketOverlayStyle = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  padding: '18px',
+  padding: space[9],
   zIndex: 1000,
 }
 
@@ -2734,10 +2784,10 @@ const ticketCardStyle = {
   position: 'relative',
   width: '100%',
   maxWidth: '520px',
-  backgroundColor: '#ffffff',
-  borderRadius: '22px',
+  backgroundColor: colors.white,
+  borderRadius: radius.xl,
   boxShadow: '0 30px 70px rgba(15, 23, 42, 0.28)',
-  padding: '22px',
+  padding: space[10],
   overflow: 'hidden',
 }
 
@@ -2755,115 +2805,115 @@ const ticketHeaderStyle = {
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'center',
-  gap: '12px',
-  marginBottom: '16px',
+  gap: space[6],
+  marginBottom: space[7],
 }
 
 const ticketHeaderActionsStyle = {
   display: 'flex',
   alignItems: 'center',
-  gap: '8px',
+  gap: space[4],
   flexWrap: 'wrap',
 }
 
 const ticketPrintBtnStyle = {
   border: 'none',
-  borderRadius: '999px',
-  backgroundColor: '#16a34a',
-  color: '#ffffff',
-  fontWeight: '700',
+  borderRadius: radius.full,
+  backgroundColor: colors.green500,
+  color: colors.white,
+  fontWeight: type.bold,
   cursor: 'pointer',
-  padding: '8px 14px',
+  padding: `${space[1]} ${space[7]}`,
 }
 
 const ticketPdfBtnStyle = {
   border: 'none',
-  borderRadius: '999px',
-  backgroundColor: '#1d4ed8',
-  color: '#ffffff',
-  fontWeight: '700',
+  borderRadius: radius.full,
+  backgroundColor: colors.blue700,
+  color: colors.white,
+  fontWeight: type.bold,
   cursor: 'pointer',
-  padding: '8px 14px',
+  padding: `${space[1]} ${space[7]}`,
 }
 
 const ticketShareBtnStyle = {
   border: 'none',
-  borderRadius: '999px',
-  backgroundColor: '#7c3aed',
-  color: '#ffffff',
-  fontWeight: '700',
+  borderRadius: radius.full,
+  backgroundColor: colors.violet700,
+  color: colors.white,
+  fontWeight: type.bold,
   cursor: 'pointer',
-  padding: '8px 14px',
+  padding: `${space[1]} ${space[7]}`,
 }
 
 const ticketCloseBtnStyle = {
   border: 'none',
-  borderRadius: '999px',
-  backgroundColor: '#e2e8f0',
-  color: '#0f172a',
-  fontWeight: '700',
+  borderRadius: radius.full,
+  backgroundColor: colors.gray200,
+  color: colors.gray900,
+  fontWeight: type.bold,
   cursor: 'pointer',
-  padding: '8px 12px',
+  padding: `${space[1]} ${space[6]}`,
 }
 
 const ticketMetaStyle = {
   position: 'relative',
   display: 'grid',
-  gap: '6px',
-  color: '#374151',
-  marginBottom: '18px',
-  fontSize: '0.95rem',
+  gap: space[3],
+  color: colors.gray700,
+  marginBottom: space[7],
+  fontSize: type.md,
 }
 
 const ticketItemsWrapStyle = {
   position: 'relative',
   display: 'grid',
-  gap: '10px',
+  gap: space[5],
 }
 
 const ticketItemsHeaderStyle = {
   display: 'flex',
   justifyContent: 'space-between',
-  gap: '12px',
-  color: '#6b7280',
-  fontWeight: '700',
-  fontSize: '0.82rem',
+  gap: space[6],
+  color: colors.gray500,
+  fontWeight: type.bold,
+  fontSize: type.xs,
   textTransform: 'uppercase',
   letterSpacing: '0.04em',
-  paddingBottom: '8px',
-  borderBottom: '1px solid #e5e7eb',
+  paddingBottom: space[4],
+  borderBottom: `1px solid ${colors.gray200}`,
 }
 
 const ticketItemRowStyle = {
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'flex-start',
-  gap: '12px',
+  gap: space[6],
 }
 
 const ticketItemNameStyle = {
-  color: '#111827',
-  fontWeight: '700',
+  color: colors.gray900,
+  fontWeight: type.bold,
 }
 
 const ticketItemMetaStyle = {
-  color: '#6b7280',
-  fontSize: '0.88rem',
-  marginTop: '3px',
+  color: colors.gray500,
+  fontSize: type.sm,
+  marginTop: space[2],
 }
 
 const ticketBundleDetailsStyle = {
-  marginTop: '8px',
+  marginTop: space[4],
   display: 'grid',
-  gap: '4px',
+  gap: space[2],
 }
 
 const ticketBundleDetailStyle = {
   display: 'flex',
   justifyContent: 'space-between',
-  gap: '12px',
-  color: '#475569',
-  fontSize: '0.8rem',
+  gap: space[6],
+  color: colors.gray600,
+  fontSize: type.sm,
 }
 
 const ticketTotalStyle = {
@@ -2871,37 +2921,37 @@ const ticketTotalStyle = {
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'center',
-  marginTop: '20px',
-  paddingTop: '16px',
-  borderTop: '2px solid #e5e7eb',
-  fontSize: '1.08rem',
-  color: '#111827',
+  marginTop: space[9],
+  paddingTop: space[8],
+  borderTop: `2px solid ${colors.gray200}`,
+  fontSize: type.lg,
+  color: colors.gray900,
 }
 
 const noticeWrapStyle = {
   position: 'fixed',
-  top: '18px',
-  right: '18px',
+  top: space[9],
+  right: space[9],
   zIndex: 1100,
   width: 'min(420px, calc(100vw - 32px))',
 }
 
 const noticeCardStyle = {
-  backgroundColor: '#ffffff',
-  borderRadius: '16px',
-  boxShadow: '0 18px 40px rgba(15, 23, 42, 0.16)',
-  padding: '14px 16px',
+  backgroundColor: colors.white,
+  borderRadius: radius.lg,
+  boxShadow: shadow.lg,
+  padding: `${space[7]} ${space[8]}`,
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'flex-start',
-  gap: '12px',
+  gap: space[6],
 }
 
 const noticeCloseStyle = {
   border: 'none',
   background: 'transparent',
-  color: '#1d4ed8',
-  fontWeight: '700',
+  color: colors.blue600,
+  fontWeight: type.bold,
   cursor: 'pointer',
   padding: 0,
 }

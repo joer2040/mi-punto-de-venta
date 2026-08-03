@@ -3,6 +3,7 @@ import MaterialForm from '../components/MaterialForm'
 import { materialService } from '../api/materialService'
 import { providerService } from '../api/providerService'
 import { useResponsive } from '../lib/useResponsive'
+import { colors, space, type, radius, shadow } from '../lib/designTokens'
 
 const EDITION_PIN = '2024'
 
@@ -440,95 +441,95 @@ const Inventory = () => {
 }
 
 const getPageStyle = (isMobile) => ({
-  padding: isMobile ? '16px' : '18px 4px 32px',
+  padding: isMobile ? space[6] : `${space[8]} ${space[2]} ${space[8]}`,
 })
 
 const formCardStyle = {
-  marginBottom: '30px',
+  marginBottom: space[8],
 }
 
 const tableSectionStyle = {
   display: 'flex',
   flexDirection: 'column',
-  gap: '14px',
+  gap: space[6],
 }
 
 const tableHeaderRowStyle = {
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'center',
-  gap: '16px',
+  gap: space[4],
   flexWrap: 'wrap',
 }
 
 const tableTitleStyle = {
   margin: 0,
-  color: '#0f172a',
-  fontSize: '1.15rem',
-  fontWeight: 900,
+  color: colors.gray900,
+  fontSize: type.lg,
+  fontWeight: type.black,
 }
 
 const unlockButtonStyle = {
   border: 'none',
-  background: '#1f2937',
-  color: '#ffffff',
-  fontWeight: 800,
-  borderRadius: '10px',
-  padding: '10px 18px',
+  background: colors.gray800,
+  color: colors.white,
+  fontWeight: type.black,
+  borderRadius: radius.md,
+  padding: `${space[4]} ${space[9]}`,
   cursor: 'pointer',
 }
 
 const lockButtonStyle = {
   border: 'none',
-  background: '#ef4444',
-  color: '#ffffff',
-  fontWeight: 800,
-  borderRadius: '10px',
-  padding: '10px 18px',
+  background: colors.red600,
+  color: colors.white,
+  fontWeight: type.black,
+  borderRadius: radius.md,
+  padding: `${space[4]} ${space[9]}`,
   cursor: 'pointer',
 }
 
 const mobileCardsGridStyle = {
   display: 'grid',
-  gap: '14px',
+  gap: space[5],
 }
 
 const mobileCardStyle = {
-  background: '#ffffff',
-  borderRadius: '18px',
-  border: '1px solid rgba(203, 213, 225, 0.85)',
-  boxShadow: '0 14px 32px rgba(15, 23, 42, 0.08)',
-  padding: '16px',
+  background: colors.white,
+  borderRadius: radius.xl,
+  border: `1px solid rgba(203, 213, 225, 0.85)`,
+  boxShadow: shadow.md,
+  padding: space[6],
   display: 'flex',
   flexDirection: 'column',
-  gap: '14px',
+  gap: space[5],
 }
 
 const mobileCardTopStyle = {
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'flex-start',
-  gap: '12px',
+  gap: space[6],
 }
 
 const mobileMetaLabelStyle = {
-  color: '#64748b',
-  fontSize: '0.78rem',
-  fontWeight: 800,
+  color: colors.gray500,
+  fontSize: type.xs,
+  fontWeight: type.black,
   letterSpacing: '0.06em',
   textTransform: 'uppercase',
-  marginBottom: '6px',
+  marginBottom: space[1],
 }
 
 const mobileSkuTextStyle = {
-  color: '#1e3a5f',
-  fontWeight: 800,
+  color: colors.gray800,
+  fontWeight: type.black,
 }
 
 const mobileNameTextStyle = {
-  color: '#0f172a',
-  fontWeight: 900,
-  fontSize: '1rem',
+  color: colors.gray900,
+  fontWeight: type.black,
+  fontSize: type.md,
 }
 
 const mobileFieldBlockStyle = {
@@ -539,34 +540,34 @@ const mobileFieldBlockStyle = {
 const mobileMetricsGridStyle = {
   display: 'grid',
   gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-  gap: '12px',
+  gap: space[6],
 }
 
 const mobileMetricCardStyle = {
-  borderRadius: '14px',
-  background: '#f8fafc',
-  border: '1px solid #e2e8f0',
-  padding: '12px',
+  borderRadius: radius.lg,
+  background: colors.gray100,
+  border: `1px solid ${colors.gray200}`,
+  padding: `${space[4]} ${space[5]}`,
 }
 
 const mobileStockTextStyle = {
-  color: '#0f172a',
-  fontWeight: 800,
+  color: colors.gray900,
+  fontWeight: type.black,
 }
 
 const stockHintStyle = {
-  marginTop: '6px',
-  color: '#64748b',
-  fontSize: '0.78rem',
+  marginTop: space[3],
+  color: colors.gray500,
+  fontSize: type.xs,
   lineHeight: 1.45,
 }
 
 const tableWrapStyle = {
   overflowX: 'auto',
-  background: '#ffffff',
-  borderRadius: '18px',
-  boxShadow: '0 14px 32px rgba(15, 23, 42, 0.08)',
-  border: '1px solid rgba(203, 213, 225, 0.8)',
+  background: colors.white,
+  borderRadius: radius.xl,
+  boxShadow: shadow.md,
+  border: `1px solid rgba(203, 213, 225, 0.8)`,
 }
 
 const tableStyle = {
@@ -576,37 +577,37 @@ const tableStyle = {
 }
 
 const tableHeadRowStyle = {
-  background: '#0f172a',
+  background: colors.gray900,
 }
 
 const headerCellStyle = {
-  padding: '14px 16px',
-  color: '#e2e8f0',
-  fontSize: '0.8rem',
+  padding: '10px 12px',
+  color: colors.gray200,
+  fontSize: type.xs,
   letterSpacing: '0.06em',
   textTransform: 'uppercase',
   textAlign: 'left',
 }
 
 const bodyRowStyle = {
-  borderBottom: '1px solid #e2e8f0',
+  borderBottom: `1px solid ${colors.gray200}`,
 }
 
 const bodyCellStyle = {
-  padding: '14px 16px',
-  color: '#334155',
+  padding: '8px 12px',
+  color: colors.gray700,
   verticalAlign: 'top',
 }
 
 const categoryPillStyle = {
   display: 'inline-flex',
   alignItems: 'center',
-  padding: '6px 12px',
-  borderRadius: '999px',
+  padding: `${space[1]} ${space[6]}`,
+  borderRadius: radius.full,
   background: '#e0f2fe',
   color: '#0369a1',
-  fontWeight: 800,
-  fontSize: '0.8rem',
+  fontWeight: type.black,
+  fontSize: type.xs,
 }
 
 const currencyInputWrapStyle = {
@@ -617,25 +618,25 @@ const currencyInputWrapStyle = {
 
 const currencyMarkStyle = {
   position: 'absolute',
-  left: '12px',
-  color: '#475569',
-  fontWeight: 700,
+  left: space[6],
+  color: colors.gray600,
+  fontWeight: type.bold,
 }
 
 const tableInputStyle = {
   width: '100%',
   boxSizing: 'border-box',
-  minHeight: '40px',
-  borderRadius: '10px',
-  border: '1px solid #cbd5e1',
-  padding: '10px 12px',
-  fontSize: '0.95rem',
-  background: '#ffffff',
+  minHeight: '32px',
+  borderRadius: radius.md,
+  border: `1px solid ${colors.gray300}`,
+  padding: '7px 10px',
+  fontSize: type.base,
+  background: colors.white,
 }
 
 const priceTextStyle = {
-  color: '#166534',
-  fontWeight: 900,
+  color: colors.green700,
+  fontWeight: type.black,
 }
 
 export default Inventory

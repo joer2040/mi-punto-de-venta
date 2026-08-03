@@ -4,6 +4,7 @@ import { isValidPassword } from '../api/authService'
 import { useAuth } from '../contexts/AuthContext'
 import { ACTION_KEYS, PAGE_PERMISSION_MAP } from '../lib/permissionConfig'
 import { useResponsive } from '../lib/useResponsive'
+import { colors, space, type, radius, shadow } from '../lib/designTokens'
 
 const emptyUserForm = {
   id: null,
@@ -468,7 +469,7 @@ const SecurityUsers = () => {
     <div style={pageStyle}>
       <div style={headerStyle}>
         <div>
-          <h2 style={{ margin: 0, color: '#0f172a' }}>Usuarios</h2>
+          <h2 style={{ margin: 0, color: colors.gray900, fontSize: type['3xl'] }}>Usuarios</h2>
           <p style={subtitleStyle}>
             El admin controla todo el sistema. El manager puede operar el negocio y administrar
             solo cuentas de meseros.
@@ -513,54 +514,55 @@ const SecurityUsers = () => {
 }
 
 const pageStyle = {
-  padding: '24px',
+  padding: space[8],
   display: 'grid',
-  gap: '22px',
+  gap: space[7],
 }
 
 const headerStyle = {
-  backgroundColor: '#ffffff',
-  borderRadius: '18px',
-  padding: '22px',
-  boxShadow: '0 16px 40px rgba(15, 23, 42, 0.08)',
+  backgroundColor: colors.white,
+  borderRadius: radius.xl,
+  padding: space[8],
+  boxShadow: shadow.md,
 }
 
 const subtitleStyle = {
-  margin: '8px 0 0 0',
-  color: '#64748b',
+  margin: `${space[3]} 0 0 0`,
+  color: colors.gray500,
   lineHeight: 1.5,
+  fontSize: type.sm,
 }
 
 const sectionStyle = {
-  backgroundColor: '#ffffff',
-  borderRadius: '18px',
-  padding: '22px',
-  boxShadow: '0 16px 40px rgba(15, 23, 42, 0.08)',
+  backgroundColor: colors.white,
+  borderRadius: radius.xl,
+  padding: space[8],
+  boxShadow: shadow.md,
 }
 
 const sectionHeaderStyle = {
-  marginBottom: '18px',
+  marginBottom: space[7],
 }
 
 const sectionTitleStyle = {
   margin: 0,
-  color: '#0f172a',
+  color: colors.gray900,
 }
 
 const contentGridStyle = (isMobile) => ({
   display: 'grid',
-  gridTemplateColumns: isMobile ? '1fr' : 'minmax(320px, 380px) minmax(0, 1fr)',
-  gap: '18px',
+  gridTemplateColumns: isMobile ? '1fr' : 'minmax(300px, 360px) minmax(0, 1fr)',
+  gap: space[7],
   alignItems: 'start',
 })
 
 const formCardStyle = {
-  backgroundColor: '#f8fafc',
-  borderRadius: '16px',
-  padding: '18px',
+  backgroundColor: colors.gray100,
+  borderRadius: radius.lg,
+  padding: space[8],
   display: 'grid',
-  gap: '10px',
-  border: '1px solid #e2e8f0',
+  gap: space[5],
+  border: `1px solid ${colors.gray200}`,
 }
 
 const tableCardStyle = {
@@ -569,84 +571,84 @@ const tableCardStyle = {
 
 const formTitleStyle = {
   margin: 0,
-  color: '#0f172a',
+  color: colors.gray900,
 }
 
 const labelStyle = {
-  fontWeight: '700',
-  color: '#334155',
-  fontSize: '0.92rem',
+  fontWeight: type.bold,
+  color: colors.gray700,
+  fontSize: type.sm,
 }
 
 const helperTextStyle = {
-  color: '#64748b',
-  fontSize: '0.82rem',
+  color: colors.gray500,
+  fontSize: type.xs,
   lineHeight: 1.5,
 }
 
 const inputStyle = {
   width: '100%',
-  padding: '11px 12px',
-  borderRadius: '10px',
-  border: '1px solid #cbd5e1',
+  padding: `${space[4]} ${space[5]}`,
+  borderRadius: radius.md,
+  border: `1px solid ${colors.gray300}`,
   boxSizing: 'border-box',
 }
 
 const formActionsStyle = {
   display: 'flex',
-  gap: '10px',
+  gap: space[5],
   flexWrap: 'wrap',
-  marginTop: '8px',
+  marginTop: space[3],
 }
 
 const primaryBtnStyle = {
-  padding: '11px 16px',
-  borderRadius: '10px',
+  padding: `${space[4]} ${space[8]}`,
+  borderRadius: radius.md,
   border: 'none',
-  backgroundColor: '#1d4ed8',
-  color: '#ffffff',
-  fontWeight: '800',
+  backgroundColor: colors.blue700,
+  color: colors.white,
+  fontWeight: type.black,
   cursor: 'pointer',
 }
 
 const secondaryBtnStyle = {
-  padding: '11px 16px',
-  borderRadius: '10px',
-  border: '1px solid #cbd5e1',
-  backgroundColor: '#ffffff',
-  color: '#334155',
-  fontWeight: '700',
+  padding: `${space[4]} ${space[8]}`,
+  borderRadius: radius.md,
+  border: `1px solid ${colors.gray300}`,
+  backgroundColor: colors.white,
+  color: colors.gray700,
+  fontWeight: type.bold,
   cursor: 'pointer',
 }
 
 const linkBtnStyle = {
   border: 'none',
   background: 'none',
-  color: '#1d4ed8',
-  fontWeight: '700',
+  color: colors.blue700,
+  fontWeight: type.bold,
   cursor: 'pointer',
 }
 
 const dangerBtnStyle = {
   border: 'none',
   background: 'none',
-  color: '#dc2626',
-  fontWeight: '700',
+  color: colors.red600,
+  fontWeight: type.bold,
   cursor: 'pointer',
 }
 
 const blockedTextStyle = {
-  color: '#64748b',
-  fontWeight: '700',
-  fontSize: '0.85rem',
+  color: colors.gray500,
+  fontWeight: type.bold,
+  fontSize: type.sm,
 }
 
 const noticeStyle = {
-  backgroundColor: '#eff6ff',
-  color: '#1d4ed8',
-  borderRadius: '14px',
-  padding: '14px 16px',
-  fontWeight: '700',
+  backgroundColor: colors.blue50,
+  color: colors.blue700,
+  borderRadius: radius.lg,
+  padding: `${space[5]} ${space[7]}`,
+  fontWeight: type.bold,
 }
 
 const tableStyle = {
@@ -656,64 +658,64 @@ const tableStyle = {
 }
 
 const theadStyle = {
-  backgroundColor: '#0f172a',
-  color: '#ffffff',
+  backgroundColor: colors.gray900,
+  color: colors.white,
 }
 
 const thStyle = {
-  padding: '12px 14px',
+  padding: '10px 12px',
   textAlign: 'left',
-  fontSize: '0.82rem',
+  fontSize: type.xs,
   textTransform: 'uppercase',
   letterSpacing: '0.04em',
 }
 
 const tdStyle = {
-  padding: '12px 14px',
-  borderBottom: '1px solid #e2e8f0',
-  color: '#334155',
+  padding: '8px 12px',
+  borderBottom: `1px solid ${colors.gray200}`,
+  color: colors.gray700,
   verticalAlign: 'top',
 }
 
 const rowStyle = {
-  backgroundColor: '#ffffff',
+  backgroundColor: colors.white,
 }
 
 const metaStyle = {
-  marginTop: '4px',
-  color: '#64748b',
-  fontSize: '0.84rem',
+  marginTop: space[1],
+  color: colors.gray500,
+  fontSize: type.xs,
 }
 
 const rowActionStyle = {
   display: 'flex',
   alignItems: 'center',
-  gap: '12px',
+  gap: space[6],
   flexWrap: 'wrap',
 }
 
 const activeBadgeStyle = {
   display: 'inline-flex',
-  padding: '6px 10px',
-  borderRadius: '999px',
-  backgroundColor: '#dcfce7',
-  color: '#166534',
-  fontWeight: '800',
+  padding: `${space[1]} ${space[5]}`,
+  borderRadius: radius.full,
+  backgroundColor: colors.green100,
+  color: colors.green700,
+  fontWeight: type.black,
 }
 
 const inactiveBadgeStyle = {
   display: 'inline-flex',
-  padding: '6px 10px',
-  borderRadius: '999px',
-  backgroundColor: '#fee2e2',
+  padding: `${space[1]} ${space[5]}`,
+  borderRadius: radius.full,
+  backgroundColor: colors.red100,
   color: '#991b1b',
-  fontWeight: '800',
+  fontWeight: type.black,
 }
 
 const loadingStyle = {
-  padding: '40px',
+  padding: space[10],
   textAlign: 'center',
-  color: '#334155',
+  color: colors.gray700,
 }
 
 export default SecurityUsers

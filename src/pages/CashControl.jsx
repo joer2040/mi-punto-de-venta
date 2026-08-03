@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { ACTION_KEYS, PAGE_PERMISSION_MAP } from '../lib/permissionConfig'
 import { formatCurrency, formatDateTime, formatNumericFolio } from '../lib/reportUtils'
 import { useResponsive } from '../lib/useResponsive'
+import { colors, space, type, radius, shadow } from '../lib/designTokens'
 
 let jsPdfModulePromise = null
 
@@ -502,21 +503,21 @@ const CashControl = () => {
 }
 
 const getPageStyle = (isMobile) => ({
-  padding: isMobile ? '16px' : '28px 30px 40px',
-  backgroundColor: '#f8fafc',
+  padding: isMobile ? space[6] : `${space[8]} ${space[10]} ${space[10]}`,
+  backgroundColor: colors.gray100,
   minHeight: '100vh',
 })
 
 const heroStyle = {
   background: 'linear-gradient(135deg, #eff6ff 0%, #ffffff 50%, #ecfccb 100%)',
-  borderRadius: '28px',
-  boxShadow: '0 18px 45px rgba(15, 23, 42, 0.08)',
-  border: '1px solid rgba(191, 219, 254, 0.9)',
-  padding: '26px',
+  borderRadius: radius.xl,
+  boxShadow: shadow.lg,
+  border: `1px solid rgba(191, 219, 254, 0.9)`,
+  padding: space[10],
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'flex-start',
-  gap: '18px',
+  gap: space[9],
   flexWrap: 'wrap',
 }
 
@@ -525,235 +526,235 @@ const heroTextWrapStyle = {
 }
 
 const eyebrowStyle = {
-  color: '#0f766e',
-  fontWeight: 900,
-  fontSize: '0.82rem',
+  color: colors.teal700,
+  fontWeight: type.black,
+  fontSize: type.xs,
   letterSpacing: '0.1em',
   textTransform: 'uppercase',
 }
 
 const getTitleStyle = (isMobile) => ({
-  margin: '10px 0 12px 0',
-  color: '#0f172a',
-  fontSize: isMobile ? '1.9rem' : '2.6rem',
+  margin: `${space[5]} 0 ${space[6]} 0`,
+  color: colors.gray900,
+  fontSize: isMobile ? type['2xl'] : type['3xl'],
   lineHeight: 1.05,
 })
 
 const subtitleStyle = {
   margin: 0,
-  color: '#475569',
-  fontSize: '1rem',
+  color: colors.gray600,
+  fontSize: type.md,
   lineHeight: 1.6,
 }
 
 const statusPanelStyle = {
   display: 'flex',
   flexDirection: 'column',
-  gap: '12px',
-  minWidth: '220px',
+  gap: space[6],
+  minWidth: '200px',
 }
 
 const sessionMetaStyle = {
-  backgroundColor: '#ffffff',
-  border: '1px solid #dbe4f0',
-  borderRadius: '18px',
-  padding: '14px 16px',
+  backgroundColor: colors.white,
+  border: `1px solid ${colors.gray200}`,
+  borderRadius: radius.xl,
+  padding: `${space[7]} ${space[8]}`,
   display: 'flex',
   flexDirection: 'column',
-  gap: '6px',
-  boxShadow: '0 12px 28px rgba(15, 23, 42, 0.06)',
+  gap: space[3],
+  boxShadow: shadow.sm,
 }
 
 const sessionMetaLabelStyle = {
-  color: '#64748b',
-  fontSize: '0.78rem',
+  color: colors.gray500,
+  fontSize: type.xs,
   textTransform: 'uppercase',
   letterSpacing: '0.08em',
-  fontWeight: 800,
+  fontWeight: type.black,
 }
 
 const sessionMetaSmallStyle = {
-  color: '#475569',
-  fontSize: '0.9rem',
+  color: colors.gray600,
+  fontSize: type.sm,
 }
 
 const statusBadgeStyle = {
   alignSelf: 'flex-start',
-  padding: '10px 16px',
-  borderRadius: '999px',
-  fontWeight: 900,
-  fontSize: '0.85rem',
+  padding: `${space[2]} ${space[8]}`,
+  borderRadius: radius.full,
+  fontWeight: type.black,
+  fontSize: type.sm,
 }
 
 const statusBadgeOpenStyle = {
-  backgroundColor: '#dcfce7',
-  color: '#166534',
+  backgroundColor: colors.green100,
+  color: colors.green700,
 }
 
 const statusBadgeClosedStyle = {
-  backgroundColor: '#fee2e2',
-  color: '#b91c1c',
+  backgroundColor: colors.red100,
+  color: colors.red700,
 }
 
 const noticeStyle = {
-  marginTop: '18px',
-  padding: '14px 16px',
-  borderRadius: '16px',
-  fontWeight: 700,
+  marginTop: space[9],
+  padding: `${space[5]} ${space[7]}`,
+  borderRadius: radius.lg,
+  fontWeight: type.bold,
 }
 
 const noticeSuccessStyle = {
-  backgroundColor: '#ecfdf5',
+  backgroundColor: colors.green50,
   color: '#047857',
 }
 
 const noticeWarningStyle = {
-  backgroundColor: '#fff7ed',
+  backgroundColor: colors.amber50,
   color: '#c2410c',
 }
 
 const getGridStyle = (isMobile) => ({
   display: 'grid',
   gridTemplateColumns: isMobile ? '1fr' : '1.2fr 0.8fr',
-  gap: '18px',
-  marginTop: '22px',
+  gap: space[7],
+  marginTop: space[7],
 })
 
 const cardStyle = {
-  backgroundColor: '#ffffff',
-  borderRadius: '24px',
-  padding: '22px',
-  boxShadow: '0 16px 40px rgba(15, 23, 42, 0.07)',
-  border: '1px solid #e2e8f0',
+  backgroundColor: colors.white,
+  borderRadius: radius.xl,
+  padding: space[8],
+  boxShadow: shadow.md,
+  border: `1px solid ${colors.gray200}`,
   display: 'flex',
   flexDirection: 'column',
-  gap: '16px',
+  gap: space[6],
 }
 
 const cardTitleStyle = {
-  color: '#0f172a',
-  fontWeight: 900,
-  fontSize: '1.2rem',
+  color: colors.gray900,
+  fontWeight: type.black,
+  fontSize: type.xl,
 }
 
 const fieldLabelStyle = {
   display: 'block',
-  color: '#334155',
-  fontWeight: 800,
+  color: colors.gray700,
+  fontWeight: type.black,
+  fontSize: type.sm,
 }
 
 const inputStyle = {
   width: '100%',
-  padding: '13px 14px',
-  borderRadius: '12px',
-  border: '1px solid #cbd5e1',
+  padding: `${space[4]} ${space[5]}`,
+  borderRadius: radius.md,
+  border: `1px solid ${colors.gray300}`,
   boxSizing: 'border-box',
-  fontSize: '1rem',
 }
 
 const checkWrapStyle = {
   display: 'flex',
   alignItems: 'center',
-  gap: '10px',
-  color: '#334155',
-  fontWeight: 700,
+  gap: space[5],
+  color: colors.gray700,
+  fontWeight: type.bold,
 }
 
 const primaryButtonStyle = {
   border: 'none',
-  borderRadius: '14px',
-  backgroundColor: '#0f766e',
-  color: '#ffffff',
-  fontWeight: 900,
-  padding: '14px 18px',
+  borderRadius: radius.md,
+  backgroundColor: colors.teal700,
+  color: colors.white,
+  fontWeight: type.black,
+  padding: `${space[4]} ${space[9]}`,
   cursor: 'pointer',
 }
 
 const dangerButtonStyle = {
   border: 'none',
-  borderRadius: '14px',
-  backgroundColor: '#b91c1c',
-  color: '#ffffff',
-  fontWeight: 900,
-  padding: '14px 18px',
+  borderRadius: radius.md,
+  backgroundColor: colors.red700,
+  color: colors.white,
+  fontWeight: type.black,
+  padding: `${space[4]} ${space[9]}`,
   cursor: 'pointer',
 }
 
 const disabledButtonStyle = {
-  backgroundColor: '#94a3b8',
+  backgroundColor: colors.gray400,
   cursor: 'not-allowed',
 }
 
 const metricCardStyle = {
-  backgroundColor: '#f8fafc',
-  border: '1px solid #e2e8f0',
-  borderRadius: '16px',
-  padding: '16px',
+  backgroundColor: colors.gray100,
+  border: `1px solid ${colors.gray200}`,
+  borderRadius: radius.lg,
+  padding: `${space[4]} ${space[6]}`,
   display: 'flex',
   flexDirection: 'column',
-  gap: '6px',
+  gap: space[2],
 }
 
 const metricLabelStyle = {
-  color: '#64748b',
-  fontSize: '0.82rem',
+  color: colors.gray500,
+  fontSize: type.xs,
   textTransform: 'uppercase',
   letterSpacing: '0.05em',
-  fontWeight: 800,
+  fontWeight: type.black,
 }
 
 const metricValueStyle = {
-  color: '#0f172a',
-  fontSize: '1.2rem',
-  fontWeight: 900,
+  color: colors.gray900,
+  fontSize: type.xl,
+  fontWeight: type.black,
 }
 
 const expectedTotalCardStyle = {
   background: 'linear-gradient(135deg, #dbeafe 0%, #ffffff 100%)',
-  border: '1px solid #bfdbfe',
-  borderRadius: '20px',
-  padding: '18px',
+  border: `1px solid ${colors.blue100}`,
+  borderRadius: radius.lg,
+  padding: space[7],
   display: 'flex',
   flexDirection: 'column',
-  gap: '8px',
+  gap: space[3],
 }
 
 const expectedTotalLabelStyle = {
-  color: '#1d4ed8',
-  fontWeight: 900,
-  fontSize: '0.84rem',
+  color: colors.blue700,
+  fontWeight: type.black,
+  fontSize: type.xs,
   textTransform: 'uppercase',
   letterSpacing: '0.08em',
 }
 
 const expectedTotalValueStyle = {
-  color: '#0f172a',
-  fontWeight: 900,
-  fontSize: '2rem',
+  color: colors.gray900,
+  fontWeight: type.black,
+  fontSize: type['4xl'],
 }
 
 const sessionInfoListStyle = {
   display: 'flex',
   flexDirection: 'column',
-  gap: '12px',
+  gap: space[6],
 }
 
 const sessionInfoRowStyle = {
   display: 'flex',
   justifyContent: 'space-between',
-  gap: '12px',
+  gap: space[6],
   alignItems: 'center',
-  paddingBottom: '10px',
-  borderBottom: '1px solid #e2e8f0',
-  color: '#334155',
+  paddingBottom: space[5],
+  borderBottom: `1px solid ${colors.gray200}`,
+  color: colors.gray700,
 }
 
 const frozenNoteStyle = {
-  backgroundColor: '#f8fafc',
-  color: '#475569',
-  borderRadius: '16px',
-  padding: '14px',
-  fontWeight: 700,
+  backgroundColor: colors.gray100,
+  color: colors.gray600,
+  borderRadius: radius.lg,
+  padding: space[7],
+  fontWeight: type.bold,
   lineHeight: 1.5,
 }
 
@@ -762,9 +763,9 @@ const loadingStyle = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  color: '#0f172a',
-  fontWeight: 800,
-  background: '#f8fafc',
+  color: colors.gray900,
+  fontWeight: type.black,
+  background: colors.gray100,
 }
 
 export default CashControl

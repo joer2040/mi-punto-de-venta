@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { materialService } from '../api/materialService'
 import { providerService } from '../api/providerService'
 import { useResponsive } from '../lib/useResponsive'
+import { colors, space, type, radius, shadow } from '../lib/designTokens'
 
 const normalizeCategoryName = (value) =>
   (value || '')
@@ -91,7 +92,7 @@ const MaterialForm = ({ onMaterialAdded }) => {
 
   return (
     <form onSubmit={handleSubmit} style={getFormStyle(isMobile)}>
-      <h2 style={{ marginBottom: '20px', fontSize: isMobile ? '1.25rem' : '1.5rem' }}>Registro de Nuevo Material</h2>
+      <h2 style={{ marginBottom: space[7], fontSize: isMobile ? type.xl : type['2xl'] }}>Registro de Nuevo Material</h2>
 
       <div style={getRowStyle(isMobile)}>
         <div style={groupStyle}>
@@ -233,37 +234,37 @@ const MaterialForm = ({ onMaterialAdded }) => {
 }
 
 const getFormStyle = (isMobile) => ({
-  backgroundColor: '#ffffff',
-  padding: isMobile ? '18px' : '30px',
-  borderRadius: '15px',
-  boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
-  border: '1px solid #dee2e6',
+  backgroundColor: colors.white,
+  padding: isMobile ? space[7] : space[9],
+  borderRadius: radius.lg,
+  boxShadow: shadow.md,
+  border: `1px solid ${colors.gray200}`,
 })
 
 const getRowStyle = (isMobile) => ({
   display: 'flex',
   flexDirection: isMobile ? 'column' : 'row',
-  gap: '20px',
-  marginBottom: '15px',
+  gap: space[7],
+  marginBottom: space[5],
 })
 
 const groupStyle = { flex: 1, display: 'flex', flexDirection: 'column' }
 
 const labelStyle = {
-  fontSize: '0.9em',
-  fontWeight: '700',
-  marginBottom: '8px',
-  color: '#2c3e50',
+  fontSize: type.sm,
+  fontWeight: type.bold,
+  marginBottom: space[2],
+  color: colors.gray700,
   display: 'block',
 }
 
 const inputStyle = {
-  padding: '12px',
-  borderRadius: '8px',
-  border: '2px solid #ced4da',
-  backgroundColor: '#f8f9fa',
-  fontSize: '1em',
-  color: '#495057',
+  padding: `${space[4]} ${space[5]}`,
+  borderRadius: radius.md,
+  border: `1px solid ${colors.gray300}`,
+  backgroundColor: colors.white,
+  fontSize: type.base,
+  color: colors.gray700,
   outline: 'none',
   transition: 'border-color 0.2s',
   width: '100%',
@@ -272,36 +273,35 @@ const inputStyle = {
 
 const btnStyle = {
   width: '100%',
-  padding: '15px',
-  backgroundColor: '#1a73e8',
-  color: 'white',
+  padding: `${space[4]} ${space[8]}`,
+  backgroundColor: colors.blue700,
+  color: colors.white,
   border: 'none',
-  borderRadius: '8px',
-  fontWeight: 'bold',
-  fontSize: '1em',
+  borderRadius: radius.md,
+  fontWeight: type.bold,
+  fontSize: type.base,
   cursor: 'pointer',
-  marginTop: '20px',
-  boxShadow: '0 4px 12px rgba(26, 115, 232, 0.3)',
+  marginTop: space[6],
 }
 
 const helperWarningStyle = {
-  marginTop: '16px',
-  padding: '12px 14px',
-  borderRadius: '10px',
-  backgroundColor: '#fff7ed',
+  marginTop: space[4],
+  padding: `${space[6]} ${space[7]}`,
+  borderRadius: radius.md,
+  backgroundColor: colors.amber50,
   border: '1px solid #fdba74',
   color: '#9a3412',
-  fontWeight: '700',
+  fontWeight: type.bold,
 }
 
 const helperInfoStyle = {
-  marginTop: '16px',
-  padding: '12px 14px',
-  borderRadius: '10px',
-  backgroundColor: '#eff6ff',
-  border: '1px solid #93c5fd',
-  color: '#1d4ed8',
-  fontWeight: '700',
+  marginTop: space[4],
+  padding: `${space[6]} ${space[7]}`,
+  borderRadius: radius.md,
+  backgroundColor: colors.blue50,
+  border: `1px solid ${colors.blue100}`,
+  color: colors.blue700,
+  fontWeight: type.bold,
 }
 
 export default MaterialForm

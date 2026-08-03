@@ -22,3 +22,25 @@ body {
   text-align: left; /* Alineación a la izquierda profesional */
 }
 
+* {
+  box-sizing: border-box;
+}
+
+input,
+select,
+button,
+textarea {
+  font-family: inherit;
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+table input,
+table select {
+  min-height: 34px;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 6px; }
+

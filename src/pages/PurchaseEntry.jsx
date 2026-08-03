@@ -4,6 +4,7 @@ import { providerService } from '../api/providerService';
 import { useAuth } from '../contexts/AuthContext';
 import { ACTION_KEYS, PAGE_PERMISSION_MAP } from '../lib/permissionConfig';
 import { useResponsive } from '../lib/useResponsive';
+import { colors, space, type, radius, shadow } from '../lib/designTokens';
 
 const GENERAL_PROVIDER_NAME = 'Proveedor General';
 const DEFAULT_FREEFORM_UNIT_LABEL = 'pz';
@@ -850,50 +851,49 @@ const PurchaseEntry = () => {
   );
 };
 
-const formContainerStyle = { backgroundColor: '#f4f7f6', padding: '20px', borderRadius: '10px' };
-const sectionStyle = { marginBottom: '20px', padding: '15px', backgroundColor: '#fff', borderRadius: '8px' };
-const labelStyle = { display: 'block', fontSize: '0.9em', color: '#555', marginBottom: '5px' };
-const inputStyle = { width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #ddd', boxSizing: 'border-box' };
-const readOnlyInputStyle = { backgroundColor: '#f8fafc', color: '#0f172a', WebkitTextFillColor: '#0f172a', fontWeight: '700' };
-const btnStyle = { flex: '1 1 260px', padding: '12px', backgroundColor: '#2980b9', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' };
-const btnCheckStyle = { flex: '0 0 150px', padding: '12px 18px', backgroundColor: '#1f2937', color: 'white', border: 'none', borderRadius: '10px', fontWeight: '800', cursor: 'pointer' };
+const formContainerStyle = { backgroundColor: colors.gray150, padding: space[8], borderRadius: radius.lg };
+const sectionStyle = { marginBottom: space[7], padding: space[7], backgroundColor: colors.white, borderRadius: radius.md };
+const labelStyle = { display: 'block', fontSize: type.sm, color: colors.gray700, marginBottom: space[2] };
+const inputStyle = { width: '100%', padding: `${space[4]} ${space[5]}`, borderRadius: radius.md, border: `1px solid ${colors.gray300}`, boxSizing: 'border-box' };
+const readOnlyInputStyle = { backgroundColor: colors.gray100, color: colors.gray900, WebkitTextFillColor: colors.gray900, fontWeight: type.bold };
+const btnStyle = { flex: '1 1 240px', padding: `${space[4]} ${space[8]}`, backgroundColor: colors.blue600, color: colors.white, border: 'none', borderRadius: radius.md, fontWeight: type.bold, cursor: 'pointer' };
+const btnCheckStyle = { flex: '0 0 140px', padding: `${space[4]} ${space[9]}`, backgroundColor: colors.gray800, color: colors.white, border: 'none', borderRadius: radius.md, fontWeight: type.black, cursor: 'pointer' };
 const entryRowStyle = {
-  marginTop: '20px',
-  paddingTop: '20px',
-  borderTop: '1px solid #e2e8f0',
+  marginTop: space[7],
+  paddingTop: space[7],
+  borderTop: `1px solid ${colors.gray200}`,
   display: 'flex',
   justifyContent: 'flex-end',
 };
 const btnAddStyle = {
-  padding: '12px 24px',
-  backgroundColor: '#2d3748',
-  color: 'white',
+  padding: `${space[4]} ${space[12]}`,
+  backgroundColor: colors.gray800,
+  color: colors.white,
   border: 'none',
-  borderRadius: '8px',
+  borderRadius: radius.md,
   cursor: 'pointer',
-  fontWeight: 'bold',
-  fontSize: '1rem',
-  transition: 'background 0.2s',
+  fontWeight: type.bold,
+  fontSize: type.base,
 };
-const tableWrapperStyle = { marginTop: '20px', backgroundColor: '#fff', borderRadius: '10px', overflowX: 'auto', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' };
-const thStyle = { padding: '15px', textAlign: 'left' };
-const tdStyle = { padding: '12px 15px' };
-const readOnlyBadgeStyle = { padding: '8px 12px', borderRadius: '999px', backgroundColor: '#edf2f7', color: '#4a5568', fontWeight: '700' };
-const disabledBtnStyle = { ...btnStyle, backgroundColor: '#94a3b8', cursor: 'not-allowed' };
-const disabledCheckBtnStyle = { ...btnCheckStyle, backgroundColor: '#94a3b8', cursor: 'not-allowed' };
-const mobileCardsListStyle = { display: 'grid', gap: '12px', padding: '12px' };
-const mobileItemCardStyle = { borderRadius: '16px', border: '1px solid #e2e8f0', backgroundColor: '#f8fafc', padding: '14px', display: 'flex', flexDirection: 'column', gap: '12px' };
-const mobileItemHeaderStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' };
-const mobileItemLabelStyle = { color: '#64748b', fontSize: '0.78rem', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' };
-const mobileItemSkuStyle = { color: '#1e3a5f', fontWeight: '800' };
-const mobileItemNameStyle = { color: '#0f172a', fontWeight: '900', fontSize: '1rem' };
-const mobileMetricsGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '10px' };
-const mobileMetricCardStyle = { borderRadius: '12px', border: '1px solid #e2e8f0', backgroundColor: '#ffffff', padding: '10px' };
-const mobileMetricValueStyle = { color: '#0f172a', fontWeight: '800' };
-const mobileSubtotalStyle = { color: '#16a34a', fontWeight: '900' };
-const mobileRemoveButtonStyle = { border: 'none', borderRadius: '10px', backgroundColor: '#fee2e2', color: '#b91c1c', fontWeight: '800', padding: '10px 12px', cursor: 'pointer' };
-const mobileRemoveButtonDisabledStyle = { backgroundColor: '#e2e8f0', color: '#94a3b8', cursor: 'not-allowed' };
-const purchaseActionsWrapStyle = { marginTop: '20px', display: 'flex', gap: '12px', alignItems: 'stretch', flexWrap: 'wrap' };
+const tableWrapperStyle = { marginTop: space[7], backgroundColor: colors.white, borderRadius: radius.lg, overflowX: 'auto', boxShadow: shadow.sm };
+const thStyle = { padding: '10px 12px', textAlign: 'left' };
+const tdStyle = { padding: '8px 12px' };
+const readOnlyBadgeStyle = { padding: `${space[1]} ${space[6]}`, borderRadius: radius.full, backgroundColor: colors.gray150, color: colors.gray600, fontWeight: type.bold };
+const disabledBtnStyle = { ...btnStyle, backgroundColor: colors.gray400, cursor: 'not-allowed' };
+const disabledCheckBtnStyle = { ...btnCheckStyle, backgroundColor: colors.gray400, cursor: 'not-allowed' };
+const mobileCardsListStyle = { display: 'grid', gap: space[6], padding: space[6] };
+const mobileItemCardStyle = { borderRadius: radius.xl, border: `1px solid ${colors.gray200}`, backgroundColor: colors.gray100, padding: space[6], display: 'flex', flexDirection: 'column', gap: space[5] };
+const mobileItemHeaderStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: space[6] };
+const mobileItemLabelStyle = { color: colors.gray500, fontSize: type.xs, fontWeight: type.black, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: space[1] };
+const mobileItemSkuStyle = { color: colors.gray800, fontWeight: type.black };
+const mobileItemNameStyle = { color: colors.gray900, fontWeight: type.black, fontSize: type.md };
+const mobileMetricsGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: space[5] };
+const mobileMetricCardStyle = { borderRadius: radius.md, border: `1px solid ${colors.gray200}`, backgroundColor: colors.white, padding: space[5] };
+const mobileMetricValueStyle = { color: colors.gray900, fontWeight: type.black };
+const mobileSubtotalStyle = { color: colors.green500, fontWeight: type.black };
+const mobileRemoveButtonStyle = { border: 'none', borderRadius: radius.md, backgroundColor: colors.red100, color: colors.red700, fontWeight: type.black, padding: `${space[4]} ${space[6]}`, cursor: 'pointer' };
+const mobileRemoveButtonDisabledStyle = { backgroundColor: colors.gray200, color: colors.gray400, cursor: 'not-allowed' };
+const purchaseActionsWrapStyle = { marginTop: space[7], display: 'flex', gap: space[6], alignItems: 'stretch', flexWrap: 'wrap' };
 const confirmOverlayStyle = {
   position: 'fixed',
   inset: 0,
@@ -901,93 +901,93 @@ const confirmOverlayStyle = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  padding: '18px',
+  padding: space[9],
   zIndex: 1050,
 };
 const confirmCardStyle = {
   width: '100%',
-  maxWidth: '540px',
-  backgroundColor: '#ffffff',
-  borderRadius: '24px',
+  maxWidth: '520px',
+  backgroundColor: colors.white,
+  borderRadius: radius.xl,
   boxShadow: '0 28px 70px rgba(15, 23, 42, 0.28)',
-  padding: '24px',
-  border: '1px solid #fecaca',
+  padding: space[10],
+  border: `1px solid ${colors.red100}`,
 };
 const confirmBadgeStyle = {
   display: 'inline-flex',
   alignItems: 'center',
-  padding: '8px 12px',
-  borderRadius: '999px',
-  backgroundColor: '#fff7ed',
+  padding: `${space[1]} ${space[5]}`,
+  borderRadius: radius.full,
+  backgroundColor: colors.amber50,
   color: '#c2410c',
-  fontWeight: '800',
-  fontSize: '0.82rem',
-  marginBottom: '14px',
+  fontWeight: type.black,
+  fontSize: type.xs,
+  marginBottom: space[7],
 };
 const confirmTitleStyle = {
   margin: 0,
-  color: '#111827',
-  fontSize: '1.45rem',
+  color: colors.gray900,
+  fontSize: type['2xl'],
 };
 const confirmTextStyle = {
-  margin: '12px 0 0 0',
-  color: '#475569',
+  margin: `${space[6]} 0 0 0`,
+  color: colors.gray600,
   lineHeight: 1.65,
 };
 const confirmSummaryStyle = {
   display: 'grid',
   gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-  gap: '12px',
-  marginTop: '18px',
+  gap: space[6],
+  marginTop: space[9],
 };
 const confirmMetricStyle = {
-  backgroundColor: '#f8fafc',
-  border: '1px solid #e2e8f0',
-  borderRadius: '16px',
-  padding: '14px',
+  backgroundColor: colors.gray100,
+  border: `1px solid ${colors.gray200}`,
+  borderRadius: radius.lg,
+  padding: `${space[5]} ${space[6]}`,
   display: 'flex',
   flexDirection: 'column',
-  gap: '4px',
+  gap: space[2],
 };
 const confirmMetricLabelStyle = {
-  color: '#64748b',
-  fontSize: '0.78rem',
+  color: colors.gray500,
+  fontSize: type.xs,
   textTransform: 'uppercase',
   letterSpacing: '0.04em',
 };
 const confirmMetricValueStyle = {
-  color: '#0f172a',
-  fontSize: '1.1rem',
+  color: colors.gray900,
+  fontSize: type.lg,
 };
 const confirmActionsStyle = {
   display: 'flex',
   justifyContent: 'flex-end',
-  gap: '12px',
+  gap: space[5],
   flexWrap: 'wrap',
-  marginTop: '22px',
+  marginTop: space[9],
 };
 const confirmCancelBtnStyle = {
-  border: '1px solid #cbd5e1',
-  backgroundColor: '#ffffff',
-  color: '#334155',
-  borderRadius: '12px',
-  padding: '12px 16px',
-  fontWeight: '700',
+  border: `1px solid ${colors.gray300}`,
+  backgroundColor: colors.white,
+  color: colors.gray700,
+  borderRadius: radius.md,
+  padding: `${space[4]} ${space[8]}`,
+  fontWeight: type.bold,
   cursor: 'pointer',
 };
 const confirmApproveBtnStyle = {
   border: 'none',
-  backgroundColor: '#dc2626',
-  color: '#ffffff',
-  borderRadius: '12px',
-  padding: '12px 16px',
-  fontWeight: '800',
+  backgroundColor: colors.red600,
+  color: colors.white,
+  borderRadius: radius.md,
+  padding: `${space[4]} ${space[8]}`,
+  fontWeight: type.black,
   cursor: 'pointer',
 };
 const purchaseCheckItemsWrapStyle = {
-  marginTop: '18px',
+  marginTop: space[9],
   display: 'grid',
-  gap: '10px',
+  gap: space[5],
   maxHeight: '240px',
   overflowY: 'auto',
 };
@@ -995,23 +995,23 @@ const purchaseCheckItemStyle = {
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'flex-start',
-  gap: '12px',
-  padding: '12px 14px',
-  borderRadius: '14px',
-  backgroundColor: '#f8fafc',
-  border: '1px solid #e2e8f0',
+  gap: space[6],
+  padding: `${space[5]} ${space[6]}`,
+  borderRadius: radius.lg,
+  backgroundColor: colors.gray100,
+  border: `1px solid ${colors.gray200}`,
 };
 const purchaseCheckItemNameStyle = {
-  color: '#0f172a',
-  fontWeight: '800',
+  color: colors.gray900,
+  fontWeight: type.black,
 };
 const purchaseCheckItemMetaStyle = {
-  color: '#64748b',
-  fontSize: '0.88rem',
-  marginTop: '4px',
+  color: colors.gray500,
+  fontSize: type.sm,
+  marginTop: space[2],
 };
 const purchaseCheckItemTotalStyle = {
-  color: '#0f172a',
+  color: colors.gray900,
   whiteSpace: 'nowrap',
 };
 

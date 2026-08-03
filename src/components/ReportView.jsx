@@ -1,15 +1,16 @@
 ﻿import React, { useMemo, useState } from 'react'
 import { clampRowsPerPage, downloadReportAsExcel, getPageSizeOptions } from '../lib/reportUtils'
+import { colors, space, type, radius, shadow } from '../lib/designTokens'
 
 const paginationArrowStyle = {
-  border: '1px solid #cbd5e1',
-  borderRadius: '10px',
-  backgroundColor: '#ffffff',
-  color: '#0f172a',
-  fontWeight: '800',
+  border: `1px solid ${colors.gray300}`,
+  borderRadius: radius.md,
+  backgroundColor: colors.white,
+  color: colors.gray900,
+  fontWeight: type.bold,
   cursor: 'pointer',
-  minWidth: '42px',
-  height: '42px',
+  minWidth: '34px',
+  height: '34px',
 }
 
 const disabledArrowStyle = {
@@ -170,56 +171,56 @@ const ReportView = ({
 }
 
 const getContainerStyle = (isMobile) => ({
-  padding: isMobile ? '16px' : '30px',
-  backgroundColor: '#f7fafc',
+  padding: isMobile ? space[6] : `${space[8]} ${space[10]}`,
+  backgroundColor: colors.gray100,
   minHeight: '100vh',
-  color: '#0f172a',
+  color: colors.gray900,
 })
 
 const getTitleStyle = (isMobile) => ({
-  color: '#2d3748',
-  marginBottom: '20px',
-  borderBottom: '2px solid #cbd5e0',
-  paddingBottom: '10px',
-  fontSize: isMobile ? '1.35rem' : '1.75rem',
+  color: colors.gray800,
+  marginBottom: space[6],
+  borderBottom: `2px solid ${colors.gray300}`,
+  paddingBottom: space[5],
+  fontSize: isMobile ? type.xl : type['3xl'],
 })
 
 const getControlsShellStyle = (isMobile) => ({
   position: isMobile ? 'static' : 'sticky',
   top: isMobile ? 'auto' : 0,
   zIndex: isMobile ? 'auto' : 5,
-  backgroundColor: '#f7fafc',
-  paddingBottom: '12px',
+  backgroundColor: colors.gray100,
+  paddingBottom: space[6],
 })
 
 const filterCardStyle = {
-  backgroundColor: '#ffffff',
-  borderRadius: '12px',
-  padding: '18px',
-  boxShadow: '0 4px 6px rgba(0,0,0,0.08)',
-  marginBottom: '18px',
-  color: '#0f172a',
+  backgroundColor: colors.white,
+  borderRadius: radius.lg,
+  padding: space[7],
+  boxShadow: shadow.sm,
+  marginBottom: space[6],
+  color: colors.gray900,
 }
 
 const filterHeaderStyle = {
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'flex-start',
-  marginBottom: '14px',
+  marginBottom: space[7],
 }
 
 const filterEyebrowStyle = {
-  color: '#1d4ed8',
-  fontWeight: '800',
-  fontSize: '0.8rem',
+  color: colors.blue700,
+  fontWeight: type.bold,
+  fontSize: type.xs,
   letterSpacing: '0.08em',
   textTransform: 'uppercase',
 }
 
 const filterSubtitleStyle = {
-  marginTop: '4px',
-  color: '#64748b',
-  fontSize: '0.9rem',
+  marginTop: space[2],
+  color: colors.gray500,
+  fontSize: type.sm,
 }
 
 const toolbarStyle = (isMobile) => ({
@@ -227,143 +228,143 @@ const toolbarStyle = (isMobile) => ({
   justifyContent: 'space-between',
   alignItems: isMobile ? 'stretch' : 'center',
   flexDirection: isMobile ? 'column' : 'row',
-  gap: '12px',
-  marginBottom: '14px',
+  gap: space[6],
+  marginBottom: space[5],
 })
 
 const toolbarMetaStyle = {
   display: 'flex',
   alignItems: 'center',
-  gap: '12px',
+  gap: space[6],
   flexWrap: 'wrap',
 }
 
 const recordsBadgeStyle = {
   display: 'inline-flex',
   alignItems: 'center',
-  padding: '10px 14px',
-  borderRadius: '999px',
+  padding: `${space[1]} ${space[5]}`,
+  borderRadius: radius.full,
   backgroundColor: '#e0f2fe',
   color: '#075985',
-  fontWeight: '700',
+  fontWeight: type.bold,
 }
 
 const rowsControlStyle = {
   display: 'inline-flex',
   alignItems: 'center',
-  gap: '8px',
-  color: '#0f172a',
-  fontWeight: '700',
+  gap: space[4],
+  color: colors.gray900,
+  fontWeight: type.bold,
   flexWrap: 'wrap',
-  backgroundColor: '#ffffff',
-  border: '1px solid #dbe4f0',
-  borderRadius: '999px',
-  padding: '8px 12px',
-  boxShadow: '0 8px 22px rgba(15, 23, 42, 0.05)',
+  backgroundColor: colors.white,
+  border: `1px solid ${colors.gray200}`,
+  borderRadius: radius.full,
+  padding: `${space[2]} ${space[6]}`,
+  boxShadow: shadow.sm,
 }
 
 const rowsSelectStyle = {
-  padding: '8px 10px',
-  borderRadius: '8px',
-  border: '1px solid #cbd5e1',
-  backgroundColor: '#ffffff',
-  color: '#0f172a',
-  fontWeight: '700',
-  WebkitTextFillColor: '#0f172a',
+  padding: `${space[2]} ${space[5]}`,
+  borderRadius: radius.sm,
+  border: `1px solid ${colors.gray300}`,
+  backgroundColor: colors.white,
+  color: colors.gray900,
+  fontWeight: type.bold,
+  WebkitTextFillColor: colors.gray900,
 }
 
 const exportButtonStyle = {
   border: 'none',
-  borderRadius: '10px',
-  backgroundColor: '#1d4ed8',
-  color: '#ffffff',
-  fontWeight: '800',
-  padding: '12px 16px',
+  borderRadius: radius.md,
+  backgroundColor: colors.blue700,
+  color: colors.white,
+  fontWeight: type.black,
+  padding: `${space[4]} ${space[7]}`,
   cursor: 'pointer',
 }
 
 const dataPanelStyle = {
-  backgroundColor: '#ffffff',
-  borderRadius: '12px',
+  backgroundColor: colors.white,
+  borderRadius: radius.lg,
   overflow: 'hidden',
-  boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+  boxShadow: shadow.sm,
 }
 
 const getTableWrapperStyle = (isMobile) => ({
-  maxHeight: isMobile ? 'none' : '56vh',
+  maxHeight: isMobile ? 'none' : '60vh',
   overflow: isMobile ? 'visible' : 'hidden',
 })
 
 const getTableScrollStyle = (isMobile) => ({
   overflowX: 'auto',
   overflowY: isMobile ? 'visible' : 'auto',
-  maxHeight: isMobile ? 'none' : '56vh',
+  maxHeight: isMobile ? 'none' : '60vh',
 })
 
 const tableStyle = {
   width: '100%',
   minWidth: '760px',
   borderCollapse: 'collapse',
-  backgroundColor: '#ffffff',
+  backgroundColor: colors.white,
 }
 
-const theadStyle = { backgroundColor: '#4a5568', color: '#ffffff' }
+const theadStyle = { backgroundColor: '#4a5568', color: colors.white }
 const getThStyle = (isMobile) => ({
-  padding: '15px',
+  padding: '10px 12px',
   textAlign: 'left',
-  fontSize: '0.85rem',
+  fontSize: type.sm,
   position: isMobile ? 'static' : 'sticky',
   top: isMobile ? 'auto' : 0,
   zIndex: 1,
   backgroundColor: '#4a5568',
-  color: '#ffffff',
+  color: colors.white,
 })
 
 const emptyStateStyle = {
-  padding: '18px',
+  padding: space[9],
   textAlign: 'center',
-  color: '#64748b',
-  fontWeight: '700',
-  backgroundColor: '#ffffff',
+  color: colors.gray500,
+  fontWeight: type.bold,
+  backgroundColor: colors.white,
 }
 
 const footerBarStyle = (isMobile) => ({
-  padding: '14px 16px 16px',
+  padding: `${space[5]} ${space[7]} ${space[6]}`,
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: isMobile ? 'stretch' : 'center',
   flexDirection: isMobile ? 'column' : 'row',
-  gap: '12px',
-  backgroundColor: '#ffffff',
-  borderTop: '1px solid #e2e8f0',
+  gap: space[6],
+  backgroundColor: colors.white,
+  borderTop: `1px solid ${colors.gray200}`,
 })
 
 const pageStatusStyle = {
-  color: '#475569',
-  fontWeight: '700',
+  color: colors.gray600,
+  fontWeight: type.bold,
 }
 
 const paginationControlsStyle = {
   display: 'flex',
   alignItems: 'center',
-  gap: '10px',
+  gap: space[5],
   flexWrap: 'wrap',
 }
 
 const pageIndicatorStyle = {
-  color: '#0f172a',
-  fontWeight: '800',
+  color: colors.gray900,
+  fontWeight: type.black,
   minWidth: '130px',
   textAlign: 'center',
 }
 
 const getSummaryStyle = (isMobile) => ({
-  marginTop: '20px',
+  marginTop: space[5],
   textAlign: isMobile ? 'left' : 'right',
-  padding: isMobile ? '16px 8px' : '20px',
-  fontSize: isMobile ? '1rem' : '1.2rem',
-  fontWeight: 'bold',
-  color: '#2d3748',
+  padding: isMobile ? `${space[6]} ${space[3]}` : space[7],
+  fontSize: isMobile ? type.md : type.xl,
+  fontWeight: type.bold,
+  color: colors.gray800,
 })
 
 export default ReportView

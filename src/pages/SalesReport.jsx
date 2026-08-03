@@ -3,6 +3,7 @@ import ReportView from '../components/ReportView'
 import { materialService } from '../api/materialService'
 import { formatCurrency, formatDateTime, formatNumericFolio } from '../lib/reportUtils'
 import { useResponsive } from '../lib/useResponsive'
+import { colors, space, type, radius } from '../lib/designTokens'
 
 const SalesReport = () => {
   const [sales, setSales] = useState([])
@@ -132,25 +133,25 @@ const getFilterGridStyle = (isMobile) => ({
 
 const filterLabelStyle = {
   display: 'block',
-  marginBottom: '6px',
-  color: '#475569',
-  fontWeight: '700',
-  fontSize: '0.85rem',
+  marginBottom: space[2],
+  color: colors.gray600,
+  fontWeight: type.bold,
+  fontSize: type.sm,
 }
 
 const filterInputStyle = {
   width: '100%',
-  padding: '10px',
-  borderRadius: '8px',
-  border: '1px solid #cbd5e1',
+  padding: `${space[4]} ${space[5]}`,
+  borderRadius: radius.md,
+  border: `1px solid ${colors.gray300}`,
   boxSizing: 'border-box',
-  backgroundColor: '#ffffff',
-  color: '#0f172a',
-  WebkitTextFillColor: '#0f172a',
+  backgroundColor: colors.white,
+  color: colors.gray900,
+  WebkitTextFillColor: colors.gray900,
 }
 
 const loadingStyle = { padding: '50px', textAlign: 'center' }
-const tdStyle = { padding: '12px 15px', fontSize: '0.95rem', color: '#4a5568' }
+const tdStyle = { padding: '8px 12px', fontSize: type.md, color: colors.gray600 }
 const rowStyle = { borderBottom: '1px solid #e2e8f0' }
 
 export default SalesReport

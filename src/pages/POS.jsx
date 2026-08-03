@@ -1,5 +1,4 @@
 ﻿import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react'
-import { cashControlService } from '../api/cashControlService'
 import { materialService } from '../api/materialService'
 import { posService } from '../api/posService'
 import { useAuth } from '../contexts/AuthContext'
@@ -412,6 +411,8 @@ const ServiceMapView = ({
   notice,
   isMobile,
   canOperatePOS,
+  isCashSessionOpen,
+  cashStatusLoading,
   meseroLockedTable,
   freeBars,
   occupiedBars,
@@ -436,6 +437,13 @@ const ServiceMapView = ({
           {!canOperatePOS && (
             <div style={readOnlyHintStyle}>
               Tu usuario puede consultar estaciones, pero no modificar pedidos.
+            </div>
+          )}
+          {(cashStatusLoading || !isCashSessionOpen) && (
+            <div style={warningHintStyle}>
+              {cashStatusLoading
+                ? 'Validando el estado de caja. Las mesas y barras permanecen bloqueadas.'
+                : 'Caja cerrada. Abre caja antes de abrir una mesa o barra.'}
             </div>
           )}
           {meseroLockedTable && (
@@ -473,6 +481,7 @@ const ServiceMapView = ({
           isMobile={isMobile}
           emptyMessage="Aun no hay barras configuradas."
           onSelect={onSelectTable}
+          disabled={cashStatusLoading || !isCashSessionOpen}
         />
         <StationSection
           title="Mesas"
@@ -481,6 +490,7 @@ const ServiceMapView = ({
           isMobile={isMobile}
           emptyMessage="Aun no hay mesas configuradas."
           onSelect={onSelectTable}
+          disabled={cashStatusLoading || !isCashSessionOpen}
         />
       </div>
     </div>
@@ -491,6 +501,7 @@ const ServiceMapView = ({
 const ProductCatalog = ({
   isMobile,
   canOperatePOS,
+  isCashSessionOpen,
   availableProducts,
   totalItems,
   onAddToCart,
@@ -507,7 +518,9 @@ const ProductCatalog = ({
         </p>
         {!canOperatePOS && (
           <div style={readOnlyHintStyle}>
-            Modo solo lectura. Puedes revisar el contenido de la cuenta, pero no cambiarlo.
+            {isCashSessionOpen
+              ? 'Modo solo lectura. Puedes revisar el contenido de la cuenta, pero no cambiarlo.'
+              : 'Caja cerrada. No puedes agregar productos ni modificar pedidos.'}
           </div>
         )}
       </div>
@@ -727,6 +740,8 @@ const ActiveOrderView = ({
   isTablet,
   isMobile,
   canOperatePOS,
+  canLeaveStation,
+  isCashSessionOpen,
   selectedTable,
   selectedStationLabel,
   availableProducts,
@@ -774,7 +789,7 @@ const ActiveOrderView = ({
       <div style={getWorkspaceStyle(isTablet, isMobile)}>
         <section>
           <div style={topBarStyle(isMobile)}>
-            <button onClick={onSaveAndExit} disabled={!canOperatePOS} style={canOperatePOS ? btnSecondaryStyle : disabledSecondaryBtnStyle}>
+            <button onClick={onSaveAndExit} disabled={!canLeaveStation} style={canLeaveStation ? btnSecondaryStyle : disabledSecondaryBtnStyle}>
               Volver a Barras y Mesas
             </button>
             <div style={tableInfoCardStyle}>
@@ -788,6 +803,7 @@ const ActiveOrderView = ({
           <ProductCatalog
             isMobile={isMobile}
             canOperatePOS={canOperatePOS}
+            isCashSessionOpen={isCashSessionOpen}
             availableProducts={availableProducts}
             cubetaConfig={cubetaConfig}
             caguamitaConfig={caguamitaConfig}
@@ -837,6 +853,7 @@ const ActiveOrderView = ({
 const usePosController = ({ onEditingStateChange = () => {} }) => {
   const [state, dispatch] = useReducer(posReducer, undefined, createInitialPosState)
   const [showCubetaBuilder, setShowCubetaBuilder] = useState(false)
+  const [cashSessionState, setCashSessionState] = useState({ isOpen: false, isLoading: true })
   const { isMobile, isTablet } = useResponsive()
   const { can, isManager, isSuperadmin, isWaiter } = useAuth()
   const canCreateSale = can(PAGE_PERMISSION_MAP.pos, ACTION_KEYS.CREATE)
@@ -860,6 +877,41 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
     showFinalizeConfirm,
     isFinalizingSale,
   } = state
+
+  const refreshCashSessionStatus = useCallback(async ({ notify = false } = {}) => {
+    try {
+      const result = await posService.getCashSessionStatus()
+      const isOpen = result?.cash_session_open === true
+      setCashSessionState({ isOpen, isLoading: false })
+
+      if (!isOpen && notify) {
+        dispatch({
+          type: 'set_notice',
+          notice: {
+            type: 'warning',
+            message: 'La caja esta cerrada. Abre caja antes de abrir mesas, barras o agregar productos.',
+          },
+        })
+      }
+
+      return isOpen
+    } catch (error) {
+      console.error('Error al validar el estado de caja:', error)
+      setCashSessionState({ isOpen: false, isLoading: false })
+
+      if (notify) {
+        dispatch({
+          type: 'set_notice',
+          notice: {
+            type: 'warning',
+            message: 'No se pudo confirmar una caja abierta. La operacion fue bloqueada por seguridad.',
+          },
+        })
+      }
+
+      return false
+    }
+  }, [])
 
   const persistTableOrder = useCallback(async (table, items, options = {}) => {
     const { table: persistedTable, order } = await posService.saveTableOrder({
@@ -918,6 +970,17 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
   }, [isWaiter])
 
   useEffect(() => {
+    refreshCashSessionStatus()
+
+    const handleWindowFocus = () => {
+      refreshCashSessionStatus()
+    }
+
+    window.addEventListener('focus', handleWindowFocus)
+    return () => window.removeEventListener('focus', handleWindowFocus)
+  }, [refreshCashSessionStatus])
+
+  useEffect(() => {
     if (!notice) return undefined
 
     const timer = window.setTimeout(() => {
@@ -974,12 +1037,20 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
         await loadTables()
       } catch (error) {
         console.error('Error al guardar automaticamente la mesa:', error)
+        dispatch({
+          type: 'set_notice',
+          notice: {
+            type: 'warning',
+            message: error instanceof Error ? error.message : 'No se pudo guardar el pedido.',
+          },
+        })
+        refreshCashSessionStatus()
       }
     }
 
     persistCurrentTable()
     return undefined
-  }, [cart, isHydratingTable, queueTableOrderSave, selectedTable])
+  }, [cart, isHydratingTable, queueTableOrderSave, refreshCashSessionStatus, selectedTable])
 
   useEffect(() => {
     const handlePageHide = () => {
@@ -1028,6 +1099,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
 
   const handleSelectTable = async (table) => {
     if (finalizeSaleInFlightRef.current) return
+    if (!(await refreshCashSessionStatus({ notify: true }))) return
 
     try {
       dispatch({ type: 'hydrate_table_start', table })
@@ -1085,8 +1157,9 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
     }
   }
 
-  const addToCart = (item) => {
+  const addToCart = async (item) => {
     if (!canOperatePOS || finalizeSaleInFlightRef.current) return
+    if (!(await refreshCashSessionStatus({ notify: true }))) return
     const isInventoried = item.materials?.categories?.is_inventoried === true
 
     if (item.precio_venta <= 0) {
@@ -1130,8 +1203,9 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
     }
   }
 
-  const changeQuantity = (id, delta) => {
+  const changeQuantity = async (id, delta) => {
     if (!canOperatePOS || finalizeSaleInFlightRef.current) return
+    if (delta > 0 && !(await refreshCashSessionStatus({ notify: true }))) return
     if (delta < 0 && !canDecreaseOrRemoveFromOccupiedTable) {
       showNotice('Los meseros no pueden disminuir cantidades en una mesa ya ocupada. Solo un manager puede hacerlo.', 'warning')
       return
@@ -1198,8 +1272,9 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
     }
   }
 
-  const handleOpenCubetaBuilder = (bundleKind = 'cubeta') => {
+  const handleOpenCubetaBuilder = async (bundleKind = 'cubeta') => {
     if (!canOperatePOS || finalizeSaleInFlightRef.current) return
+    if (!(await refreshCashSessionStatus({ notify: true }))) return
     const targetConfig = bundleKind === 'caguamita' ? caguamitaConfig : cubetaConfig
     if (!targetConfig.isAvailable) {
       showNotice(targetConfig.disabledReason || 'Bundle no disponible en este momento.', 'warning')
@@ -1209,8 +1284,9 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
     setShowCubetaBuilder(bundleKind)
   }
 
-  const handleConfirmCubetaBuilder = (selections) => {
+  const handleConfirmCubetaBuilder = async (selections) => {
     if (!canOperatePOS || finalizeSaleInFlightRef.current) return
+    if (!(await refreshCashSessionStatus({ notify: true }))) return
 
     if (!activeBundleConfig.isAvailable) {
       showNotice(activeBundleConfig.disabledReason || 'Bundle no disponible en este momento.', 'warning')
@@ -1257,10 +1333,11 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
     showNotice(`${activeBundleConfig.bundleLabel} agregada a la cuenta.`, 'success')
   }
 
-  const handleRequestFinalizeSale = () => {
+  const handleRequestFinalizeSale = async () => {
     if (!canOperatePOS) return
     if (!selectedTable || cart.length === 0) return
     if (finalizeSaleInFlightRef.current) return
+    if (!(await refreshCashSessionStatus({ notify: true }))) return
     if (normalizeText(selectedTable.status) !== 'ocupada' || !selectedTable.current_order_id) {
       showNotice('Espera a que el pedido termine de guardarse antes de finalizar.', 'info')
       return
@@ -1298,11 +1375,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
         return
       }
 
-      const cashSessionOverview = await cashControlService.getSessionOverview()
-      if (cashSessionOverview?.session?.status !== 'open') {
-        showNotice('No hay una caja abierta. Debes abrir caja antes de registrar ventas en efectivo.', 'warning')
-        return
-      }
+      if (!(await refreshCashSessionStatus({ notify: true }))) return
 
       const centerId = inventory[0]?.centers?.id
       if (!centerId) {
@@ -1383,6 +1456,8 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
     isMobile,
     isTablet,
     canOperatePOS: canOperatePOS && !isFinalizingSale,
+    isCashSessionOpen: cashSessionState.isOpen,
+    cashStatusLoading: cashSessionState.isLoading,
     selectedTable,
     selectedStationLabel,
     loading,
@@ -1424,6 +1499,8 @@ const POS = ({ onEditingStateChange = () => {} }) => {
     isMobile,
     isTablet,
     canOperatePOS,
+    isCashSessionOpen,
+    cashStatusLoading,
     selectedTable,
     selectedStationLabel,
     loading,
@@ -1466,6 +1543,8 @@ const POS = ({ onEditingStateChange = () => {} }) => {
         notice={notice}
         isMobile={isMobile}
         canOperatePOS={canOperatePOS}
+        isCashSessionOpen={isCashSessionOpen}
+        cashStatusLoading={cashStatusLoading}
         meseroLockedTable={meseroLockedTable}
         freeBars={freeBars}
         occupiedBars={occupiedBars}
@@ -1486,7 +1565,9 @@ const POS = ({ onEditingStateChange = () => {} }) => {
       notice={notice}
       isTablet={isTablet}
       isMobile={isMobile}
-      canOperatePOS={canOperatePOS}
+      canOperatePOS={canOperatePOS && isCashSessionOpen && !cashStatusLoading}
+      canLeaveStation={canOperatePOS}
+      isCashSessionOpen={isCashSessionOpen}
       selectedTable={selectedTable}
       selectedStationLabel={selectedStationLabel}
       availableProducts={availableProducts}
@@ -1537,7 +1618,7 @@ const NoticeBanner = ({ notice, onClose }) => (
   </div>
 )
 
-const StationSection = ({ title, description, stations, isMobile, emptyMessage, onSelect }) => (
+const StationSection = ({ title, description, stations, isMobile, emptyMessage, onSelect, disabled = false }) => (
   <section style={stationSectionStyle}>
     <div style={stationSectionHeaderStyle}>
       <div>
@@ -1563,11 +1644,14 @@ const StationSection = ({ title, description, stations, isMobile, emptyMessage, 
               key={table.id}
               type="button"
               onClick={() => onSelect(table)}
+              disabled={disabled}
               style={{
                 ...getTableButtonStyle(isMobile),
                 background: isFree
                   ? 'linear-gradient(135deg, #2f855a 0%, #276749 100%)'
                   : 'linear-gradient(135deg, #c53030 0%, #9b2c2c 100%)',
+                opacity: disabled ? 0.55 : 1,
+                cursor: disabled ? 'not-allowed' : 'pointer',
               }}
             >
               <span style={{ fontSize: isMobile ? '1rem' : '0.9rem', opacity: 0.88 }}>{typeLabel}</span>

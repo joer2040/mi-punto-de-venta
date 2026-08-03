@@ -1,6 +1,6 @@
 import { supabase } from '../lib/supabase'
 
-const invokePosOperation = async (action, payload) => {
+const invokePosOperation = async (action, payload = {}) => {
   const {
     data: { session },
   } = await supabase.auth.getSession()
@@ -20,17 +20,30 @@ const invokePosOperation = async (action, payload) => {
   if (error) {
     const response = error.context
 
-    if (response) {
+    if (response && typeof response.clone === 'function') {
+      const jsonResponse = response.clone()
+      const textResponse = response.clone()
+
+      let parsedJson = null
       try {
-        const errorBody = await response.json()
-        throw new Error(errorBody?.error || error.message)
+        parsedJson = await jsonResponse.json()
       } catch {
-        try {
-          const errorText = await response.text()
-          throw new Error(errorText || error.message)
-        } catch {
-          throw new Error(error.message)
-        }
+        // The response may contain plain text instead of JSON.
+      }
+
+      if (parsedJson?.error) {
+        throw new Error(parsedJson.error)
+      }
+
+      let errorText = ''
+      try {
+        errorText = await textResponse.text()
+      } catch {
+        // Fall through to the original Supabase error below.
+      }
+
+      if (errorText) {
+        throw new Error(errorText)
       }
     }
 
@@ -42,6 +55,10 @@ const invokePosOperation = async (action, payload) => {
 }
 
 export const posService = {
+  async getCashSessionStatus() {
+    return invokePosOperation('get_cash_session_status')
+  },
+
   async saveTableOrder({ table_id, expected_order_id = null, items, lock_waiter_editing = false }) {
     return invokePosOperation('save_table_order', {
       table_id,

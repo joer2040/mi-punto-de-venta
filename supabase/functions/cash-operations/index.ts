@@ -346,10 +346,20 @@ const loadSalesSummary = async (adminClient: ReturnType<typeof createClient>, se
   }
 }
 
+const loadActivePosOperationCount = async (adminClient: ReturnType<typeof createClient>) => {
+  const { data, error } = await adminClient.rpc('active_pos_operation_count')
+
+  if (error) throw error
+  return Number(data || 0)
+}
+
 const buildSessionOverview = async (adminClient: ReturnType<typeof createClient>) => {
   const openSession = await loadOpenSession(adminClient)
   if (openSession) {
-    const salesSummary = await loadSalesSummary(adminClient, openSession.id)
+    const [salesSummary, activeSalesCount] = await Promise.all([
+      loadSalesSummary(adminClient, openSession.id),
+      loadActivePosOperationCount(adminClient),
+    ])
     const openingAmount = toNumber(openSession.opening_amount)
     return {
       session: serializeSession({
@@ -359,12 +369,14 @@ const buildSessionOverview = async (adminClient: ReturnType<typeof createClient>
         closing_amount: openingAmount + salesSummary.salesCashTotal,
         profit_total: salesSummary.profitTotal,
       }),
+      active_sales_count: activeSalesCount,
     }
   }
 
   const latestSession = await loadLatestSession(adminClient)
   return {
     session: serializeSession(latestSession),
+    active_sales_count: 0,
   }
 }
 

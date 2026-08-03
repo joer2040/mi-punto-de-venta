@@ -238,7 +238,7 @@ const getSuggestedPdfName = (session) =>
   session?.report_pdf_metadata?.suggested_file_name ||
   `corte-caja-${session?.id?.slice(0, 8) || 'sesion'}.pdf`
 
-const CashControl = () => {
+const CashControl = ({ onCashSessionChange = () => {} }) => {
   const { isMobile } = useResponsive()
   const { can } = useAuth()
   const canManageCash = can(PAGE_PERMISSION_MAP['cash-control'], ACTION_KEYS.MANAGE)
@@ -251,6 +251,10 @@ const CashControl = () => {
 
   const session = overview?.session || null
   const isOpen = session?.status === 'open'
+  const activeSalesCount = Number(overview?.active_sales_count || 0)
+  const closeBlockedMessage = activeSalesCount === 1
+    ? 'No es posible cerrar la caja: hay 1 mesa, barra o pedido activo. Finaliza o cancela la operacion antes de cerrar.'
+    : `No es posible cerrar la caja: hay ${activeSalesCount} mesas, barras o pedidos activos. Finaliza o cancela todas las operaciones antes de cerrar.`
 
   const loadOverview = async ({ silent = false } = {}) => {
     if (!silent) setLoading(true)
@@ -316,7 +320,8 @@ const CashControl = () => {
       setSubmitting(true)
       setNotice(null)
       const data = await cashControlService.openCashSession(amount)
-      setOverview({ session: data.session })
+      setOverview({ session: data.session, active_sales_count: 0 })
+      onCashSessionChange(true)
       setOpeningAmount('')
       setIsChecked(false)
       setNotice({ type: 'success', message: 'Caja abierta correctamente.' })
@@ -334,6 +339,19 @@ const CashControl = () => {
     try {
       setSubmitting(true)
       setNotice(null)
+
+      const latestOverview = await cashControlService.getSessionOverview()
+      setOverview(latestOverview || { session: null, active_sales_count: 0 })
+      const latestActiveSalesCount = Number(latestOverview?.active_sales_count || 0)
+
+      if (latestActiveSalesCount > 0) {
+        const message = latestActiveSalesCount === 1
+          ? 'No es posible cerrar la caja: hay 1 mesa, barra o pedido activo. Finaliza o cancela la operacion antes de cerrar.'
+          : `No es posible cerrar la caja: hay ${latestActiveSalesCount} mesas, barras o pedidos activos. Finaliza o cancela todas las operaciones antes de cerrar.`
+        setNotice({ type: 'warning', message })
+        return
+      }
+
       const data = await cashControlService.closeCashSession()
       const pdf = await buildCashClosurePdf({
         session: data.session,
@@ -342,7 +360,8 @@ const CashControl = () => {
         closingInventory: data.closing_inventory,
       })
       pdf.save(getSuggestedPdfName(data.session))
-      setOverview({ session: data.session })
+      setOverview({ session: data.session, active_sales_count: 0 })
+      onCashSessionChange(false)
       setNotice({ type: 'success', message: 'Caja cerrada y reporte PDF generado.' })
     } catch (error) {
       console.error('Error al cerrar caja:', error)
@@ -454,6 +473,10 @@ const CashControl = () => {
                 <span style={expectedTotalLabelStyle}>Monto Esperado Total</span>
                 <strong style={expectedTotalValueStyle}>{formatCurrency(session?.expected_cash_total)}</strong>
               </div>
+
+              {activeSalesCount > 0 && (
+                <div style={closeBlockedNoteStyle}>{closeBlockedMessage}</div>
+              )}
 
               <button
                 type="button"
@@ -683,6 +706,16 @@ const dangerButtonStyle = {
 const disabledButtonStyle = {
   backgroundColor: colors.gray400,
   cursor: 'not-allowed',
+}
+
+const closeBlockedNoteStyle = {
+  backgroundColor: colors.amber50,
+  color: '#c2410c',
+  border: '1px solid #fdba74',
+  borderRadius: radius.lg,
+  padding: space[6],
+  fontWeight: type.bold,
+  lineHeight: 1.5,
 }
 
 const metricCardStyle = {

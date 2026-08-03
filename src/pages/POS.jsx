@@ -3,6 +3,7 @@ import { materialService } from '../api/materialService'
 import { posService } from '../api/posService'
 import { useAuth } from '../contexts/AuthContext'
 import { ACTION_KEYS, PAGE_PERMISSION_MAP } from '../lib/permissionConfig'
+import { getApproximateSearchScore, rankApproximateMatches } from '../lib/productSearch'
 import { supabase } from '../lib/supabase'
 import { useResponsive } from '../lib/useResponsive'
 import logoCarreta from '../assets/la_carreta_sin_fondo.png'
@@ -508,8 +509,26 @@ const ProductCatalog = ({
   cubetaConfig,
   caguamitaConfig,
   onOpenBundleBuilder,
-}) => (
-  <>
+}) => {
+  const [searchQuery, setSearchQuery] = useState('')
+  const filteredProducts = rankApproximateMatches(
+    availableProducts,
+    searchQuery,
+    (item) => `${item.materials?.name || ''} ${item.materials?.sku || ''} ${item.materials?.categories?.name || ''}`
+  )
+  const showCubeta = getApproximateSearchScore(
+    searchQuery,
+    `${CUBETA_BUNDLE_LABEL} cubeta cerveza cervezas bundle virtual`
+  ) > 0
+  const showCaguamita = getApproximateSearchScore(
+    searchQuery,
+    `${CAGUAMITA_BUNDLE_LABEL} cubeta cerveza caguama caguamita bundle virtual ${CAGUAMITA_SKU}`
+  ) > 0
+  const visibleResultCount = filteredProducts.length + Number(showCubeta) + Number(showCaguamita)
+  const hasSearch = searchQuery.trim().length > 0
+
+  return (
+    <>
     <div style={{ ...heroCardStyle, ...(isMobile && { display: 'none' }) }}>
       <div>
         <h2 style={{ color: '#1f2937', margin: 0, fontSize: isMobile ? '1.35rem' : '1.65rem' }}>Productos Disponibles</h2>
@@ -535,10 +554,52 @@ const ProductCatalog = ({
           <strong style={statValueStyle}>{totalItems}</strong>
         </div>
       </div>
-    </div>
+      </div>
 
-    <div style={getProductGridStyle(isMobile)}>
-      <button
+      <div style={getProductSearchStyle(isMobile)}>
+        <label htmlFor="pos-product-search" style={productSearchLabelStyle}>
+          Buscar productos
+        </label>
+        <div style={productSearchInputRowStyle}>
+          <input
+            id="pos-product-search"
+            type="search"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Nombre, SKU o categoria..."
+            autoComplete="off"
+            spellCheck={false}
+            style={productSearchInputStyle}
+          />
+          {hasSearch && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              aria-label="Limpiar busqueda de productos"
+              style={productSearchClearButtonStyle}
+            >
+              Limpiar
+            </button>
+          )}
+        </div>
+        <span aria-live="polite" style={productSearchResultStyle}>
+          {hasSearch
+            ? `${visibleResultCount} ${visibleResultCount === 1 ? 'coincidencia' : 'coincidencias'}`
+            : `${availableProducts.length} productos disponibles`}
+        </span>
+      </div>
+
+      {visibleResultCount === 0 ? (
+        <div style={productSearchEmptyStyle}>
+          <strong style={{ color: colors.gray700 }}>No encontramos coincidencias</strong>
+          <span style={{ ...mutedTextStyle, marginTop: space[2] }}>
+            Prueba otra palabra o una parte del nombre.
+          </span>
+        </div>
+      ) : (
+        <div style={getProductGridStyle(isMobile)}>
+      {showCubeta && (
+        <button
         type="button"
         onClick={() => onOpenBundleBuilder('cubeta')}
         disabled={!canOperatePOS || !cubetaConfig?.isAvailable}
@@ -566,8 +627,10 @@ const ProductCatalog = ({
             {cubetaConfig?.disabledReason}
           </div>
         )}
-      </button>
-      <button
+        </button>
+      )}
+      {showCaguamita && (
+        <button
         type="button"
         onClick={() => onOpenBundleBuilder('caguamita')}
         disabled={!canOperatePOS || !caguamitaConfig?.isAvailable}
@@ -595,8 +658,9 @@ const ProductCatalog = ({
             {caguamitaConfig?.disabledReason}
           </div>
         )}
-      </button>
-      {availableProducts.map((item) => {
+        </button>
+      )}
+      {filteredProducts.map((item) => {
         const isInventoried = item.materials?.categories?.is_inventoried === true
         const isOutOfStock = isInventoried && item.stock_actual <= 0
         const isProductDisabled = !canOperatePOS || isOutOfStock
@@ -635,9 +699,11 @@ const ProductCatalog = ({
           </button>
         )
       })}
-    </div>
-  </>
-)
+        </div>
+      )}
+    </>
+  )
+}
 
 const CartPanel = ({
   isTablet,
@@ -2460,6 +2526,71 @@ const tableInfoLabelStyle = {
   textTransform: 'uppercase',
   letterSpacing: '0.04em',
   marginBottom: space[2],
+}
+
+const getProductSearchStyle = (isMobile) => ({
+  display: 'grid',
+  gap: space[3],
+  marginBottom: isMobile ? space[5] : space[7],
+  padding: isMobile ? space[5] : space[6],
+  backgroundColor: colors.white,
+  border: `1px solid ${colors.gray200}`,
+  borderRadius: radius.lg,
+  boxShadow: shadow.sm,
+})
+
+const productSearchLabelStyle = {
+  color: colors.gray700,
+  fontSize: type.sm,
+  fontWeight: type.bold,
+}
+
+const productSearchInputRowStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: space[4],
+}
+
+const productSearchInputStyle = {
+  width: '100%',
+  minWidth: 0,
+  minHeight: '44px',
+  padding: `0 ${space[6]}`,
+  border: `1px solid ${colors.gray300}`,
+  borderRadius: radius.md,
+  color: colors.gray900,
+  backgroundColor: colors.gray100,
+  fontSize: '16px',
+}
+
+const productSearchClearButtonStyle = {
+  minHeight: '44px',
+  padding: `0 ${space[6]}`,
+  border: `1px solid ${colors.gray300}`,
+  borderRadius: radius.md,
+  color: colors.gray700,
+  backgroundColor: colors.white,
+  fontSize: type.base,
+  fontWeight: type.medium,
+  cursor: 'pointer',
+}
+
+const productSearchResultStyle = {
+  color: colors.gray500,
+  fontSize: type.xs,
+}
+
+const productSearchEmptyStyle = {
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  minHeight: '160px',
+  padding: space[8],
+  textAlign: 'center',
+  backgroundColor: colors.gray100,
+  border: `1px dashed ${colors.gray300}`,
+  borderRadius: radius.lg,
 }
 
 const getProductGridStyle = (isMobile) => ({

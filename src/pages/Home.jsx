@@ -55,7 +55,7 @@ const sections = [
   },
 ]
 
-const Home = ({ onNavigate }) => {
+const Home = ({ onNavigate, isCashSessionOpen = false, cashStatusLoading = true }) => {
   const { isMobile, isTablet } = useResponsive()
   const { canAccessPage, profile, signOut } = useAuth()
   const visibleSections = sections.filter((section) => canAccessPage(section.id))
@@ -96,22 +96,35 @@ const Home = ({ onNavigate }) => {
 
       <section style={cardsSectionStyle}>
         <div style={getCardsGridStyle(isMobile)}>
-          {visibleSections.map((section) => (
+          {visibleSections.map((section) => {
+            const isPosBlocked = section.id === 'pos' && (cashStatusLoading || !isCashSessionOpen)
+
+            return (
             <button
               key={section.id}
               onClick={() => onNavigate(section.id)}
+              disabled={isPosBlocked}
+              title={isPosBlocked ? 'Abre caja para ingresar a Mesas y Barras.' : undefined}
               style={{
                 ...cardButtonStyle,
                 borderTop: `6px solid ${section.accent}`,
+                ...(isPosBlocked ? disabledCardButtonStyle : null),
               }}
               type="button"
             >
-              <div style={{ color: section.accent, ...moduleTagStyle }}>Modulo</div>
+              <div style={{ color: section.accent, ...moduleTagStyle }}>
+                {isPosBlocked ? (cashStatusLoading ? 'Validando caja' : 'Caja cerrada') : 'Modulo'}
+              </div>
               <div style={cardTitleStyle}>{section.label}</div>
-              <div style={cardDescriptionStyle}>{section.description}</div>
-              <div style={{ ...cardLinkStyle, color: section.accent }}>Entrar</div>
+              <div style={cardDescriptionStyle}>
+                {isPosBlocked ? 'Debes abrir caja antes de ingresar al menu de Mesas y Barras.' : section.description}
+              </div>
+              <div style={{ ...cardLinkStyle, color: section.accent }}>
+                {isPosBlocked ? 'Acceso bloqueado' : 'Entrar'}
+              </div>
             </button>
-          ))}
+            )
+          })}
         </div>
       </section>
     </div>
@@ -236,6 +249,12 @@ const cardButtonStyle = {
   textAlign: 'left',
   cursor: 'pointer',
   minHeight: '200px',
+}
+
+const disabledCardButtonStyle = {
+  opacity: 0.62,
+  cursor: 'not-allowed',
+  boxShadow: shadow.sm,
 }
 
 const moduleTagStyle = {

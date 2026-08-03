@@ -1,4 +1,5 @@
-import { Suspense, lazy, useEffect, useMemo, useReducer, useRef } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import { posService } from './api/posService'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { useResponsive } from './lib/useResponsive'
 
@@ -85,10 +86,23 @@ const uiReducer = (state, action) => {
   }
 }
 
-const PageContent = ({ currentPage, onNavigate, onPosEditingStateChange }) => {
+const PageContent = ({
+  currentPage,
+  onNavigate,
+  onPosEditingStateChange,
+  isCashSessionOpen,
+  cashStatusLoading,
+  onCashSessionChange,
+}) => {
   switch (currentPage) {
     case 'home':
-      return <Home onNavigate={onNavigate} />
+      return (
+        <Home
+          onNavigate={onNavigate}
+          isCashSessionOpen={isCashSessionOpen}
+          cashStatusLoading={cashStatusLoading}
+        />
+      )
     case 'master':
       return <Inventory />
     case 'providers':
@@ -98,7 +112,7 @@ const PageContent = ({ currentPage, onNavigate, onPosEditingStateChange }) => {
     case 'movements':
       return <MaterialMovements />
     case 'cash-control':
-      return <CashControl />
+      return <CashControl onCashSessionChange={onCashSessionChange} />
     case 'reports':
       return <ReportsHome onNavigate={onNavigate} />
     case 'report-inventory':
@@ -110,6 +124,12 @@ const PageContent = ({ currentPage, onNavigate, onPosEditingStateChange }) => {
     case 'report-movements':
       return <MaterialMovementsReport />
     case 'pos':
+      if (cashStatusLoading) {
+        return <div style={pageLoadingStyle}>Validando caja antes de ingresar a Mesas y Barras...</div>
+      }
+      if (!isCashSessionOpen) {
+        return <div style={pageLoadingStyle}>Caja cerrada. Abre caja antes de ingresar a Mesas y Barras.</div>
+      }
       return <POS onEditingStateChange={onPosEditingStateChange} />
     case 'security':
       return <SecurityUsers />
@@ -137,9 +157,43 @@ const AppShell = () => {
   } = useAuth()
   const { isMobile } = useResponsive()
   const [uiState, dispatch] = useReducer(uiReducer, undefined, getInitialUiState)
+  const [cashSessionState, setCashSessionState] = useState({
+    isOpen: false,
+    isLoading: true,
+    profileId: null,
+  })
   const { currentPage, isPosEditing, restoredProfileId, isMobileNavOpen } = uiState
   const idleTimerRef = useRef(null)
   const idleLogoutInFlightRef = useRef(false)
+  const profileId = profile?.id || null
+  const hasCurrentCashStatus = Boolean(profileId && cashSessionState.profileId === profileId)
+  const isCashSessionOpen = hasCurrentCashStatus && cashSessionState.isOpen
+  const cashStatusLoading = !hasCurrentCashStatus || cashSessionState.isLoading
+
+  const refreshCashSessionStatus = useCallback(async () => {
+    if (!isAuthenticated || !isActive) {
+      return false
+    }
+
+    try {
+      const result = await posService.getCashSessionStatus()
+      const isOpen = result?.cash_session_open === true
+      setCashSessionState({ isOpen, isLoading: false, profileId })
+      return isOpen
+    } catch (error) {
+      console.error('Error al validar caja para ingresar al POS:', error)
+      setCashSessionState({ isOpen: false, isLoading: false, profileId })
+      return false
+    }
+  }, [isActive, isAuthenticated, profileId])
+
+  const handleCashSessionChange = useCallback((isOpen) => {
+    setCashSessionState({
+      isOpen: Boolean(isOpen),
+      isLoading: false,
+      profileId,
+    })
+  }, [profileId])
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -147,6 +201,38 @@ const AppShell = () => {
       dispatch({ type: 'reset' })
     }
   }, [isAuthenticated])
+
+  useEffect(() => {
+    if (!isAuthenticated || !isActive) return undefined
+
+    let active = true
+
+    posService.getCashSessionStatus()
+      .then((result) => {
+        if (!active) return
+        setCashSessionState({
+          isOpen: result?.cash_session_open === true,
+          isLoading: false,
+          profileId,
+        })
+      })
+      .catch((error) => {
+        console.error('Error al validar caja para ingresar al POS:', error)
+        if (active) {
+          setCashSessionState({ isOpen: false, isLoading: false, profileId })
+        }
+      })
+
+    const handleWindowFocus = () => {
+      refreshCashSessionStatus()
+    }
+
+    window.addEventListener('focus', handleWindowFocus)
+    return () => {
+      active = false
+      window.removeEventListener('focus', handleWindowFocus)
+    }
+  }, [isActive, isAuthenticated, profileId, refreshCashSessionStatus])
 
   useEffect(() => {
     if (!isAuthenticated || !profile?.id) return
@@ -169,6 +255,16 @@ const AppShell = () => {
 
     localStorage.setItem(STORAGE_KEY, currentPage)
   }, [canAccessPage, currentPage, getFirstAllowedPage, isAuthenticated])
+
+  useEffect(() => {
+    if (!isAuthenticated || cashStatusLoading) return
+    if (currentPage !== 'pos' || isCashSessionOpen) return
+
+    const fallbackPage = canAccessPage('home')
+      ? 'home'
+      : PRIMARY_NAV_PAGES.find((pageKey) => pageKey !== 'pos' && canAccessPage(pageKey)) || 'home'
+    dispatch({ type: 'set-page', page: fallbackPage })
+  }, [canAccessPage, cashStatusLoading, currentPage, isAuthenticated, isCashSessionOpen])
 
   useEffect(() => {
     if (!isMobile && isMobileNavOpen) {
@@ -233,12 +329,19 @@ const AppShell = () => {
       PRIMARY_NAV_PAGES.filter((pageKey) => canAccessPage(pageKey)).map((pageKey) => ({
         key: pageKey,
         label: PAGE_LABELS[pageKey] || pageKey,
+        disabled: pageKey === 'pos' && (cashStatusLoading || !isCashSessionOpen),
       })),
-    [canAccessPage]
+    [canAccessPage, cashStatusLoading, isCashSessionOpen]
   )
 
-  const handleNavigate = (pageKey) => {
+  const handleNavigate = async (pageKey) => {
     if (!canAccessPage(pageKey)) return
+
+    if (pageKey === 'pos') {
+      const isOpen = await refreshCashSessionStatus()
+      if (!isOpen) return
+    }
+
     dispatch({ type: 'set-page', page: pageKey })
   }
 
@@ -300,9 +403,12 @@ const AppShell = () => {
                 key={item.key}
                 type="button"
                 onClick={() => handleNavigate(item.key)}
+                disabled={item.disabled}
+                title={item.disabled ? 'Abre caja para ingresar a Mesas y Barras.' : undefined}
                 style={{
                   ...navButtonStyle,
                   ...(currentPage === item.key ? activeNavButtonStyle : null),
+                  ...(item.disabled ? disabledNavButtonStyle : null),
                 }}
               >
                 {item.label}
@@ -364,9 +470,12 @@ const AppShell = () => {
                   key={item.key}
                   type="button"
                   onClick={() => handleNavigate(item.key)}
+                  disabled={item.disabled}
+                  title={item.disabled ? 'Abre caja para ingresar a Mesas y Barras.' : undefined}
                   style={{
                     ...mobileDrawerButtonStyle,
                     ...(currentPage === item.key ? mobileDrawerActiveButtonStyle : null),
+                    ...(item.disabled ? disabledNavButtonStyle : null),
                   }}
                 >
                   {item.label}
@@ -383,6 +492,9 @@ const AppShell = () => {
             currentPage={currentPage}
             onNavigate={handleNavigate}
             onPosEditingStateChange={handlePosEditingStateChange}
+            isCashSessionOpen={isCashSessionOpen}
+            cashStatusLoading={cashStatusLoading}
+            onCashSessionChange={handleCashSessionChange}
           />
         </Suspense>
       </main>
@@ -462,6 +574,11 @@ const activeNavButtonStyle = {
   background: '#0f172a',
   color: '#ffffff',
   borderColor: '#0f172a',
+}
+
+const disabledNavButtonStyle = {
+  opacity: 0.5,
+  cursor: 'not-allowed',
 }
 
 const mainStyle = {

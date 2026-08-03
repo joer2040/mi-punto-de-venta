@@ -238,19 +238,24 @@ const getSuggestedPdfName = (session) =>
   session?.report_pdf_metadata?.suggested_file_name ||
   `corte-caja-${session?.id?.slice(0, 8) || 'sesion'}.pdf`
 
-const CashControl = () => {
+const CashControl = ({ onCashSessionChange = () => {} }) => {
   const { isMobile } = useResponsive()
   const { can } = useAuth()
   const canManageCash = can(PAGE_PERMISSION_MAP['cash-control'], ACTION_KEYS.MANAGE)
   const [overview, setOverview] = useState({ session: null })
   const [openingAmount, setOpeningAmount] = useState('')
-  const [isChecked, setIsChecked] = useState(false)
+  const [isOpeningConfirmed, setIsOpeningConfirmed] = useState(false)
+  const [isClosingConfirmed, setIsClosingConfirmed] = useState(false)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [notice, setNotice] = useState(null)
 
   const session = overview?.session || null
   const isOpen = session?.status === 'open'
+  const activeSalesCount = Number(overview?.active_sales_count || 0)
+  const closeBlockedMessage = activeSalesCount === 1
+    ? 'No es posible cerrar la caja: hay 1 mesa, barra o pedido activo. Finaliza o cancela la operacion antes de cerrar.'
+    : `No es posible cerrar la caja: hay ${activeSalesCount} mesas, barras o pedidos activos. Finaliza o cancela todas las operaciones antes de cerrar.`
 
   const loadOverview = async ({ silent = false } = {}) => {
     if (!silent) setLoading(true)
@@ -258,6 +263,9 @@ const CashControl = () => {
     try {
       const data = await cashControlService.getSessionOverview()
       setOverview(data || { session: null })
+      if (data?.session?.status !== 'open' || Number(data?.active_sales_count || 0) > 0) {
+        setIsClosingConfirmed(false)
+      }
     } catch (error) {
       console.error('Error al cargar control de caja:', error)
       setNotice({ type: 'warning', message: error.message || 'No se pudo cargar la sesion de caja.' })
@@ -301,7 +309,7 @@ const CashControl = () => {
 
   const handleOpenSession = async () => {
     if (!canManageCash) return
-    if (!isChecked) {
+    if (!isOpeningConfirmed) {
       setNotice({ type: 'warning', message: 'Debes confirmar el check antes de abrir caja.' })
       return
     }
@@ -316,9 +324,11 @@ const CashControl = () => {
       setSubmitting(true)
       setNotice(null)
       const data = await cashControlService.openCashSession(amount)
-      setOverview({ session: data.session })
+      setOverview({ session: data.session, active_sales_count: 0 })
+      onCashSessionChange(true)
       setOpeningAmount('')
-      setIsChecked(false)
+      setIsOpeningConfirmed(false)
+      setIsClosingConfirmed(false)
       setNotice({ type: 'success', message: 'Caja abierta correctamente.' })
     } catch (error) {
       console.error('Error al abrir caja:', error)
@@ -330,22 +340,52 @@ const CashControl = () => {
 
   const handleCloseSession = async () => {
     if (!canManageCash) return
+    if (!isClosingConfirmed) {
+      setNotice({ type: 'warning', message: 'Debes confirmar el check de seguridad antes de cerrar caja.' })
+      return
+    }
 
     try {
       setSubmitting(true)
       setNotice(null)
+
+      const latestOverview = await cashControlService.getSessionOverview()
+      setOverview(latestOverview || { session: null, active_sales_count: 0 })
+      const latestActiveSalesCount = Number(latestOverview?.active_sales_count || 0)
+
+      if (latestActiveSalesCount > 0) {
+        setIsClosingConfirmed(false)
+        const message = latestActiveSalesCount === 1
+          ? 'No es posible cerrar la caja: hay 1 mesa, barra o pedido activo. Finaliza o cancela la operacion antes de cerrar.'
+          : `No es posible cerrar la caja: hay ${latestActiveSalesCount} mesas, barras o pedidos activos. Finaliza o cancela todas las operaciones antes de cerrar.`
+        setNotice({ type: 'warning', message })
+        return
+      }
+
       const data = await cashControlService.closeCashSession()
-      const pdf = await buildCashClosurePdf({
-        session: data.session,
-        sales: data.sales,
-        openingInventory: data.opening_inventory,
-        closingInventory: data.closing_inventory,
-      })
-      pdf.save(getSuggestedPdfName(data.session))
-      setOverview({ session: data.session })
-      setNotice({ type: 'success', message: 'Caja cerrada y reporte PDF generado.' })
+      setOverview({ session: data.session, active_sales_count: 0 })
+      onCashSessionChange(false)
+      setIsClosingConfirmed(false)
+
+      try {
+        const pdf = await buildCashClosurePdf({
+          session: data.session,
+          sales: data.sales,
+          openingInventory: data.opening_inventory,
+          closingInventory: data.closing_inventory,
+        })
+        pdf.save(getSuggestedPdfName(data.session))
+        setNotice({ type: 'success', message: 'Caja cerrada y reporte PDF generado.' })
+      } catch (reportError) {
+        console.error('Caja cerrada, pero no se pudo generar el reporte PDF:', reportError)
+        setNotice({
+          type: 'warning',
+          message: 'La caja se cerro correctamente, pero no se pudo generar el reporte PDF.',
+        })
+      }
     } catch (error) {
       console.error('Error al cerrar caja:', error)
+      setIsClosingConfirmed(false)
       setNotice({ type: 'warning', message: error.message || 'No se pudo cerrar la caja.' })
     } finally {
       setSubmitting(false)
@@ -420,8 +460,8 @@ const CashControl = () => {
               <label style={checkWrapStyle}>
                 <input
                   type="checkbox"
-                  checked={isChecked}
-                  onChange={(event) => setIsChecked(event.target.checked)}
+                  checked={isOpeningConfirmed}
+                  onChange={(event) => setIsOpeningConfirmed(event.target.checked)}
                   disabled={!canManageCash || submitting}
                 />
                 <span>Check de confirmacion antes de ingresar monto inicial</span>
@@ -430,10 +470,10 @@ const CashControl = () => {
               <button
                 type="button"
                 onClick={handleOpenSession}
-                disabled={!canManageCash || !isChecked || submitting || Number(openingAmount) <= 0}
+                disabled={!canManageCash || !isOpeningConfirmed || submitting || Number(openingAmount) <= 0}
                 style={{
                   ...primaryButtonStyle,
-                  ...((!canManageCash || !isChecked || submitting || Number(openingAmount) <= 0) ? disabledButtonStyle : null),
+                  ...((!canManageCash || !isOpeningConfirmed || submitting || Number(openingAmount) <= 0) ? disabledButtonStyle : null),
                 }}
               >
                 {submitting ? 'Procesando...' : 'Ingresar monto inicial caja'}
@@ -455,13 +495,29 @@ const CashControl = () => {
                 <strong style={expectedTotalValueStyle}>{formatCurrency(session?.expected_cash_total)}</strong>
               </div>
 
+              {activeSalesCount > 0 && (
+                <div style={closeBlockedNoteStyle}>{closeBlockedMessage}</div>
+              )}
+
+              <label style={checkWrapStyle}>
+                <input
+                  type="checkbox"
+                  checked={isClosingConfirmed}
+                  onChange={(event) => setIsClosingConfirmed(event.target.checked)}
+                  disabled={!canManageCash || submitting || activeSalesCount > 0}
+                />
+                <span>
+                  Confirmo que todas las mesas y barras estan libres y deseo cerrar la caja
+                </span>
+              </label>
+
               <button
                 type="button"
                 onClick={handleCloseSession}
-                disabled={!canManageCash || submitting}
+                disabled={!canManageCash || submitting || activeSalesCount > 0 || !isClosingConfirmed}
                 style={{
                   ...dangerButtonStyle,
-                  ...((!canManageCash || submitting) ? disabledButtonStyle : null),
+                  ...((!canManageCash || submitting || activeSalesCount > 0 || !isClosingConfirmed) ? disabledButtonStyle : null),
                 }}
               >
                 {submitting ? 'Cerrando caja...' : 'Cerrar caja'}
@@ -683,6 +739,16 @@ const dangerButtonStyle = {
 const disabledButtonStyle = {
   backgroundColor: colors.gray400,
   cursor: 'not-allowed',
+}
+
+const closeBlockedNoteStyle = {
+  backgroundColor: colors.amber50,
+  color: '#c2410c',
+  border: '1px solid #fdba74',
+  borderRadius: radius.lg,
+  padding: space[6],
+  fontWeight: type.bold,
+  lineHeight: 1.5,
 }
 
 const metricCardStyle = {

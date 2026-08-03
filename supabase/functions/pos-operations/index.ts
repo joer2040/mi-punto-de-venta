@@ -330,6 +330,18 @@ const loadTableState = async (adminClient: ReturnType<typeof createClient>, tabl
   return { table, order }
 }
 
+const hasOpenCashSession = async (adminClient: ReturnType<typeof createClient>) => {
+  const { data, error } = await adminClient
+    .from('cash_sessions')
+    .select('id')
+    .eq('status', 'open')
+    .limit(1)
+    .maybeSingle()
+
+  if (error) throw error
+  return Boolean(data?.id)
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -367,6 +379,10 @@ Deno.serve(async (req) => {
     const body = (await req.json()) as Record<string, unknown>
     const action = String(body?.action ?? '')
 
+    if (action === 'get_cash_session_status') {
+      return json({ cash_session_open: await hasOpenCashSession(adminClient) })
+    }
+
     if (action === 'save_table_order') {
       const tableId = String(body.table_id ?? '')
       const items = normalizeItems(body.items)
@@ -378,6 +394,11 @@ Deno.serve(async (req) => {
 
       if (!tableId) return json({ error: 'Falta table_id.' }, 400)
       if (!hasExpectedOrderId) return json({ error: 'Falta expected_order_id.' }, 400)
+      if (items.length > 0 && !(await hasOpenCashSession(adminClient))) {
+        return json({
+          error: 'No hay una caja abierta. Debes abrir caja antes de abrir mesas, barras o agregar productos.',
+        }, 409)
+      }
 
       const { table, order } = await loadTableState(adminClient, tableId)
 
@@ -527,6 +548,9 @@ Deno.serve(async (req) => {
       if (normalizeRoleName(paymentMethod) !== normalizeRoleName(CASH_PAYMENT_METHOD)) {
         return json({ error: 'Metodo de pago no soportado.' }, 400)
       }
+      if (!(await hasOpenCashSession(adminClient))) {
+        return json({ error: 'No hay una caja abierta. Debes abrir caja antes de finalizar ventas en efectivo.' }, 409)
+      }
 
       const { table, order } = await loadTableState(adminClient, tableId)
 
@@ -622,7 +646,13 @@ Deno.serve(async (req) => {
     return json({ error: 'Accion no soportada.' }, 400)
   } catch (error) {
     console.error(error)
-    const status = typeof error?.status === 'number' ? error.status : 500
-    return json({ error: error instanceof Error ? error.message : 'Error inesperado.' }, status)
+    const message = error instanceof Error ? error.message : 'Error inesperado.'
+    const requiresOpenCashSession = message.includes('No hay una caja abierta')
+    const status = requiresOpenCashSession
+      ? 409
+      : typeof error?.status === 'number'
+        ? error.status
+        : 500
+    return json({ error: message }, status)
   }
 })

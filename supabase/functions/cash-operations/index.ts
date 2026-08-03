@@ -70,17 +70,6 @@ const sortByMaterialName = (rows: Array<{ material_name: string }>) =>
     })
   )
 
-const getSuggestedFileName = (session: { opened_at?: string | null; id?: string | null }) => {
-  const openedAt = session?.opened_at ? new Date(session.opened_at) : new Date()
-  const year = openedAt.getFullYear()
-  const month = String(openedAt.getMonth() + 1).padStart(2, '0')
-  const day = String(openedAt.getDate()).padStart(2, '0')
-  const hour = String(openedAt.getHours()).padStart(2, '0')
-  const minute = String(openedAt.getMinutes()).padStart(2, '0')
-  const shortId = String(session?.id || '').slice(0, 8)
-  return `corte-caja-${year}${month}${day}-${hour}${minute}${shortId ? `-${shortId}` : ''}.pdf`
-}
-
 const serializeSession = (session: Record<string, unknown> | null) => {
   if (!session) return null
 
@@ -357,10 +346,20 @@ const loadSalesSummary = async (adminClient: ReturnType<typeof createClient>, se
   }
 }
 
+const loadActivePosOperationCount = async (adminClient: ReturnType<typeof createClient>) => {
+  const { data, error } = await adminClient.rpc('active_pos_operation_count')
+
+  if (error) throw error
+  return Number(data || 0)
+}
+
 const buildSessionOverview = async (adminClient: ReturnType<typeof createClient>) => {
   const openSession = await loadOpenSession(adminClient)
   if (openSession) {
-    const salesSummary = await loadSalesSummary(adminClient, openSession.id)
+    const [salesSummary, activeSalesCount] = await Promise.all([
+      loadSalesSummary(adminClient, openSession.id),
+      loadActivePosOperationCount(adminClient),
+    ])
     const openingAmount = toNumber(openSession.opening_amount)
     return {
       session: serializeSession({
@@ -370,12 +369,14 @@ const buildSessionOverview = async (adminClient: ReturnType<typeof createClient>
         closing_amount: openingAmount + salesSummary.salesCashTotal,
         profit_total: salesSummary.profitTotal,
       }),
+      active_sales_count: activeSalesCount,
     }
   }
 
   const latestSession = await loadLatestSession(adminClient)
   return {
     session: serializeSession(latestSession),
+    active_sales_count: 0,
   }
 }
 
@@ -468,39 +469,29 @@ Deno.serve(async (req) => {
         return json({ error: 'No tienes permisos para cerrar caja.' }, 403)
       }
 
-      const openSession = await loadOpenSession(adminClient)
-      if (!openSession) {
-        return json({ error: 'No existe una caja abierta para cerrar.' }, 409)
+      const { data: closeResult, error: closeError } = await adminClient.rpc(
+        'close_cash_session_atomic',
+        { p_closed_by: user.id }
+      )
+
+      if (closeError) throw closeError
+      if (!closeResult?.ok) {
+        return json({
+          error: closeResult?.error || 'No se pudo cerrar la caja.',
+          active_sales_count: Number(closeResult?.active_sales_count || 0),
+        }, 409)
       }
 
-      const openingInventory = await loadSnapshotRows(adminClient, openSession.id, 'opening')
-      const closingInventory = await createInventorySnapshot(adminClient, openSession.id, 'closing')
-      const salesSummary = await loadSalesSummary(adminClient, openSession.id)
-      const openingAmount = toNumber(openSession.opening_amount)
-      const closingAmount = openingAmount + salesSummary.salesCashTotal
-      const reportPdfMetadata = {
-        generated_at: new Date().toISOString(),
-        suggested_file_name: getSuggestedFileName(openSession),
+      const closedSession = closeResult.session
+      if (!closedSession?.id) {
+        throw appError('El cierre de caja no devolvio una sesion valida.', 500)
       }
 
-      const { data: closedSession, error: closeError } = await adminClient
-        .from('cash_sessions')
-        .update({
-          status: 'closed',
-          closed_at: new Date().toISOString(),
-          closed_by: user.id,
-          sales_cash_total: salesSummary.salesCashTotal,
-          expected_cash_total: closingAmount,
-          closing_amount: closingAmount,
-          profit_total: salesSummary.profitTotal,
-          report_pdf_metadata: reportPdfMetadata,
-        })
-        .eq('id', openSession.id)
-        .eq('status', 'open')
-        .select('*')
-        .single()
-
-      if (closeError || !closedSession) throw closeError
+      const [openingInventory, closingInventory, salesSummary] = await Promise.all([
+        loadSnapshotRows(adminClient, closedSession.id, 'opening'),
+        loadSnapshotRows(adminClient, closedSession.id, 'closing'),
+        loadSalesSummary(adminClient, closedSession.id),
+      ])
 
       return json({
         session: serializeSession(closedSession),

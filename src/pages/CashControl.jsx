@@ -363,17 +363,26 @@ const CashControl = ({ onCashSessionChange = () => {} }) => {
       }
 
       const data = await cashControlService.closeCashSession()
-      const pdf = await buildCashClosurePdf({
-        session: data.session,
-        sales: data.sales,
-        openingInventory: data.opening_inventory,
-        closingInventory: data.closing_inventory,
-      })
-      pdf.save(getSuggestedPdfName(data.session))
       setOverview({ session: data.session, active_sales_count: 0 })
       onCashSessionChange(false)
       setIsClosingConfirmed(false)
-      setNotice({ type: 'success', message: 'Caja cerrada y reporte PDF generado.' })
+
+      try {
+        const pdf = await buildCashClosurePdf({
+          session: data.session,
+          sales: data.sales,
+          openingInventory: data.opening_inventory,
+          closingInventory: data.closing_inventory,
+        })
+        pdf.save(getSuggestedPdfName(data.session))
+        setNotice({ type: 'success', message: 'Caja cerrada y reporte PDF generado.' })
+      } catch (reportError) {
+        console.error('Caja cerrada, pero no se pudo generar el reporte PDF:', reportError)
+        setNotice({
+          type: 'warning',
+          message: 'La caja se cerro correctamente, pero no se pudo generar el reporte PDF.',
+        })
+      }
     } catch (error) {
       console.error('Error al cerrar caja:', error)
       setIsClosingConfirmed(false)

@@ -50,14 +50,6 @@ const readRoleName = (roleLink: RoleLinkRow) => {
   return roleLink.app_roles?.name ?? null
 }
 
-const readCategoryValue = (categories: { is_inventoried?: boolean | null } | { is_inventoried?: boolean | null }[] | null) => {
-  if (Array.isArray(categories)) {
-    return categories[0]?.is_inventoried ?? null
-  }
-
-  return categories?.is_inventoried ?? null
-}
-
 const toNumber = (value: unknown, fallback = 0) => {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : fallback
@@ -188,65 +180,6 @@ const loadLatestSession = async (adminClient: ReturnType<typeof createClient>) =
 
   if (error) throw error
   return data
-}
-
-const loadInventoriableInventory = async (adminClient: ReturnType<typeof createClient>) => {
-  const { data, error } = await adminClient
-    .from('inventory')
-    .select(`
-      material_id,
-      stock_actual,
-      costo_promedio,
-      materials:material_id (
-        id,
-        name,
-        categories:cat_id (
-          is_inventoried
-        )
-      )
-    `)
-
-  if (error) throw error
-
-  return sortByMaterialName(
-    (data || [])
-      .filter((row) => {
-        const materialName = row.materials?.name
-        const isInventoried = readCategoryValue(row.materials?.categories)
-        return Boolean(materialName) && isInventoried !== false
-      })
-      .map((row) => ({
-        material_id: row.material_id,
-        material_name: row.materials?.name || 'Material no identificado',
-        quantity: toNumber(row.stock_actual),
-        average_cost: toNumber(row.costo_promedio),
-      }))
-  )
-}
-
-const createInventorySnapshot = async (
-  adminClient: ReturnType<typeof createClient>,
-  sessionId: string,
-  snapshotType: 'opening' | 'closing'
-) => {
-  const inventoryRows = await loadInventoriableInventory(adminClient)
-
-  if (inventoryRows.length > 0) {
-    const { error } = await adminClient.from('cash_session_inventory_snapshots').insert(
-      inventoryRows.map((row) => ({
-        cash_session_id: sessionId,
-        snapshot_type: snapshotType,
-        material_id: row.material_id,
-        material_name: row.material_name,
-        quantity: row.quantity,
-        average_cost: row.average_cost,
-      }))
-    )
-
-    if (error) throw error
-  }
-
-  return inventoryRows
 }
 
 const loadSnapshotRows = async (
@@ -434,30 +367,26 @@ Deno.serve(async (req) => {
         return json({ error: 'Debes ingresar un monto inicial mayor a 0.' }, 400)
       }
 
-      const currentOpenSession = await loadOpenSession(adminClient)
-      if (currentOpenSession) {
-        return json({ error: 'Ya existe una caja abierta. Debes cerrarla antes de abrir una nueva.' }, 409)
+      const { data: openResult, error: openError } = await adminClient.rpc(
+        'open_cash_session_atomic',
+        {
+          p_opening_amount: openingAmount,
+          p_opened_by: user.id,
+        }
+      )
+
+      if (openError) throw openError
+      if (!openResult?.ok) {
+        return json({
+          error: openResult?.error || 'No se pudo abrir la caja.',
+          active_sales_count: Number(openResult?.active_sales_count || 0),
+        }, 409)
       }
 
-      const { data: createdSession, error: createError } = await adminClient
-        .from('cash_sessions')
-        .insert([
-          {
-            status: 'open',
-            opening_amount: openingAmount,
-            sales_cash_total: 0,
-            expected_cash_total: openingAmount,
-            closing_amount: openingAmount,
-            profit_total: 0,
-            opened_by: user.id,
-          },
-        ])
-        .select('*')
-        .single()
-
-      if (createError || !createdSession) throw createError
-
-      await createInventorySnapshot(adminClient, createdSession.id, 'opening')
+      const createdSession = openResult.session
+      if (!createdSession?.id) {
+        throw appError('La apertura de caja no devolvio una sesion valida.', 500)
+      }
 
       return json({
         session: serializeSession(createdSession),

@@ -599,6 +599,17 @@ Y los permisos correspondientes (si se requiere control granular de permisos den
 | `cashRules.test.js` (regresión) | 5 | 5 | 0 |
 | **Total** | **88** | **88** | **0** |
 
+**Comando canónico de validación:**
+
+```bash
+node --test \
+  supabase/functions/financial-operations/financialRules.test.js \
+  supabase/functions/financial-operations/handler.test.js \
+  supabase/functions/cash-operations/cashRules.test.js
+```
+
+Disponible como script: `npm run test:finance`
+
 Lint: 0 errores. Sin regresiones en módulos adyacentes.
 
 ### 9.3 Estado de cada brecha
@@ -639,7 +650,7 @@ Lint: 0 errores. Sin regresiones en módulos adyacentes.
 
 2. **`activate_ledger` y `reverse_journal_entry`**: superadmin-only. Ya lo eran; se mantienen con el nuevo guard `callerIsSuperadmin` que encapsula la lógica.
 
-3. **CORS configurable**: variable de entorno `ALLOWED_ORIGINS` (lista separada por comas). Si está vacía o no configurada, se usa `'*'` como fallback para DEV — **no es un error, es intencional**. En PRD debe configurarse con la URL del frontend.
+3. **CORS configurable**: variable de entorno `ALLOWED_ORIGINS` (lista separada por comas). Si está vacía o no configurada, `getCorsOriginHeader` retorna `null` — ningún header CORS se añade y cualquier petición de navegador queda bloqueada. No existe fallback a `'*'`. En DEV, configurar con la URL del frontend DEV o dejar vacío si el acceso es solo servidor-a-servidor.
 
 4. **Compatibilidad hacia atrás**: ningún payload válido existente es rechazado. Los campos UUID opcionalmente ausentes se manejan igual que antes (vacíos rechazan antes de llegar al RPC). Los códigos de fondo ya eran `'1101'/'1102'/'1103'` — la validación solo formaliza lo que el RPC ya rechazaba.
 

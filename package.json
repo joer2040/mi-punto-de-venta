@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "supabase:sql:dev": "powershell -ExecutionPolicy Bypass -File ./scripts/apply-supabase-sql.ps1 -Environment dev",
-    "supabase:sql:prod": "powershell -ExecutionPolicy Bypass -File ./scripts/apply-supabase-sql.ps1 -Environment prod"
+    "supabase:sql:prod": "powershell -ExecutionPolicy Bypass -File ./scripts/apply-supabase-sql.ps1 -Environment prod",
+    "test:finance": "node --test supabase/functions/financial-operations/financialRules.test.js supabase/functions/financial-operations/handler.test.js supabase/functions/cash-operations/cashRules.test.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.98.0",

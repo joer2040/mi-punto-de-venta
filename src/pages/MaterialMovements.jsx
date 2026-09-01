@@ -4,6 +4,7 @@ import { materialService } from '../api/materialService'
 import { useAuth } from '../contexts/AuthContext'
 import { ACTION_KEYS, PAGE_PERMISSION_MAP } from '../lib/permissionConfig'
 import { useResponsive } from '../lib/useResponsive'
+import { colors, space, type, radius, shadow } from '../lib/designTokens'
 
 const MOVEMENT_TYPES = [
   {
@@ -846,46 +847,46 @@ const MaterialMovements = () => {
 }
 
 const getPageStyle = (isMobile) => ({
-  padding: isMobile ? '16px' : '20px 8px 34px',
+  padding: isMobile ? space[6] : `${space[8]} ${space[5]} ${space[10]}`,
   display: 'flex',
   flexDirection: 'column',
-  gap: '18px',
+  gap: space[7],
 })
 
 const heroCardStyle = {
   background: 'linear-gradient(135deg, #ffffff 0%, #ecfeff 100%)',
   border: '1px solid #bae6fd',
-  borderRadius: '24px',
-  boxShadow: '0 18px 44px rgba(15, 23, 42, 0.08)',
-  padding: '24px',
+  borderRadius: radius.xl,
+  boxShadow: shadow.md,
+  padding: space[10],
 }
 
 const heroHeaderStyle = {
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'flex-start',
-  gap: '16px',
+  gap: space[8],
   flexWrap: 'wrap',
 }
 
 const eyebrowStyle = {
-  color: '#0f766e',
-  fontWeight: 900,
-  fontSize: '0.8rem',
+  color: colors.teal700,
+  fontWeight: type.black,
+  fontSize: type.xs,
   letterSpacing: '0.12em',
   textTransform: 'uppercase',
 }
 
 const titleStyle = {
-  margin: '10px 0 8px',
-  color: '#0f172a',
-  fontWeight: 900,
-  fontSize: '1.9rem',
+  margin: `${space[5]} 0 ${space[4]}`,
+  color: colors.gray900,
+  fontWeight: type.black,
+  fontSize: type['2xl'],
 }
 
 const subtitleStyle = {
   margin: 0,
-  color: '#334155',
+  color: colors.gray700,
   lineHeight: 1.7,
   maxWidth: '850px',
 }
@@ -893,70 +894,70 @@ const subtitleStyle = {
 const readOnlyBadgeStyle = {
   display: 'inline-flex',
   alignItems: 'center',
-  padding: '10px 14px',
-  borderRadius: '999px',
-  background: '#e2e8f0',
-  color: '#334155',
-  fontWeight: 800,
+  padding: `${space[1]} ${space[5]}`,
+  borderRadius: radius.full,
+  background: colors.gray200,
+  color: colors.gray700,
+  fontWeight: type.black,
 }
 
 const panelStyle = {
-  background: '#ffffff',
-  borderRadius: '24px',
-  padding: '22px',
-  border: '1px solid rgba(203, 213, 225, 0.9)',
-  boxShadow: '0 18px 42px rgba(15, 23, 42, 0.08)',
+  background: colors.white,
+  borderRadius: radius.xl,
+  padding: space[8],
+  border: `1px solid ${colors.gray300}`,
+  boxShadow: shadow.md,
   display: 'flex',
   flexDirection: 'column',
-  gap: '18px',
+  gap: space[7],
 }
 
 const getControlsGridStyle = (isTablet) => ({
   display: 'grid',
   gridTemplateColumns: isTablet ? '1fr' : 'repeat(2, minmax(0, 1fr))',
-  gap: '16px',
+  gap: space[6],
 })
 
 const getFormGridStyle = (isTablet) => ({
   display: 'grid',
   gridTemplateColumns: isTablet ? '1fr' : 'minmax(0, 1.3fr) minmax(0, 1fr)',
-  gap: '16px',
+  gap: space[6],
   alignItems: 'start',
 })
 
 const fieldBlockStyle = {
   display: 'flex',
   flexDirection: 'column',
-  gap: '8px',
+  gap: space[2],
 }
 
 const labelStyle = {
-  color: '#334155',
-  fontWeight: 800,
-  fontSize: '0.95rem',
+  color: colors.gray700,
+  fontWeight: type.black,
+  fontSize: type.md,
 }
 
 const inputStyle = {
   width: '100%',
   boxSizing: 'border-box',
-  minHeight: '48px',
-  borderRadius: '14px',
-  border: '1px solid #cbd5e1',
-  background: '#ffffff',
-  color: '#0f172a',
-  padding: '12px 14px',
-  fontSize: '1rem',
+  minHeight: '36px',
+  borderRadius: radius.md,
+  border: `1px solid ${colors.gray300}`,
+  background: colors.white,
+  color: colors.gray900,
+  padding: `${space[4]} ${space[5]}`,
+  fontSize: type.base,
   outline: 'none',
 }
 
 const disabledInputStyle = {
-  background: '#e2e8f0',
-  color: '#64748b',
+  background: colors.gray200,
+  color: colors.gray500,
 }
 
 const readOnlyInputStyle = {
-  background: '#f8fafc',
-  fontWeight: 800,
+  background: colors.gray100,
+  fontWeight: type.black,
 }
 
 const autocompleteInputStyle = {
@@ -968,11 +969,11 @@ const suggestionsPanelStyle = {
   top: '100%',
   left: 0,
   right: 0,
-  marginTop: '6px',
-  borderRadius: '16px',
-  border: '1px solid #cbd5e1',
-  background: '#ffffff',
-  boxShadow: '0 18px 34px rgba(15, 23, 42, 0.14)',
+  marginTop: space[3],
+  borderRadius: radius.lg,
+  border: `1px solid ${colors.gray300}`,
+  background: colors.white,
+  boxShadow: shadow.lg,
   overflow: 'hidden',
   zIndex: 10,
 }
@@ -980,200 +981,200 @@ const suggestionsPanelStyle = {
 const suggestionButtonStyle = {
   width: '100%',
   border: 'none',
-  borderBottom: '1px solid #e2e8f0',
-  background: '#ffffff',
-  color: '#0f172a',
+  borderBottom: `1px solid ${colors.gray200}`,
+  background: colors.white,
+  color: colors.gray900,
   textAlign: 'left',
-  padding: '12px 14px',
+  padding: `${space[4]} ${space[5]}`,
   display: 'flex',
   flexDirection: 'column',
-  gap: '4px',
+  gap: space[2],
   cursor: 'pointer',
 }
 
 const suggestionTitleStyle = {
-  fontWeight: 800,
+  fontWeight: type.black,
 }
 
 const suggestionMetaStyle = {
-  color: '#64748b',
-  fontSize: '0.9rem',
+  color: colors.gray500,
+  fontSize: type.sm,
 }
 
 const quantityWrapStyle = {
   display: 'flex',
-  gap: '16px',
+  gap: space[6],
   alignItems: 'flex-end',
   flexWrap: 'wrap',
 }
 
 const dividerStyle = {
   height: '1px',
-  background: '#e2e8f0',
+  background: colors.gray200,
 }
 
 const invoiceLookupRowStyle = (isTablet) => ({
   display: 'flex',
-  gap: '14px',
+  gap: space[7],
   flexDirection: isTablet ? 'column' : 'row',
   alignItems: isTablet ? 'stretch' : 'flex-end',
 })
 
 const invoiceCardStyle = {
-  borderRadius: '18px',
+  borderRadius: radius.xl,
   border: '1px solid #ddd6fe',
   background: '#faf5ff',
-  padding: '16px',
+  padding: space[7],
   display: 'flex',
   flexDirection: 'column',
-  gap: '12px',
+  gap: space[5],
 }
 
 const invoiceHeaderStyle = {
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'center',
-  gap: '12px',
+  gap: space[5],
   flexWrap: 'wrap',
 }
 
 const invoiceTitleStyle = {
   color: '#4c1d95',
-  fontWeight: 900,
+  fontWeight: type.black,
 }
 
 const invoiceRefPillStyle = {
   display: 'inline-flex',
   alignItems: 'center',
-  padding: '8px 12px',
-  borderRadius: '999px',
+  padding: `${space[1]} ${space[5]}`,
+  borderRadius: radius.full,
   background: '#ede9fe',
   color: '#5b21b6',
-  fontWeight: 800,
+  fontWeight: type.black,
 }
 
 const invoiceInfoGridStyle = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-  gap: '12px',
+  gap: space[5],
 }
 
 const invoiceInfoItemStyle = {
   display: 'flex',
   flexDirection: 'column',
-  gap: '4px',
+  gap: space[2],
 }
 
 const invoiceInfoLabelStyle = {
-  color: '#7c3aed',
-  fontSize: '0.8rem',
-  fontWeight: 800,
+  color: colors.violet700,
+  fontSize: type.xs,
+  fontWeight: type.black,
   textTransform: 'uppercase',
   letterSpacing: '0.05em',
 }
 
 const invoiceLineCardStyle = {
-  borderRadius: '18px',
+  borderRadius: radius.xl,
   border: '1px solid #ddd6fe',
-  background: '#ffffff',
-  padding: '16px',
+  background: colors.white,
+  padding: space[7],
 }
 
 const invoiceLineGridStyle = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-  gap: '12px',
+  gap: space[5],
 }
 
 const buttonRowStyle = {
   display: 'flex',
-  gap: '12px',
+  gap: space[5],
   flexWrap: 'wrap',
 }
 
 const checkButtonStyle = {
-  minWidth: '140px',
+  minWidth: '130px',
   border: 'none',
-  borderRadius: '14px',
-  padding: '13px 18px',
-  background: '#0f172a',
-  color: '#ffffff',
-  fontWeight: 900,
+  borderRadius: radius.md,
+  padding: `${space[4]} ${space[9]}`,
+  background: colors.gray900,
+  color: colors.white,
+  fontWeight: type.black,
   cursor: 'pointer',
 }
 
 const postButtonStyle = {
-  minWidth: '140px',
+  minWidth: '130px',
   border: 'none',
-  borderRadius: '14px',
-  padding: '13px 18px',
-  background: '#0f766e',
-  color: '#ffffff',
-  fontWeight: 900,
+  borderRadius: radius.md,
+  padding: `${space[4]} ${space[9]}`,
+  background: colors.teal700,
+  color: colors.white,
+  fontWeight: type.black,
   cursor: 'pointer',
 }
 
 const disabledButtonStyle = {
-  background: '#94a3b8',
+  background: colors.gray400,
   cursor: 'not-allowed',
 }
 
 const validationCardStyle = {
-  borderRadius: '18px',
+  borderRadius: radius.xl,
   border: '1px solid',
-  padding: '18px',
+  padding: space[7],
   display: 'flex',
   flexDirection: 'column',
-  gap: '14px',
+  gap: space[5],
 }
 
 const validationHeaderStyle = {
   display: 'flex',
   justifyContent: 'space-between',
-  gap: '12px',
+  gap: space[6],
   alignItems: 'flex-start',
   flexWrap: 'wrap',
 }
 
 const validationTitleStyle = {
-  color: '#0f172a',
-  fontWeight: 900,
-  fontSize: '1rem',
+  color: colors.gray900,
+  fontWeight: type.black,
+  fontSize: type.base,
 }
 
 const validationMessageStyle = {
-  color: '#334155',
-  marginTop: '4px',
+  color: colors.gray700,
+  marginTop: space[2],
   lineHeight: 1.6,
 }
 
 const statusPillStyle = {
   display: 'inline-flex',
   alignItems: 'center',
-  padding: '8px 12px',
-  borderRadius: '999px',
-  fontWeight: 900,
+  padding: `${space[1]} ${space[5]}`,
+  borderRadius: radius.full,
+  fontWeight: type.black,
 }
 
 const validationGridStyle = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-  gap: '12px',
+  gap: space[5],
 }
 
 const validationMetricStyle = {
   display: 'flex',
   flexDirection: 'column',
-  gap: '4px',
+  gap: space[2],
   background: 'rgba(255, 255, 255, 0.65)',
-  borderRadius: '14px',
-  padding: '12px',
+  borderRadius: radius.lg,
+  padding: space[5],
 }
 
 const validationMetricLabelStyle = {
-  color: '#64748b',
-  fontSize: '0.82rem',
-  fontWeight: 800,
+  color: colors.gray500,
+  fontSize: type.xs,
+  fontWeight: type.black,
   textTransform: 'uppercase',
   letterSpacing: '0.05em',
 }

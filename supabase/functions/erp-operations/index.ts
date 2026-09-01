@@ -16,30 +16,11 @@ const json = (body: Record<string, unknown>, status = 200) =>
     },
   })
 
-const resolveAuthenticatedUser = async (supabaseUrl: string, authApiKey: string, authorization: string) => {
-  const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
-    headers: {
-      apikey: authApiKey,
-      Authorization: authorization,
-    },
-  })
-
-  if (!response.ok) {
-    return { user: null, error: new Error('Sesion invalida o expirada.') }
-  }
-
-  return {
-    user: await response.json(),
-    error: null,
-  }
-}
 
 const appError = (message: string, status = 400) => Object.assign(new Error(message), { status })
 const normalizeRoleName = (value: string | null | undefined) => (value || '').trim().toLowerCase()
-const normalizeText = (value: unknown) => String(value ?? '').trim().toLowerCase()
 const isManagerRoleName = (value: string | null | undefined) =>
   ['manager', 'administrador operativo'].includes(normalizeRoleName(value))
-const GENERAL_PROVIDER_NAME = 'Proveedor General'
 const PURCHASE_DUPLICATE_WINDOW_SECONDS = 120
 const toNumber = (value: unknown, fallback = 0) => {
   const parsed = Number(value)
@@ -481,23 +462,21 @@ Deno.serve(async (req) => {
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!
     const serviceRoleKey =
       Deno.env.get('SERVICE_ROLE_KEY') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    const authApiKey = Deno.env.get('PROJECT_LEGACY_SERVICE_ROLE_KEY') || serviceRoleKey
     const authorization = req.headers.get('Authorization')
 
     if (!authorization) {
       return json({ error: 'No se recibio token de autenticacion.' }, 401)
     }
 
+    const requestClient = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: authorization } },
+    })
     const adminClient = createClient(supabaseUrl, serviceRoleKey)
-    const accessToken = authorization.replace(/^Bearer\s+/i, '').trim()
 
-    const { user, error: userError } = await resolveAuthenticatedUser(
-      supabaseUrl,
-      authApiKey,
-      `Bearer ${accessToken}`
-    )
+    const { data: { user }, error: userError } = await requestClient.auth.getUser()
 
     if (userError || !user) {
       return json({ error: 'Sesion invalida o expirada.' }, 401)
@@ -541,6 +520,8 @@ Deno.serve(async (req) => {
       const rawItems = Array.isArray(body.items) ? body.items : []
       const centerId = String(purchaseHeader.center_id ?? '').trim()
       const providerId = String(purchaseHeader.provider_id ?? '').trim()
+      const rawPayment = body.payment as Record<string, unknown> | null | undefined
+      const idempotencyKey = body.idempotency_key ? String(body.idempotency_key).trim() : null
       const invoiceRef = String(purchaseHeader.invoice_ref ?? '').trim()
 
       if (!centerId || !providerId || rawItems.length === 0) {
@@ -558,7 +539,12 @@ Deno.serve(async (req) => {
         return json({ error: 'El proveedor seleccionado no existe.' }, 400)
       }
 
-      const isGeneralProviderPurchase = normalizeText(providerSnapshot.name) === normalizeText(GENERAL_PROVIDER_NAME)
+      // purchase_type is the source of truth; provider name must not decide item shape.
+      const purchaseType = String(body.purchase_type ?? '').trim()
+      if (!purchaseType || !['inventory', 'expense'].includes(purchaseType)) {
+        return json({ error: 'Tipo de compra requerido: inventory o expense.' }, 400)
+      }
+
       const items = rawItems.map((item, index) => {
         const materialId = String(item?.material_id ?? '').trim()
         const itemDescription = String(item?.item_description ?? '').trim()
@@ -573,15 +559,13 @@ Deno.serve(async (req) => {
           throw appError(`El item ${index + 1} debe incluir un costo valido.`, 400)
         }
 
-        if (isGeneralProviderPurchase) {
+        if (purchaseType === 'expense') {
           if (materialId) {
-            throw appError('Proveedor General solo acepta renglones libres sin material asociado.', 400)
+            throw appError('El gasto operativo no debe incluir material de inventario.', 400)
           }
-
           if (!itemDescription) {
             throw appError(`El item ${index + 1} debe incluir una descripcion libre.`, 400)
           }
-
           return {
             material_id: null,
             item_description: itemDescription,
@@ -663,73 +647,36 @@ Deno.serve(async (req) => {
         )
       }
 
-      const { data: purchase, error: purchaseError } = await adminClient
-        .from('purchases')
-        .insert([
-          {
-            center_id: centerId,
-            provider_id: providerId,
-            invoice_ref: invoiceRef || null,
-            total_amount: totalAmount,
-          },
-        ])
-        .select()
-        .single()
-
-      if (purchaseError) throw purchaseError
-
-      const itemsWithId = items.map((item) => ({
-        material_id: item.material_id,
-        item_description: item.item_description,
-        quantity: item.quantity,
-        unit_cost: item.unit_cost,
-        purchase_id: purchase.id,
-      }))
-
-      const { error: itemsError } = await adminClient.from('purchase_items').insert(itemsWithId)
-      if (itemsError) throw itemsError
-
-      for (const item of itemsWithId.filter((row) => row.material_id)) {
-        const inventorySnapshot = await getInventorySnapshot(adminClient, item.material_id, centerId)
-        const afterStock = parseFloat(inventorySnapshot.stock_actual)
-        const beforeStock = afterStock - parseFloat(item.quantity)
-
-        await logInventoryMovement(adminClient, {
-          center_id: centerId,
-          material_id: item.material_id,
-          movement_type: 'purchase',
-          direction: 'in',
-          quantity: parseFloat(item.quantity),
-          before_stock: beforeStock,
-          after_stock: afterStock,
-          unit_cost: parseFloat(item.unit_cost),
-          unit_price: null,
-          reference_table: 'purchases',
-          reference_id: purchase.id,
-          reference_number: purchase.invoice_ref || invoiceRef || null,
-          reason_code: 'purchase_invoice',
-          notes: 'Entrada de inventario por compra',
-          performed_by: caller.performedBy,
-        })
+      // Normalizar pago para el RPC (opcional — solo crea asientos si ledger activo)
+      let rpcPayment: { method: string; amount: number } | null = null
+      if (rawPayment && rawPayment.method) {
+        const VALID_METHODS = new Set(['efectivo', 'tarjeta', 'transferencia'])
+        const method = String(rawPayment.method ?? '').trim()
+        const amount = toNumber(rawPayment.amount, 0)
+        if (!VALID_METHODS.has(method.toLowerCase())) {
+          return json({ error: 'Método de pago no soportado.' }, 400)
+        }
+        if (amount <= 0) {
+          return json({ error: 'El importe del pago debe ser mayor que cero.' }, 400)
+        }
+        rpcPayment = { method, amount }
       }
 
-      await logAuditEvent(adminClient, {
-        entityType: 'purchase',
-        entityId: purchase.id,
-        eventType: 'purchase_created',
-        newValues: {
-          center_id: centerId,
-          provider_id: providerId,
-          provider_name: providerSnapshot.name,
-          provider_mode: isGeneralProviderPurchase ? 'general' : 'standard',
-          invoice_ref: invoiceRef || null,
-          total_amount: totalAmount,
-          freeform_item_count: itemsWithId.filter((item) => !item.material_id).length,
-          items: itemsWithId,
-        },
-        notes: 'Compra registrada desde entradas por compra',
-        performedBy: caller.performedBy,
+      const { data: purchase, error: purchaseRpcError } = await adminClient.rpc('create_purchase_with_ledger', {
+        p_provider_id:     providerId,
+        p_center_id:       centerId,
+        p_invoice_ref:     invoiceRef || null,
+        p_items:           items,
+        p_payment:         rpcPayment,
+        p_performed_by:    user.id,
+        p_idempotency_key: idempotencyKey,
       })
+
+      if (purchaseRpcError) {
+        const msg = purchaseRpcError.message || ''
+        const status = msg.includes('ya fue usada') ? 409 : 400
+        throw appError(msg, status)
+      }
 
       return json({ purchase })
     }

@@ -1,6 +1,5 @@
 alter table public.categories
   add column if not exists is_internal_production boolean not null default false;
-
 do $$
 declare
   v_cocteleria_id uuid;
@@ -323,7 +322,6 @@ begin
        where cat_id = v_botanas_category_id
      );
 end $$;
-
 create or replace function public.update_inventory_on_sale()
 returns trigger
 language plpgsql
@@ -409,7 +407,6 @@ begin
   return new;
 end;
 $$;
-
 create or replace function public.finalize_pos_sale(
   p_table_id uuid,
   p_items jsonb,
@@ -677,6 +674,5 @@ begin
   return v_sale;
 end;
 $$;
-
 revoke all on function public.finalize_pos_sale(uuid, jsonb, text, uuid) from public, anon, authenticated;
 grant execute on function public.finalize_pos_sale(uuid, jsonb, text, uuid) to service_role;

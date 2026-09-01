@@ -48,10 +48,13 @@ export const erpService = {
     })
   },
 
-  async recordPurchase(purchaseHeader, items) {
+  async recordPurchase(purchaseHeader, items, payment, idempotencyKey, purchaseType) {
     return invokeErpOperation('record_purchase', {
       purchase_header: purchaseHeader,
       items,
+      purchase_type: purchaseType,
+      ...(payment ? { payment } : {}),
+      ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
     })
   },
 

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import logoCarreta from '../assets/la_carreta_sin_fondo.png'
+import { colors, space, type, radius, shadow } from '../lib/designTokens'
 
 const SESSION_EXPIRED_MESSAGE_KEY = 'mi-punto-de-venta.session-expired-message'
 
@@ -92,88 +93,90 @@ const pageStyle = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  padding: '24px',
+  padding: space[12],
   background: 'linear-gradient(135deg, #e2e8f0 0%, #f8fafc 45%, #dbeafe 100%)',
 }
 
 const cardStyle = {
   width: '100%',
-  maxWidth: '440px',
-  backgroundColor: '#ffffff',
-  borderRadius: '24px',
-  boxShadow: '0 24px 60px rgba(15, 23, 42, 0.14)',
+  maxWidth: '400px',
+  backgroundColor: colors.white,
+  borderRadius: radius.xl,
+  boxShadow: shadow.lg,
   overflow: 'hidden',
 }
 
 const heroStyle = {
-  padding: '28px 28px 16px',
+  padding: `${space[10]} ${space[10]} ${space[6]}`,
   textAlign: 'center',
 }
 
 const logoStyle = {
-  width: '180px',
+  width: '140px',
   height: 'auto',
   objectFit: 'contain',
 }
 
 const titleStyle = {
-  margin: '16px 0 8px',
-  color: '#0f172a',
-  fontSize: '1.8rem',
+  margin: `${space[4]} 0 ${space[3]}`,
+  color: colors.gray900,
+  fontSize: type.xl,
 }
 
 const subtitleStyle = {
   margin: 0,
-  color: '#64748b',
+  color: colors.gray500,
   lineHeight: 1.5,
+  fontSize: type.sm,
 }
 
 const formStyle = {
   display: 'grid',
-  gap: '16px',
-  padding: '16px 28px 28px',
+  gap: space[6],
+  padding: `${space[6]} ${space[10]} ${space[10]}`,
 }
 
 const labelStyle = {
   display: 'block',
-  marginBottom: '6px',
-  color: '#334155',
-  fontWeight: '700',
+  marginBottom: space[2],
+  color: colors.gray700,
+  fontWeight: type.bold,
+  fontSize: type.sm,
 }
 
 const inputStyle = {
   width: '100%',
-  padding: '12px 14px',
-  borderRadius: '10px',
-  border: '1px solid #cbd5e1',
+  padding: `${space[4]} ${space[5]}`,
+  borderRadius: radius.md,
+  border: `1px solid ${colors.gray300}`,
   boxSizing: 'border-box',
 }
 
 const buttonStyle = {
   width: '100%',
-  padding: '13px 16px',
-  borderRadius: '12px',
+  padding: `${space[4]} ${space[8]}`,
+  borderRadius: radius.md,
   border: 'none',
-  backgroundColor: '#1d4ed8',
-  color: '#ffffff',
-  fontWeight: '800',
+  backgroundColor: colors.blue700,
+  color: colors.white,
+  fontWeight: type.black,
   cursor: 'pointer',
 }
 
 const errorStyle = {
-  backgroundColor: '#fef2f2',
-  color: '#b91c1c',
-  borderRadius: '10px',
-  padding: '10px 12px',
-  fontWeight: '600',
+  backgroundColor: colors.red50,
+  color: colors.red700,
+  borderRadius: radius.md,
+  padding: `${space[5]} ${space[6]}`,
+  fontWeight: type.medium,
 }
 
 const noticeStyle = {
-  backgroundColor: '#eff6ff',
-  color: '#1d4ed8',
-  borderRadius: '10px',
-  padding: '10px 12px',
-  fontWeight: '600',
+  backgroundColor: colors.blue50,
+  color: colors.blue700,
+  borderRadius: radius.md,
+  padding: `${space[5]} ${space[6]}`,
+  fontWeight: type.medium,
 }
 
 export default Login

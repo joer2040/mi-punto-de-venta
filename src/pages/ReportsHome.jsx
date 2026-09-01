@@ -1,5 +1,6 @@
 import { useAuth } from '../contexts/AuthContext'
 import { useResponsive } from '../lib/useResponsive'
+import { colors, space, type, radius, shadow } from '../lib/designTokens'
 
 const reportCards = [
   {
@@ -71,90 +72,90 @@ const ReportsHome = ({ onNavigate }) => {
 }
 
 const getContainerStyle = (isMobile) => ({
-  padding: isMobile ? '16px' : '28px',
+  padding: isMobile ? space[6] : `${space[8]} ${space[10]}`,
 })
 
 const heroStyle = {
   background: 'linear-gradient(135deg, #fff7ed 0%, #ffffff 55%, #dbeafe 100%)',
-  borderRadius: '28px',
-  boxShadow: '0 18px 45px rgba(15, 23, 42, 0.08)',
+  borderRadius: radius.xl,
+  boxShadow: shadow.lg,
   overflow: 'hidden',
-  border: '1px solid rgba(148, 163, 184, 0.18)',
-  padding: '28px',
+  border: `1px solid rgba(148, 163, 184, 0.18)`,
+  padding: space[10],
 }
 
 const eyebrowStyle = {
-  color: '#b45309',
-  fontWeight: '800',
-  fontSize: '0.82rem',
+  color: colors.amber700,
+  fontWeight: type.black,
+  fontSize: type.xs,
   letterSpacing: '0.1em',
   textTransform: 'uppercase',
 }
 
 const getTitleStyle = (isMobile) => ({
-  margin: '10px 0 12px 0',
-  color: '#0f172a',
-  fontSize: isMobile ? '1.9rem' : '2.6rem',
+  margin: `${space[5]} 0 ${space[6]} 0`,
+  color: colors.gray900,
+  fontSize: isMobile ? type['2xl'] : type['3xl'],
   lineHeight: 1.05,
 })
 
 const subtitleStyle = {
   margin: 0,
-  color: '#475569',
-  fontSize: '1rem',
+  color: colors.gray600,
+  fontSize: type.md,
   maxWidth: '700px',
   lineHeight: 1.6,
 }
 
 const cardsSectionStyle = {
-  marginTop: '24px',
+  marginTop: space[8],
 }
 
 const getCardsGridStyle = (isMobile) => ({
   display: 'grid',
-  gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(240px, 1fr))',
-  gap: '18px',
+  gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(220px, 1fr))',
+  gap: space[7],
 })
 
 const cardButtonStyle = {
-  backgroundColor: '#ffffff',
-  borderRadius: '22px',
-  padding: '22px',
-  borderLeft: '1px solid #e2e8f0',
-  borderRight: '1px solid #e2e8f0',
-  borderBottom: '1px solid #e2e8f0',
-  boxShadow: '0 14px 35px rgba(15, 23, 42, 0.07)',
+  backgroundColor: colors.white,
+  borderRadius: radius.xl,
+  padding: `${space[7]} ${space[8]}`,
+  borderLeft: `1px solid ${colors.gray200}`,
+  borderRight: `1px solid ${colors.gray200}`,
+  borderBottom: `1px solid ${colors.gray200}`,
+  boxShadow: shadow.md,
   display: 'flex',
   flexDirection: 'column',
   alignItems: 'flex-start',
-  gap: '10px',
+  gap: space[4],
   textAlign: 'left',
   cursor: 'pointer',
 }
 
 const moduleTagStyle = {
-  fontWeight: '800',
-  fontSize: '0.82rem',
+  fontWeight: type.black,
+  fontSize: type.xs,
   letterSpacing: '0.04em',
   textTransform: 'uppercase',
 }
 
 const cardTitleStyle = {
-  color: '#0f172a',
-  fontWeight: '800',
-  fontSize: '1.25rem',
+  color: colors.gray900,
+  fontWeight: type.black,
+  fontSize: type.xl,
 }
 
 const cardDescriptionStyle = {
-  color: '#64748b',
-  fontSize: '0.95rem',
+  color: colors.gray500,
+  fontSize: type.md,
   lineHeight: 1.55,
   flex: 1,
 }
 
 const cardLinkStyle = {
-  fontWeight: '800',
-  fontSize: '0.95rem',
+  fontWeight: type.black,
+  fontSize: type.md,
 }
 
 export default ReportsHome

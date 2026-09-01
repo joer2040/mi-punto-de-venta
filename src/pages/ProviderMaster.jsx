@@ -3,6 +3,7 @@ import { providerService } from '../api/providerService'
 import { useAuth } from '../contexts/AuthContext'
 import { ACTION_KEYS, PAGE_PERMISSION_MAP } from '../lib/permissionConfig'
 import { useResponsive } from '../lib/useResponsive'
+import { colors, space, type, radius, shadow } from '../lib/designTokens'
 
 const ProviderMaster = () => {
   const [providers, setProviders] = useState([])
@@ -54,7 +55,7 @@ const ProviderMaster = () => {
   return (
     <div style={getContainerStyle(isMobile)}>
       <div style={headerStyle}>
-        <h2 style={{ color: '#2d3748', margin: 0 }}>Maestro de Proveedores</h2>
+        <h2 style={{ color: colors.gray800, margin: 0, fontSize: type['3xl'] }}>Maestro de Proveedores</h2>
         {!canCreateProviders && <span style={readOnlyBadgeStyle}>Solo lectura</span>}
       </div>
 
@@ -118,7 +119,7 @@ const ProviderMaster = () => {
           <div style={tableScrollStyle}>
             <table style={tableStyle}>
               <thead>
-                <tr style={{ backgroundColor: '#2d3748', color: 'white' }}>
+                <tr style={{ backgroundColor: '#2d3748', color: colors.white }}>
                   <th style={thStyle}>Proveedor</th>
                   <th style={thStyle}>RFC</th>
                   <th style={thStyle}>Contacto</th>
@@ -150,8 +151,8 @@ const ProviderMaster = () => {
 }
 
 const getContainerStyle = (isMobile) => ({
-  padding: isMobile ? '16px' : '30px',
-  backgroundColor: '#f7fafc',
+  padding: isMobile ? space[6] : `${space[8]} ${space[10]}`,
+  backgroundColor: colors.gray100,
   minHeight: '100vh',
 })
 
@@ -159,47 +160,47 @@ const headerStyle = {
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'center',
-  gap: '12px',
-  marginBottom: '20px',
+  gap: space[6],
+  marginBottom: space[8],
   flexWrap: 'wrap',
 }
 
 const formCardStyle = {
-  backgroundColor: '#fff',
-  padding: '20px',
-  borderRadius: '12px',
-  boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
-  marginBottom: '30px',
+  backgroundColor: colors.white,
+  padding: space[8],
+  borderRadius: radius.lg,
+  boxShadow: shadow.sm,
+  marginBottom: space[8],
 }
 
 const getGridStyle = (isMobile) => ({
   display: 'grid',
   gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
-  gap: '15px',
-  marginBottom: '15px',
+  gap: space[7],
+  marginBottom: space[6],
 })
 
 const inputStyle = {
-  padding: '10px',
-  borderRadius: '6px',
-  border: '1px solid #cbd5e0',
+  padding: `${space[4]} ${space[5]}`,
+  borderRadius: radius.md,
+  border: `1px solid ${colors.gray300}`,
 }
 
 const btnSubmitStyle = {
-  padding: '10px 20px',
-  backgroundColor: '#3182ce',
-  color: 'white',
+  padding: `${space[4]} ${space[10]}`,
+  backgroundColor: colors.blue600,
+  color: colors.white,
   border: 'none',
-  borderRadius: '8px',
+  borderRadius: radius.md,
   cursor: 'pointer',
-  fontWeight: 'bold',
+  fontWeight: type.bold,
 }
 
 const tableWrapperStyle = {
-  backgroundColor: '#fff',
-  borderRadius: '12px',
+  backgroundColor: colors.white,
+  borderRadius: radius.lg,
   overflow: 'hidden',
-  boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+  boxShadow: shadow.sm,
   padding: '0',
 }
 
@@ -213,61 +214,61 @@ const tableStyle = {
   borderCollapse: 'collapse',
 }
 
-const thStyle = { padding: '15px', textAlign: 'left' }
-const tdStyle = { padding: '12px 15px' }
+const thStyle = { padding: '10px 12px', textAlign: 'left' }
+const tdStyle = { padding: '8px 12px' }
 const readOnlyBadgeStyle = {
-  padding: '8px 12px',
-  borderRadius: '999px',
-  backgroundColor: '#edf2f7',
-  color: '#4a5568',
-  fontWeight: '700',
+  padding: `${space[1]} ${space[6]}`,
+  borderRadius: radius.full,
+  backgroundColor: colors.gray150,
+  color: colors.gray600,
+  fontWeight: type.bold,
 }
 
 const mobileCardsStyle = {
   display: 'grid',
-  gap: '12px',
-  padding: '12px',
+  gap: space[5],
+  padding: space[6],
 }
 
 const mobileCardStyle = {
-  borderRadius: '16px',
-  border: '1px solid #e2e8f0',
-  backgroundColor: '#f8fafc',
-  padding: '14px',
+  borderRadius: radius.xl,
+  border: `1px solid ${colors.gray200}`,
+  backgroundColor: colors.gray100,
+  padding: space[6],
   display: 'flex',
   flexDirection: 'column',
-  gap: '12px',
+  gap: space[5],
 }
 
 const mobileCardGridStyle = {
   display: 'grid',
   gridTemplateColumns: '1fr',
-  gap: '12px',
+  gap: space[5],
 }
 
 const mobileInfoBlockStyle = {
   display: 'flex',
   flexDirection: 'column',
-  gap: '4px',
+  gap: space[1],
 }
 
 const mobileCardLabelStyle = {
-  color: '#64748b',
-  fontSize: '0.78rem',
-  fontWeight: '800',
+  color: colors.gray500,
+  fontSize: type.xs,
+  fontWeight: type.black,
   textTransform: 'uppercase',
   letterSpacing: '0.05em',
 }
 
 const mobileCardTitleStyle = {
-  color: '#0f172a',
-  fontWeight: '900',
-  fontSize: '1rem',
+  color: colors.gray900,
+  fontWeight: type.black,
+  fontSize: type.md,
 }
 
 const mobileInfoTextStyle = {
-  color: '#1e293b',
-  fontWeight: '700',
+  color: colors.gray800,
+  fontWeight: type.bold,
 }
 
 export default ProviderMaster

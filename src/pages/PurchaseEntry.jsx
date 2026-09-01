@@ -4,13 +4,11 @@ import { providerService } from '../api/providerService';
 import { useAuth } from '../contexts/AuthContext';
 import { ACTION_KEYS, PAGE_PERMISSION_MAP } from '../lib/permissionConfig';
 import { useResponsive } from '../lib/useResponsive';
+import { colors, space, type, radius, shadow } from '../lib/designTokens';
 
-const GENERAL_PROVIDER_NAME = 'Proveedor General';
 const DEFAULT_FREEFORM_UNIT_LABEL = 'pz';
 
 const createPurchaseEntryId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-const normalizeProviderName = (value) => String(value || '').trim().toLowerCase();
-const isGeneralProviderRecord = (provider) => normalizeProviderName(provider?.name) === normalizeProviderName(GENERAL_PROVIDER_NAME);
 
 const createInitialCurrentEntry = () => ({
   material_id: '',
@@ -29,7 +27,11 @@ const createInitialPurchaseEntryState = () => ({
   purchaseChecked: false,
   showPurchaseCheckModal: false,
   showProviderChangeModal: false,
+  showTypeChangeModal: false,
   pendingProviderId: '',
+  pendingPurchaseType: '',
+  purchaseType: '',
+  paymentMethod: '',
   purchase: {
     center_id: '',
     provider_id: '',
@@ -92,6 +94,42 @@ const purchaseEntryReducer = (state, action) => {
         showProviderChangeModal: false,
         pendingProviderId: '',
       };
+    case 'set_purchase_type':
+      return {
+        ...state,
+        purchaseType: action.purchaseType,
+        itemsList: action.clearItems ? [] : state.itemsList,
+        currentEntry: createInitialCurrentEntry(),
+        purchaseChecked: false,
+      };
+    case 'request_type_change_confirmation':
+      return {
+        ...state,
+        showTypeChangeModal: true,
+        pendingPurchaseType: action.purchaseType,
+      };
+    case 'cancel_type_change_confirmation':
+      return {
+        ...state,
+        showTypeChangeModal: false,
+        pendingPurchaseType: '',
+      };
+    case 'confirm_type_change':
+      return {
+        ...state,
+        purchaseType: state.pendingPurchaseType,
+        itemsList: [],
+        currentEntry: createInitialCurrentEntry(),
+        purchaseChecked: false,
+        showTypeChangeModal: false,
+        pendingPurchaseType: '',
+      };
+    case 'set_payment_method':
+      return {
+        ...state,
+        paymentMethod: action.value,
+        purchaseChecked: false,
+      };
     case 'set_invoice_ref':
       return {
         ...state,
@@ -145,11 +183,55 @@ const purchaseEntryReducer = (state, action) => {
         currentEntry: createInitialCurrentEntry(),
         purchaseChecked: false,
         showPurchaseCheckModal: false,
+        purchaseType: '',
+        paymentMethod: '',
       };
     default:
       return state;
   }
 };
+
+const PURCHASE_TYPE_LABELS = {
+  inventory: 'Compra de inventario',
+  expense: 'Gasto operativo',
+};
+
+const PurchaseTypeSection = ({ purchaseType, onPurchaseTypeChange, canProcessPurchases }) => (
+  <section style={sectionStyle}>
+    <h3>Tipo de documento</h3>
+    <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+      {Object.entries(PURCHASE_TYPE_LABELS).map(([value, label]) => (
+        <label
+          key={value}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            cursor: canProcessPurchases ? 'pointer' : 'not-allowed',
+            padding: '10px 16px',
+            borderRadius: '8px',
+            border: `2px solid ${purchaseType === value ? '#2563eb' : '#e2e8f0'}`,
+            backgroundColor: purchaseType === value ? '#eff6ff' : '#fff',
+            fontWeight: purchaseType === value ? 'bold' : 'normal',
+            color: purchaseType === value ? '#1d4ed8' : '#4a5568',
+            transition: 'all 0.15s',
+          }}
+        >
+          <input
+            type="radio"
+            name="purchase-type"
+            value={value}
+            checked={purchaseType === value}
+            onChange={() => onPurchaseTypeChange(value)}
+            disabled={!canProcessPurchases}
+            style={{ accentColor: '#2563eb' }}
+          />
+          {label}
+        </label>
+      ))}
+    </div>
+  </section>
+);
 
 const PurchaseHeader = ({ canProcessPurchases }) => (
   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
@@ -162,9 +244,12 @@ const PurchaseInvoiceSection = ({
   providers,
   selectedProvider,
   invoiceRef,
+  paymentMethod,
   onProviderChange,
   onInvoiceRefChange,
+  onPaymentMethodChange,
   canProcessPurchases,
+  purchaseType,
 }) => (
   <section style={sectionStyle}>
     <h3>Datos de la Factura / Remision</h3>
@@ -175,10 +260,10 @@ const PurchaseInvoiceSection = ({
         style={inputStyle}
         value={selectedProvider}
         onChange={(e) => onProviderChange(e.target.value)}
-        disabled={!canProcessPurchases}
+        disabled={!canProcessPurchases || !purchaseType}
         required
       >
-        <option value="">Selecciona un proveedor...</option>
+        <option value="">{purchaseType ? 'Selecciona un proveedor...' : 'Primero selecciona el tipo de documento...'}</option>
         {providers.map((provider) => (
           <option key={provider.id} value={provider.id}>
             {provider.name}{provider.rfc ? ` (${provider.rfc})` : ''}
@@ -196,8 +281,27 @@ const PurchaseInvoiceSection = ({
         placeholder="Ej: FAC-1234"
         value={invoiceRef}
         onChange={(e) => onInvoiceRefChange(e.target.value)}
-        disabled={!canProcessPurchases}
+        disabled={!canProcessPurchases || !purchaseType}
       />
+    </div>
+
+    <div style={{ marginBottom: '15px' }}>
+      <label htmlFor="purchase-payment-method" style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>
+        Metodo de pago: <span style={{ color: '#e53e3e' }}>*</span>
+      </label>
+      <select
+        id="purchase-payment-method"
+        style={inputStyle}
+        value={paymentMethod}
+        onChange={(e) => onPaymentMethodChange(e.target.value)}
+        disabled={!canProcessPurchases || !purchaseType}
+        required
+      >
+        <option value="">Selecciona metodo de pago...</option>
+        <option value="Efectivo">Efectivo</option>
+        <option value="Transferencia">Transferencia</option>
+        <option value="Tarjeta">Tarjeta</option>
+      </select>
     </div>
   </section>
 );
@@ -206,18 +310,19 @@ const PurchaseItemSection = ({
   isMobile,
   canProcessPurchases,
   selectedProvider,
-  isGeneralProvider,
+  isExpense,
   availableMaterials,
   selectedMaterial,
   currentEntry,
   computedUnitCost,
   onEntryFieldChange,
   onAddToList,
+  purchaseType,
 }) => (
   <section style={sectionStyle}>
-    <h3>Producto a Ingresar</h3>
+    <h3>{isExpense ? 'Concepto a Registrar' : 'Producto a Ingresar'}</h3>
 
-    {isGeneralProvider ? (
+    {isExpense ? (
       <>
         <label htmlFor="purchase-item-description" style={labelStyle}>Concepto / Material:</label>
         <input
@@ -226,8 +331,8 @@ const PurchaseItemSection = ({
           style={inputStyle}
           value={currentEntry.item_description}
           onChange={(e) => onEntryFieldChange('item_description', e.target.value)}
-          disabled={!canProcessPurchases || !selectedProvider}
-          placeholder={selectedProvider ? 'Describe el concepto a registrar...' : 'Primero selecciona un proveedor...'}
+          disabled={!canProcessPurchases || !selectedProvider || !purchaseType}
+          placeholder={!purchaseType ? 'Primero selecciona el tipo de documento...' : selectedProvider ? 'Describe el concepto a registrar...' : 'Primero selecciona un proveedor...'}
         />
         <div style={{ fontSize: '0.9em', color: '#4a5568', marginTop: '5px' }}>
           Unidad: <span style={{ fontWeight: 'bold' }}>{DEFAULT_FREEFORM_UNIT_LABEL}</span>
@@ -241,9 +346,9 @@ const PurchaseItemSection = ({
           style={inputStyle}
           onChange={(e) => onEntryFieldChange('material_id', e.target.value)}
           value={currentEntry.material_id}
-          disabled={!canProcessPurchases || !selectedProvider}
+          disabled={!canProcessPurchases || !selectedProvider || !purchaseType}
         >
-          <option value="">{selectedProvider ? 'Selecciona producto...' : 'Primero selecciona un proveedor...'}</option>
+          <option value="">{!purchaseType ? 'Primero selecciona el tipo de documento...' : selectedProvider ? 'Selecciona producto...' : 'Primero selecciona un proveedor...'}</option>
           {availableMaterials.map((material) => (
             <option key={material.materials.id} value={material.materials.id}>
               {material.materials.name} ({material.materials.sku})
@@ -440,6 +545,8 @@ const PurchaseCheckModal = ({
   invoiceRef,
   itemsList,
   totalAmount,
+  purchaseType,
+  paymentMethod,
   isSubmitting,
   onCancel,
   onConfirm,
@@ -449,11 +556,15 @@ const PurchaseCheckModal = ({
       <div style={{ ...confirmBadgeStyle, backgroundColor: '#eff6ff', color: '#1d4ed8' }}>Check de compra</div>
       <h3 style={confirmTitleStyle}>Revisa la factura antes de procesarla</h3>
       <p style={confirmTextStyle}>
-        Confirma que el proveedor, el folio y los renglones capturados esten correctos. Despues de validar este paso
-        ya podras procesar la compra completa.
+        Confirma que el tipo, proveedor, folio, metodo de pago y los renglones capturados esten correctos. Despues de
+        validar este paso ya podras procesar la compra completa.
       </p>
 
-      <div style={confirmSummaryStyle}>
+      <div style={{ ...confirmSummaryStyle, gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
+        <div style={confirmMetricStyle}>
+          <span style={confirmMetricLabelStyle}>Tipo</span>
+          <strong style={confirmMetricValueStyle}>{PURCHASE_TYPE_LABELS[purchaseType] || purchaseType}</strong>
+        </div>
         <div style={confirmMetricStyle}>
           <span style={confirmMetricLabelStyle}>Proveedor</span>
           <strong style={confirmMetricValueStyle}>{providerName || 'Sin seleccionar'}</strong>
@@ -461,6 +572,10 @@ const PurchaseCheckModal = ({
         <div style={confirmMetricStyle}>
           <span style={confirmMetricLabelStyle}>Folio</span>
           <strong style={confirmMetricValueStyle}>{invoiceRef || 'Sin folio'}</strong>
+        </div>
+        <div style={confirmMetricStyle}>
+          <span style={confirmMetricLabelStyle}>Metodo de pago</span>
+          <strong style={confirmMetricValueStyle}>{paymentMethod || 'Sin seleccionar'}</strong>
         </div>
         <div style={confirmMetricStyle}>
           <span style={confirmMetricLabelStyle}>Renglones</span>
@@ -529,6 +644,28 @@ const ProviderChangeModal = ({ onCancel, onConfirm }) => (
   </div>
 );
 
+const TypeChangeModal = ({ onCancel, onConfirm }) => (
+  <div style={confirmOverlayStyle}>
+    <div style={confirmCardStyle}>
+      <div style={confirmBadgeStyle}>Cambiar tipo de documento</div>
+      <h3 style={confirmTitleStyle}>Se limpiara la lista actual</h3>
+      <p style={confirmTextStyle}>
+        Cambiar el tipo de documento eliminara los renglones ya capturados. Si continuamos, empezaremos una nueva lista
+        con el tipo seleccionado.
+      </p>
+
+      <div style={confirmActionsStyle}>
+        <button type="button" onClick={onCancel} style={confirmCancelBtnStyle}>
+          Cancelar
+        </button>
+        <button type="button" onClick={onConfirm} style={confirmApproveBtnStyle}>
+          Continuar
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
 const PurchaseEntry = () => {
   const [state, dispatch] = useReducer(purchaseEntryReducer, undefined, createInitialPurchaseEntryState);
   const { isMobile } = useResponsive();
@@ -545,18 +682,21 @@ const PurchaseEntry = () => {
     purchaseChecked,
     showPurchaseCheckModal,
     showProviderChangeModal,
+    showTypeChangeModal,
     purchase,
     itemsList,
     currentEntry,
+    purchaseType,
+    paymentMethod,
   } = state;
 
   const selectedProviderRecord = useMemo(
     () => providers.find((provider) => provider.id === selectedProvider) || null,
     [providers, selectedProvider]
   );
-  const isGeneralProvider = isGeneralProviderRecord(selectedProviderRecord);
+  const isExpense = purchaseType === 'expense';
 
-  const availableMaterials = selectedProvider && !isGeneralProvider
+  const availableMaterials = selectedProvider && purchaseType === 'inventory'
     ? materials.filter((material) => material.materials?.provider_id === selectedProvider)
     : [];
 
@@ -594,6 +734,15 @@ const PurchaseEntry = () => {
     loadData();
   }, []);
 
+  const handlePurchaseTypeChange = (nextType) => {
+    if (isSubmitting) return;
+    if (itemsList.length > 0 && nextType !== purchaseType) {
+      dispatch({ type: 'request_type_change_confirmation', purchaseType: nextType });
+      return;
+    }
+    dispatch({ type: 'set_purchase_type', purchaseType: nextType, clearItems: false });
+  };
+
   const handleProviderChange = (nextProviderId) => {
     if (isSubmitting) return;
 
@@ -615,8 +764,18 @@ const PurchaseEntry = () => {
   };
 
   const validatePurchaseForCheck = () => {
+    if (!purchaseType) {
+      alert('Selecciona el tipo de documento antes de continuar');
+      return false;
+    }
+
     if (!selectedProvider) {
       alert('Primero selecciona un proveedor');
+      return false;
+    }
+
+    if (!paymentMethod) {
+      alert('Selecciona el metodo de pago antes de continuar');
       return false;
     }
 
@@ -655,13 +814,18 @@ const PurchaseEntry = () => {
   const handleAddToList = () => {
     if (!canProcessPurchases || isSubmitting) return;
 
+    if (!purchaseType) {
+      alert('Primero selecciona el tipo de documento');
+      return;
+    }
+
     if (!selectedProvider) {
       alert('Primero selecciona un proveedor');
       return;
     }
 
     if (!currentEntry.quantity || !currentEntry.total_cost) {
-      alert(isGeneralProvider ? 'Por favor completa descripcion, cantidad y costo' : 'Por favor completa material, cantidad y costo');
+      alert(isExpense ? 'Por favor completa descripcion, cantidad y costo' : 'Por favor completa material, cantidad y costo');
       return;
     }
 
@@ -673,7 +837,7 @@ const PurchaseEntry = () => {
       return;
     }
 
-    if (isGeneralProvider) {
+    if (isExpense) {
       const description = String(currentEntry.item_description || '').trim();
       if (!description) {
         alert('Debes capturar el concepto o descripcion del registro');
@@ -772,7 +936,10 @@ const PurchaseEntry = () => {
             }
       ));
 
-      await materialService.recordPurchase(purchaseData, payloadItems);
+      const payment = { method: paymentMethod, amount: purchaseTotal };
+      const idempotencyKey = crypto.randomUUID();
+
+      await materialService.recordPurchase(purchaseData, payloadItems, payment, idempotencyKey, purchaseType);
       alert('Compra registrada correctamente');
       dispatch({ type: 'reset_after_save' });
     } catch (error) {
@@ -790,26 +957,36 @@ const PurchaseEntry = () => {
       <PurchaseHeader canProcessPurchases={canProcessPurchases} />
 
       <form onSubmit={handleSavePurchase} style={formContainerStyle}>
+        <PurchaseTypeSection
+          purchaseType={purchaseType}
+          onPurchaseTypeChange={handlePurchaseTypeChange}
+          canProcessPurchases={canProcessPurchases}
+        />
+
         <PurchaseInvoiceSection
           providers={providers}
           selectedProvider={selectedProvider}
           invoiceRef={invoiceRef}
+          paymentMethod={paymentMethod}
           onProviderChange={handleProviderChange}
           onInvoiceRefChange={(value) => dispatch({ type: 'set_invoice_ref', value })}
+          onPaymentMethodChange={(value) => dispatch({ type: 'set_payment_method', value })}
           canProcessPurchases={canProcessPurchases}
+          purchaseType={purchaseType}
         />
 
         <PurchaseItemSection
           isMobile={isMobile}
           canProcessPurchases={canProcessPurchases}
           selectedProvider={selectedProvider}
-          isGeneralProvider={isGeneralProvider}
+          isExpense={isExpense}
           availableMaterials={availableMaterials}
           selectedMaterial={selectedMaterial}
           currentEntry={currentEntry}
           computedUnitCost={computedUnitCost}
           onEntryFieldChange={handleEntryFieldChange}
           onAddToList={handleAddToList}
+          purchaseType={purchaseType}
         />
       </form>
 
@@ -834,6 +1011,8 @@ const PurchaseEntry = () => {
           invoiceRef={invoiceRef}
           itemsList={itemsList}
           totalAmount={purchaseTotal}
+          purchaseType={purchaseType}
+          paymentMethod={paymentMethod}
           isSubmitting={isSubmitting}
           onCancel={() => dispatch({ type: 'set_purchase_check_modal', value: false })}
           onConfirm={handleConfirmPurchaseCheck}
@@ -846,54 +1025,60 @@ const PurchaseEntry = () => {
           onConfirm={() => dispatch({ type: 'confirm_provider_change' })}
         />
       )}
+
+      {showTypeChangeModal && (
+        <TypeChangeModal
+          onCancel={() => dispatch({ type: 'cancel_type_change_confirmation' })}
+          onConfirm={() => dispatch({ type: 'confirm_type_change' })}
+        />
+      )}
     </div>
   );
 };
 
-const formContainerStyle = { backgroundColor: '#f4f7f6', padding: '20px', borderRadius: '10px' };
-const sectionStyle = { marginBottom: '20px', padding: '15px', backgroundColor: '#fff', borderRadius: '8px' };
-const labelStyle = { display: 'block', fontSize: '0.9em', color: '#555', marginBottom: '5px' };
-const inputStyle = { width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #ddd', boxSizing: 'border-box' };
-const readOnlyInputStyle = { backgroundColor: '#f8fafc', color: '#0f172a', WebkitTextFillColor: '#0f172a', fontWeight: '700' };
-const btnStyle = { flex: '1 1 260px', padding: '12px', backgroundColor: '#2980b9', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' };
-const btnCheckStyle = { flex: '0 0 150px', padding: '12px 18px', backgroundColor: '#1f2937', color: 'white', border: 'none', borderRadius: '10px', fontWeight: '800', cursor: 'pointer' };
+const formContainerStyle = { backgroundColor: colors.gray150, padding: space[8], borderRadius: radius.lg };
+const sectionStyle = { marginBottom: space[7], padding: space[7], backgroundColor: colors.white, borderRadius: radius.md };
+const labelStyle = { display: 'block', fontSize: type.sm, color: colors.gray700, marginBottom: space[2] };
+const inputStyle = { width: '100%', padding: `${space[4]} ${space[5]}`, borderRadius: radius.md, border: `1px solid ${colors.gray300}`, boxSizing: 'border-box' };
+const readOnlyInputStyle = { backgroundColor: colors.gray100, color: colors.gray900, WebkitTextFillColor: colors.gray900, fontWeight: type.bold };
+const btnStyle = { flex: '1 1 240px', padding: `${space[4]} ${space[8]}`, backgroundColor: colors.blue600, color: colors.white, border: 'none', borderRadius: radius.md, fontWeight: type.bold, cursor: 'pointer' };
+const btnCheckStyle = { flex: '0 0 140px', padding: `${space[4]} ${space[9]}`, backgroundColor: colors.gray800, color: colors.white, border: 'none', borderRadius: radius.md, fontWeight: type.black, cursor: 'pointer' };
 const entryRowStyle = {
-  marginTop: '20px',
-  paddingTop: '20px',
-  borderTop: '1px solid #e2e8f0',
+  marginTop: space[7],
+  paddingTop: space[7],
+  borderTop: `1px solid ${colors.gray200}`,
   display: 'flex',
   justifyContent: 'flex-end',
 };
 const btnAddStyle = {
-  padding: '12px 24px',
-  backgroundColor: '#2d3748',
-  color: 'white',
+  padding: `${space[4]} ${space[12]}`,
+  backgroundColor: colors.gray800,
+  color: colors.white,
   border: 'none',
-  borderRadius: '8px',
+  borderRadius: radius.md,
   cursor: 'pointer',
-  fontWeight: 'bold',
-  fontSize: '1rem',
-  transition: 'background 0.2s',
+  fontWeight: type.bold,
+  fontSize: type.base,
 };
-const tableWrapperStyle = { marginTop: '20px', backgroundColor: '#fff', borderRadius: '10px', overflowX: 'auto', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' };
-const thStyle = { padding: '15px', textAlign: 'left' };
-const tdStyle = { padding: '12px 15px' };
-const readOnlyBadgeStyle = { padding: '8px 12px', borderRadius: '999px', backgroundColor: '#edf2f7', color: '#4a5568', fontWeight: '700' };
-const disabledBtnStyle = { ...btnStyle, backgroundColor: '#94a3b8', cursor: 'not-allowed' };
-const disabledCheckBtnStyle = { ...btnCheckStyle, backgroundColor: '#94a3b8', cursor: 'not-allowed' };
-const mobileCardsListStyle = { display: 'grid', gap: '12px', padding: '12px' };
-const mobileItemCardStyle = { borderRadius: '16px', border: '1px solid #e2e8f0', backgroundColor: '#f8fafc', padding: '14px', display: 'flex', flexDirection: 'column', gap: '12px' };
-const mobileItemHeaderStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' };
-const mobileItemLabelStyle = { color: '#64748b', fontSize: '0.78rem', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' };
-const mobileItemSkuStyle = { color: '#1e3a5f', fontWeight: '800' };
-const mobileItemNameStyle = { color: '#0f172a', fontWeight: '900', fontSize: '1rem' };
-const mobileMetricsGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '10px' };
-const mobileMetricCardStyle = { borderRadius: '12px', border: '1px solid #e2e8f0', backgroundColor: '#ffffff', padding: '10px' };
-const mobileMetricValueStyle = { color: '#0f172a', fontWeight: '800' };
-const mobileSubtotalStyle = { color: '#16a34a', fontWeight: '900' };
-const mobileRemoveButtonStyle = { border: 'none', borderRadius: '10px', backgroundColor: '#fee2e2', color: '#b91c1c', fontWeight: '800', padding: '10px 12px', cursor: 'pointer' };
-const mobileRemoveButtonDisabledStyle = { backgroundColor: '#e2e8f0', color: '#94a3b8', cursor: 'not-allowed' };
-const purchaseActionsWrapStyle = { marginTop: '20px', display: 'flex', gap: '12px', alignItems: 'stretch', flexWrap: 'wrap' };
+const tableWrapperStyle = { marginTop: space[7], backgroundColor: colors.white, borderRadius: radius.lg, overflowX: 'auto', boxShadow: shadow.sm };
+const thStyle = { padding: '10px 12px', textAlign: 'left' };
+const tdStyle = { padding: '8px 12px' };
+const readOnlyBadgeStyle = { padding: `${space[1]} ${space[6]}`, borderRadius: radius.full, backgroundColor: colors.gray150, color: colors.gray600, fontWeight: type.bold };
+const disabledBtnStyle = { ...btnStyle, backgroundColor: colors.gray400, cursor: 'not-allowed' };
+const disabledCheckBtnStyle = { ...btnCheckStyle, backgroundColor: colors.gray400, cursor: 'not-allowed' };
+const mobileCardsListStyle = { display: 'grid', gap: space[6], padding: space[6] };
+const mobileItemCardStyle = { borderRadius: radius.xl, border: `1px solid ${colors.gray200}`, backgroundColor: colors.gray100, padding: space[6], display: 'flex', flexDirection: 'column', gap: space[5] };
+const mobileItemHeaderStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: space[6] };
+const mobileItemLabelStyle = { color: colors.gray500, fontSize: type.xs, fontWeight: type.black, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: space[1] };
+const mobileItemSkuStyle = { color: colors.gray800, fontWeight: type.black };
+const mobileItemNameStyle = { color: colors.gray900, fontWeight: type.black, fontSize: type.md };
+const mobileMetricsGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: space[5] };
+const mobileMetricCardStyle = { borderRadius: radius.md, border: `1px solid ${colors.gray200}`, backgroundColor: colors.white, padding: space[5] };
+const mobileMetricValueStyle = { color: colors.gray900, fontWeight: type.black };
+const mobileSubtotalStyle = { color: colors.green500, fontWeight: type.black };
+const mobileRemoveButtonStyle = { border: 'none', borderRadius: radius.md, backgroundColor: colors.red100, color: colors.red700, fontWeight: type.black, padding: `${space[4]} ${space[6]}`, cursor: 'pointer' };
+const mobileRemoveButtonDisabledStyle = { backgroundColor: colors.gray200, color: colors.gray400, cursor: 'not-allowed' };
+const purchaseActionsWrapStyle = { marginTop: space[7], display: 'flex', gap: space[6], alignItems: 'stretch', flexWrap: 'wrap' };
 const confirmOverlayStyle = {
   position: 'fixed',
   inset: 0,
@@ -901,93 +1086,93 @@ const confirmOverlayStyle = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  padding: '18px',
+  padding: space[9],
   zIndex: 1050,
 };
 const confirmCardStyle = {
   width: '100%',
-  maxWidth: '540px',
-  backgroundColor: '#ffffff',
-  borderRadius: '24px',
+  maxWidth: '520px',
+  backgroundColor: colors.white,
+  borderRadius: radius.xl,
   boxShadow: '0 28px 70px rgba(15, 23, 42, 0.28)',
-  padding: '24px',
-  border: '1px solid #fecaca',
+  padding: space[10],
+  border: `1px solid ${colors.red100}`,
 };
 const confirmBadgeStyle = {
   display: 'inline-flex',
   alignItems: 'center',
-  padding: '8px 12px',
-  borderRadius: '999px',
-  backgroundColor: '#fff7ed',
+  padding: `${space[1]} ${space[5]}`,
+  borderRadius: radius.full,
+  backgroundColor: colors.amber50,
   color: '#c2410c',
-  fontWeight: '800',
-  fontSize: '0.82rem',
-  marginBottom: '14px',
+  fontWeight: type.black,
+  fontSize: type.xs,
+  marginBottom: space[7],
 };
 const confirmTitleStyle = {
   margin: 0,
-  color: '#111827',
-  fontSize: '1.45rem',
+  color: colors.gray900,
+  fontSize: type['2xl'],
 };
 const confirmTextStyle = {
-  margin: '12px 0 0 0',
-  color: '#475569',
+  margin: `${space[6]} 0 0 0`,
+  color: colors.gray600,
   lineHeight: 1.65,
 };
 const confirmSummaryStyle = {
   display: 'grid',
   gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-  gap: '12px',
-  marginTop: '18px',
+  gap: space[6],
+  marginTop: space[9],
 };
 const confirmMetricStyle = {
-  backgroundColor: '#f8fafc',
-  border: '1px solid #e2e8f0',
-  borderRadius: '16px',
-  padding: '14px',
+  backgroundColor: colors.gray100,
+  border: `1px solid ${colors.gray200}`,
+  borderRadius: radius.lg,
+  padding: `${space[5]} ${space[6]}`,
   display: 'flex',
   flexDirection: 'column',
-  gap: '4px',
+  gap: space[2],
 };
 const confirmMetricLabelStyle = {
-  color: '#64748b',
-  fontSize: '0.78rem',
+  color: colors.gray500,
+  fontSize: type.xs,
   textTransform: 'uppercase',
   letterSpacing: '0.04em',
 };
 const confirmMetricValueStyle = {
-  color: '#0f172a',
-  fontSize: '1.1rem',
+  color: colors.gray900,
+  fontSize: type.lg,
 };
 const confirmActionsStyle = {
   display: 'flex',
   justifyContent: 'flex-end',
-  gap: '12px',
+  gap: space[5],
   flexWrap: 'wrap',
-  marginTop: '22px',
+  marginTop: space[9],
 };
 const confirmCancelBtnStyle = {
-  border: '1px solid #cbd5e1',
-  backgroundColor: '#ffffff',
-  color: '#334155',
-  borderRadius: '12px',
-  padding: '12px 16px',
-  fontWeight: '700',
+  border: `1px solid ${colors.gray300}`,
+  backgroundColor: colors.white,
+  color: colors.gray700,
+  borderRadius: radius.md,
+  padding: `${space[4]} ${space[8]}`,
+  fontWeight: type.bold,
   cursor: 'pointer',
 };
 const confirmApproveBtnStyle = {
   border: 'none',
-  backgroundColor: '#dc2626',
-  color: '#ffffff',
-  borderRadius: '12px',
-  padding: '12px 16px',
-  fontWeight: '800',
+  backgroundColor: colors.red600,
+  color: colors.white,
+  borderRadius: radius.md,
+  padding: `${space[4]} ${space[8]}`,
+  fontWeight: type.black,
   cursor: 'pointer',
 };
 const purchaseCheckItemsWrapStyle = {
-  marginTop: '18px',
+  marginTop: space[9],
   display: 'grid',
-  gap: '10px',
+  gap: space[5],
   maxHeight: '240px',
   overflowY: 'auto',
 };
@@ -995,23 +1180,23 @@ const purchaseCheckItemStyle = {
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'flex-start',
-  gap: '12px',
-  padding: '12px 14px',
-  borderRadius: '14px',
-  backgroundColor: '#f8fafc',
-  border: '1px solid #e2e8f0',
+  gap: space[6],
+  padding: `${space[5]} ${space[6]}`,
+  borderRadius: radius.lg,
+  backgroundColor: colors.gray100,
+  border: `1px solid ${colors.gray200}`,
 };
 const purchaseCheckItemNameStyle = {
-  color: '#0f172a',
-  fontWeight: '800',
+  color: colors.gray900,
+  fontWeight: type.black,
 };
 const purchaseCheckItemMetaStyle = {
-  color: '#64748b',
-  fontSize: '0.88rem',
-  marginTop: '4px',
+  color: colors.gray500,
+  fontSize: type.sm,
+  marginTop: space[2],
 };
 const purchaseCheckItemTotalStyle = {
-  color: '#0f172a',
+  color: colors.gray900,
   whiteSpace: 'nowrap',
 };
 

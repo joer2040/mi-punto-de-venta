@@ -515,17 +515,14 @@ Deno.serve(async (req) => {
     if (action === 'finalize_sale') {
       const tableId = String(body.table_id ?? '')
       const items = normalizeItems(body.items)
-      const paymentMethod = String(body.payment_method ?? CASH_PAYMENT_METHOD).trim()
       const hasExpectedOrderId = Object.prototype.hasOwnProperty.call(body, 'expected_order_id')
       const requestedOrderId = String(body.expected_order_id ?? '').trim()
+      const idempotencyKey = body.idempotency_key ? String(body.idempotency_key).trim() : null
 
       if (!tableId) return json({ error: 'Falta table_id.' }, 400)
       if (items.length === 0) return json({ error: 'La mesa no tiene productos para cobrar.' }, 400)
       if (!hasExpectedOrderId || !requestedOrderId) {
         return json({ error: 'Falta expected_order_id para finalizar la venta.' }, 400)
-      }
-      if (normalizeRoleName(paymentMethod) !== normalizeRoleName(CASH_PAYMENT_METHOD)) {
-        return json({ error: 'Metodo de pago no soportado.' }, 400)
       }
 
       const { table, order } = await loadTableState(adminClient, tableId)
@@ -573,6 +570,31 @@ Deno.serve(async (req) => {
 
       const canonicalItems = buildCanonicalSaleItems(items, materialRows || [], inventoryRows || [])
       validateCubetaBundles(canonicalItems, materialRows || [])
+      const computedTotal = computeTotal(canonicalItems)
+
+      // Build payments array. Accept new format [{method, amount}] or legacy payment_method.
+      type Payment = { method: string; amount: number }
+      const VALID_PAYMENT_METHODS = new Set(['efectivo', 'tarjeta', 'transferencia'])
+      let payments: Payment[]
+      if (Array.isArray(body.payments) && body.payments.length > 0) {
+        payments = (body.payments as unknown[]).map((p: Record<string, unknown>) => ({
+          method: String(p?.method ?? '').trim(),
+          amount: toNumber(p?.amount, 0),
+        })).filter((p) => p.method && p.amount > 0)
+      } else {
+        const legacyMethod = String(body.payment_method ?? CASH_PAYMENT_METHOD).trim()
+        payments = [{ method: legacyMethod, amount: computedTotal }]
+      }
+
+      const invalidMethods = payments.filter((p) => !VALID_PAYMENT_METHODS.has(p.method.toLowerCase()))
+      if (invalidMethods.length > 0) {
+        return json({ error: 'Metodo de pago no soportado.' }, 400)
+      }
+
+      const paymentsTotal = payments.reduce((sum, p) => sum + p.amount, 0)
+      if (Math.abs(paymentsTotal - computedTotal) > 0.01) {
+        return json({ error: 'El total de pagos no coincide con el total de la venta.' }, 400)
+      }
 
       const rpcItems = canonicalItems.map((item) => ({
         order_id: expectedOrderId,
@@ -584,10 +606,11 @@ Deno.serve(async (req) => {
       }))
 
       const { data: finalizedSale, error: finalizeError } = await adminClient.rpc('finalize_pos_sale', {
-        p_table_id: table.id,
-        p_items: rpcItems,
-        p_payment_method: CASH_PAYMENT_METHOD,
-        p_performed_by: user.id,
+        p_table_id:        table.id,
+        p_items:           rpcItems,
+        p_payments:        payments,
+        p_performed_by:    user.id,
+        p_idempotency_key: idempotencyKey,
       })
 
       if (finalizeError) {

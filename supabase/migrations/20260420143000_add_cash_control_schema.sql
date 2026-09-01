@@ -1,5 +1,4 @@
 begin;
-
 create table if not exists public.cash_sessions (
   id uuid primary key default gen_random_uuid(),
   status text not null default 'open' check (status in ('open', 'closed')),
@@ -15,17 +14,13 @@ create table if not exists public.cash_sessions (
   report_pdf_metadata jsonb not null default '{}'::jsonb,
   created_at timestamp with time zone not null default now()
 );
-
 comment on table public.cash_sessions is
   'Sesion global de caja para apertura, seguimiento de ventas en efectivo y corte.';
-
 create unique index if not exists cash_sessions_single_open_idx
   on public.cash_sessions (status)
   where status = 'open';
-
 create index if not exists cash_sessions_opened_at_idx
   on public.cash_sessions (opened_at desc);
-
 create table if not exists public.cash_session_inventory_snapshots (
   id uuid primary key default gen_random_uuid(),
   cash_session_id uuid not null references public.cash_sessions(id) on delete cascade,
@@ -36,16 +31,12 @@ create table if not exists public.cash_session_inventory_snapshots (
   average_cost numeric(12,2) not null default 0.00,
   created_at timestamp with time zone not null default now()
 );
-
 comment on table public.cash_session_inventory_snapshots is
   'Snapshot del inventario al abrir y cerrar una sesion de caja.';
-
 create index if not exists cash_session_inventory_snapshots_session_idx
   on public.cash_session_inventory_snapshots (cash_session_id, snapshot_type, material_name);
-
 alter table public.sales
   add column if not exists cash_session_id uuid;
-
 do $$
 begin
   alter table public.sales
@@ -54,11 +45,8 @@ begin
 exception
   when duplicate_object then null;
 end $$;
-
 create index if not exists sales_cash_session_id_idx
   on public.sales (cash_session_id);
-
 grant all on table public.cash_sessions to service_role;
 grant all on table public.cash_session_inventory_snapshots to service_role;
-
 commit;

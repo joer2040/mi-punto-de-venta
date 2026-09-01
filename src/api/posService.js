@@ -20,18 +20,27 @@ const invokePosOperation = async (action, payload) => {
   if (error) {
     const response = error.context
 
-    if (response) {
+    if (response && typeof response.clone === 'function') {
+      const jsonResponse = response.clone()
+      const textResponse = response.clone()
+
+      let errorBody = null
       try {
-        const errorBody = await response.json()
-        throw new Error(errorBody?.error || error.message)
+        errorBody = await jsonResponse.json()
       } catch {
-        try {
-          const errorText = await response.text()
-          throw new Error(errorText || error.message)
-        } catch {
-          throw new Error(error.message)
-        }
+        // response may not be JSON
       }
+
+      if (errorBody?.error) throw new Error(errorBody.error)
+
+      let errorText = ''
+      try {
+        errorText = await textResponse.text()
+      } catch {
+        // fall through to generic message
+      }
+
+      if (errorText) throw new Error(errorText)
     }
 
     throw new Error(error.message)
@@ -51,12 +60,12 @@ export const posService = {
     })
   },
 
-  async finalizeSale({ table_id, expected_order_id, items, payment_method = 'Efectivo' }) {
+  async finalizeSale({ table_id, expected_order_id, items, payments }) {
     return invokePosOperation('finalize_sale', {
       table_id,
       expected_order_id,
       items: items || [],
-      payment_method,
+      payments,
     })
   },
 }

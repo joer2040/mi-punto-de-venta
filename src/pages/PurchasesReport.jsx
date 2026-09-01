@@ -3,6 +3,7 @@ import ReportView from '../components/ReportView'
 import { materialService } from '../api/materialService'
 import { formatCurrency, formatDateTime } from '../lib/reportUtils'
 import { useResponsive } from '../lib/useResponsive'
+import { colors, space, type, radius } from '../lib/designTokens'
 
 const createInitialPurchasesState = () => ({
   purchases: [],
@@ -10,6 +11,7 @@ const createInitialPurchasesState = () => ({
   dateFrom: '',
   dateTo: '',
   selectedProvider: '',
+  selectedPurchaseType: '',
 })
 
 const purchasesReducer = (state, action) => {
@@ -45,6 +47,11 @@ const purchasesReducer = (state, action) => {
         ...state,
         selectedProvider: action.value,
       }
+    case 'set-purchase-type':
+      return {
+        ...state,
+        selectedPurchaseType: action.value,
+      }
     default:
       return state
   }
@@ -52,7 +59,7 @@ const purchasesReducer = (state, action) => {
 
 const PurchasesReport = () => {
   const [state, dispatch] = useReducer(purchasesReducer, undefined, createInitialPurchasesState)
-  const { purchases, loading, dateFrom, dateTo, selectedProvider } = state
+  const { purchases, loading, dateFrom, dateTo, selectedProvider, selectedPurchaseType } = state
   const { isMobile } = useResponsive()
 
   useEffect(() => {
@@ -81,7 +88,8 @@ const PurchasesReport = () => {
   const filteredPurchases = purchases.filter((purchase) => {
     const matchesProvider = !selectedProvider || purchase.provider_name === selectedProvider
     const matchesDate = isWithinDateRange(purchase.created_at, dateFrom, dateTo)
-    return matchesProvider && matchesDate
+    const matchesType = !selectedPurchaseType || purchase.purchase_type === selectedPurchaseType
+    return matchesProvider && matchesDate && matchesType
   })
 
   const totalPurchased = useMemo(
@@ -90,6 +98,7 @@ const PurchasesReport = () => {
   )
 
   const exportRows = filteredPurchases.map((purchase) => ({
+    tipo: purchase.purchase_type,
     proveedor: purchase.provider_name,
     factura: purchase.invoice_ref,
     fecha: formatDateTime(purchase.created_at),
@@ -140,10 +149,24 @@ const PurchasesReport = () => {
               ))}
             </select>
           </div>
+          <div>
+            <label htmlFor="purchases-report-type" style={filterLabelStyle}>Tipo</label>
+            <select
+              id="purchases-report-type"
+              value={selectedPurchaseType}
+              onChange={(event) => dispatch({ type: 'set-purchase-type', value: event.target.value })}
+              style={filterInputStyle}
+            >
+              <option value="">Todos los tipos</option>
+              <option value="Compra de inventario">Compra de inventario</option>
+              <option value="Gasto operativo">Gasto operativo</option>
+            </select>
+          </div>
         </div>
       }
       rows={filteredPurchases}
       columns={[
+        { key: 'tipo', label: 'Tipo' },
         { key: 'proveedor', label: 'Proveedor' },
         { key: 'factura', label: 'Factura' },
         { key: 'fecha', label: 'Fecha' },
@@ -151,6 +174,7 @@ const PurchasesReport = () => {
       ]}
       renderRow={(purchase) => (
         <tr key={purchase.id} style={rowStyle}>
+          <td style={tdStyle}>{purchase.purchase_type}</td>
           <td style={{ ...tdStyle, fontWeight: 'bold' }}>{purchase.provider_name}</td>
           <td style={tdStyle}>{purchase.invoice_ref}</td>
           <td style={tdStyle}>{formatDateTime(purchase.created_at)}</td>
@@ -160,6 +184,7 @@ const PurchasesReport = () => {
         </tr>
       )}
       exportColumns={[
+        { key: 'tipo', label: 'Tipo' },
         { key: 'proveedor', label: 'Proveedor' },
         { key: 'factura', label: 'Factura' },
         { key: 'fecha', label: 'Fecha' },
@@ -190,31 +215,31 @@ const isWithinDateRange = (value, dateFrom, dateTo) => {
 
 const getFilterGridStyle = (isMobile) => ({
   display: 'grid',
-  gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, minmax(0, 1fr))',
+  gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, minmax(0, 1fr))',
   gap: '12px',
 })
 
 const filterLabelStyle = {
   display: 'block',
-  marginBottom: '6px',
-  color: '#475569',
-  fontWeight: '700',
-  fontSize: '0.85rem',
+  marginBottom: space[2],
+  color: colors.gray600,
+  fontWeight: type.bold,
+  fontSize: type.sm,
 }
 
 const filterInputStyle = {
   width: '100%',
-  padding: '10px',
-  borderRadius: '8px',
-  border: '1px solid #cbd5e1',
+  padding: `${space[4]} ${space[5]}`,
+  borderRadius: radius.md,
+  border: `1px solid ${colors.gray300}`,
   boxSizing: 'border-box',
-  backgroundColor: '#ffffff',
-  color: '#0f172a',
-  WebkitTextFillColor: '#0f172a',
+  backgroundColor: colors.white,
+  color: colors.gray900,
+  WebkitTextFillColor: colors.gray900,
 }
 
 const loadingStyle = { padding: '50px', textAlign: 'center' }
-const tdStyle = { padding: '12px 15px', fontSize: '0.95rem', color: '#4a5568' }
-const rowStyle = { borderBottom: '1px solid #e2e8f0' }
+const tdStyle = { padding: '8px 12px', fontSize: type.md, color: colors.gray600 }
+const rowStyle = { borderBottom: `1px solid ${colors.gray200}` }
 
 export default PurchasesReport

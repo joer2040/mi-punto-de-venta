@@ -539,7 +539,6 @@ begin
   return v_sale;
 end;
 $$;
-
 revoke all on function public.finalize_pos_sale(uuid, jsonb, text, uuid)
   from public, anon, authenticated;
 grant execute on function public.finalize_pos_sale(uuid, jsonb, text, uuid)

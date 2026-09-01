@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useReducer, useRef } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useReducer, useRef } from 'react'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { useResponsive } from './lib/useResponsive'
 
@@ -17,6 +17,11 @@ const SecurityUsers = lazy(() => import('./pages/SecurityUsers'))
 const Home = lazy(() => import('./pages/Home'))
 const Login = lazy(() => import('./pages/Login'))
 const AccessDenied = lazy(() => import('./pages/AccessDenied'))
+const FinancesHome = lazy(() => import('./pages/FinancesHome'))
+const FinancesBalances = lazy(() => import('./pages/FinancesBalances'))
+const FinancesJournal = lazy(() => import('./pages/FinancesJournal'))
+const FinancesLedger = lazy(() => import('./pages/FinancesLedger'))
+const FinancesCashSessions = lazy(() => import('./pages/FinancesCashSessions'))
 
 const STORAGE_KEY = 'mi-punto-de-venta.current-page'
 const IDLE_TIMEOUT_MS = 10 * 60 * 1000
@@ -37,10 +42,11 @@ const PAGE_LABELS = {
   'report-sales': 'Reporte ventas',
   'report-movements': 'Reporte movimientos',
   pos: 'Punto de venta',
+  finances: 'Finanzas',
   security: 'Usuarios',
 }
 
-const PRIMARY_NAV_PAGES = ['home', 'master', 'providers', 'purchases', 'movements', 'cash-control', 'reports', 'pos', 'security']
+const PRIMARY_NAV_PAGES = ['home', 'master', 'providers', 'purchases', 'movements', 'cash-control', 'reports', 'pos', 'finances', 'security']
 
 const getInitialUiState = () => ({
   currentPage: typeof window === 'undefined' ? 'home' : localStorage.getItem(STORAGE_KEY) || 'home',
@@ -113,6 +119,16 @@ const PageContent = ({ currentPage, onNavigate, onPosEditingStateChange }) => {
       return <POS onEditingStateChange={onPosEditingStateChange} />
     case 'security':
       return <SecurityUsers />
+    case 'finances':
+      return <FinancesHome onNavigate={onNavigate} />
+    case 'finances-balances':
+      return <FinancesBalances />
+    case 'finances-journal':
+      return <FinancesJournal />
+    case 'finances-ledger':
+      return <FinancesLedger />
+    case 'finances-sessions':
+      return <FinancesCashSessions />
     default:
       return <AccessDenied />
   }
@@ -250,9 +266,9 @@ const AppShell = () => {
     dispatch({ type: 'set-mobile-nav-open', value: false })
   }
 
-  const handlePosEditingStateChange = (value) => {
+  const handlePosEditingStateChange = useCallback((value) => {
     dispatch({ type: 'set-pos-editing', value: Boolean(value) })
-  }
+  }, [])
 
   if (loading) {
     return <div style={loadingStyle}>Cargando aplicacion...</div>
@@ -461,7 +477,7 @@ const navButtonStyle = {
 const activeNavButtonStyle = {
   background: '#0f172a',
   color: '#ffffff',
-  borderColor: '#0f172a',
+  border: '1px solid #0f172a',
 }
 
 const mainStyle = {
@@ -579,7 +595,7 @@ const mobileDrawerButtonStyle = {
 const mobileDrawerActiveButtonStyle = {
   background: '#0f172a',
   color: '#ffffff',
-  borderColor: '#0f172a',
+  border: '1px solid #0f172a',
 }
 
 const loadingStyle = {

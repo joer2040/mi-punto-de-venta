@@ -65,7 +65,15 @@ export const cashControlService = {
     })
   },
 
-  async closeCashSession() {
-    return invokeCashOperation('close_cash_session')
+  async closeCashSession(countedCash) {
+    return invokeCashOperation('close_cash_session', {
+      counted_cash: Number(countedCash),
+    })
+  },
+
+  async submitRecount(secondCountedCash) {
+    return invokeCashOperation('submit_recount', {
+      second_counted_cash: Number(secondCountedCash),
+    })
   },
 }

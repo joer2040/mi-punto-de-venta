@@ -137,7 +137,7 @@ const FinancesCashSessions = () => {
     estado: STATUS_LABELS[s.status] ?? s.status,
     fondo_inicio: formatCurrency(s.opening_amount),
     esperado: formatCurrency(s.expected_cash),
-    contado: s.final_counted_cash != null ? formatCurrency(s.final_counted_cash) : '',
+    contado: (s.final_counted_cash ?? s.first_counted_cash) != null ? formatCurrency(s.final_counted_cash ?? s.first_counted_cash) : '',
     diferencia: s.difference_amount != null ? formatCurrency(s.difference_amount) : '',
     resolucion: s.resolution_type ? (RESOLUTION_LABELS[s.resolution_type] ?? s.resolution_type) : '',
     poliza: s.resolution_entry || '',
@@ -251,7 +251,9 @@ const FinancesCashSessions = () => {
             <td style={{ ...tdStyle, textAlign: 'right' }}>{formatCurrency(row.opening_amount)}</td>
             <td style={{ ...tdStyle, textAlign: 'right' }}>{formatCurrency(row.expected_cash)}</td>
             <td style={{ ...tdStyle, textAlign: 'right' }}>
-              {row.final_counted_cash != null ? formatCurrency(row.final_counted_cash) : '—'}
+              {(row.final_counted_cash ?? row.first_counted_cash) != null
+                ? formatCurrency(row.final_counted_cash ?? row.first_counted_cash)
+                : '—'}
             </td>
             <td style={{ ...tdStyle, textAlign: 'right', fontWeight: type.bold, color: diffColor }}>
               {row.difference_amount != null ? formatCurrency(row.difference_amount) : '—'}

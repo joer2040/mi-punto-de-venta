@@ -8,6 +8,8 @@ import { colors, space, type, radius, shadow } from '../lib/designTokens';
 
 const DEFAULT_FREEFORM_UNIT_LABEL = 'pz';
 
+const roundCents = (v) => Math.round(v * 100) / 100;
+
 const createPurchaseEntryId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
 const createInitialCurrentEntry = () => ({
@@ -844,7 +846,7 @@ const PurchaseEntry = () => {
         return;
       }
 
-      const unitCost = quantity > 0 ? totalCost / quantity : 0;
+      const unitCost = roundCents(quantity > 0 ? totalCost / quantity : 0);
 
       dispatch({
         type: 'add_item',
@@ -857,7 +859,7 @@ const PurchaseEntry = () => {
           unit_cost: unitCost,
           name: description,
           sku: '',
-          subtotal: totalCost,
+          subtotal: roundCents(unitCost * quantity),
         },
       });
       return;
@@ -874,7 +876,7 @@ const PurchaseEntry = () => {
       return;
     }
 
-    const unitCost = quantity > 0 ? totalCost / quantity : 0;
+    const unitCost = roundCents(quantity > 0 ? totalCost / quantity : 0);
 
     dispatch({
       type: 'add_item',
@@ -887,7 +889,7 @@ const PurchaseEntry = () => {
         unit_cost: unitCost,
         name: materialInfo.materials.name,
         sku: materialInfo.materials.sku,
-        subtotal: totalCost,
+        subtotal: roundCents(unitCost * quantity),
       },
     });
   };

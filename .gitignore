@@ -36,3 +36,6 @@ dist-ssr
 .tools/
 sql/reset_*.sql
 sql/dev/generated/
+
+# Backups PRD — datos productivos, nunca commitear
+backups/

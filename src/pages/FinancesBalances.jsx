@@ -70,6 +70,24 @@ const FinancesBalances = () => {
     [balances]
   )
 
+  const totalIngresos = useMemo(
+    () =>
+      balances
+        .filter((b) => b.account_type === 'income')
+        .reduce((sum, b) => sum + Number(b.balance || 0), 0),
+    [balances]
+  )
+
+  const totalGastos = useMemo(
+    () =>
+      balances
+        .filter((b) => b.account_type === 'expense')
+        .reduce((sum, b) => sum + Number(b.balance || 0), 0),
+    [balances]
+  )
+
+  const totalPasivoCapitalResultado = totalPasivoCapital + totalIngresos - totalGastos
+
   const exportRows = balances.map((b) => ({
     code: b.code,
     name: b.name,
@@ -155,7 +173,8 @@ const FinancesBalances = () => {
           <span>
             Activos: <strong>{formatCurrency(totalActivos)}</strong>
             {'  ·  '}
-            Pasivo + Capital: <strong>{formatCurrency(totalPasivoCapital)}</strong>
+            Pasivo + Capital + Ingresos - Gastos:{' '}
+            <strong>{formatCurrency(totalPasivoCapitalResultado)}</strong>
           </span>
         )
       }

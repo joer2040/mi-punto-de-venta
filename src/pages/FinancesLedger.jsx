@@ -9,8 +9,14 @@ const ACCOUNT_OPTIONS = [
   { code: '1101', name: 'Caja operativa' },
   { code: '1102', name: 'Caja fuerte' },
   { code: '1103', name: 'Banco' },
+  { code: '1201', name: 'Compras de mercancía por aplicar' },
+  { code: '1202', name: 'Adquisiciones por clasificar' },
   { code: '3101', name: 'Aportaciones del propietario' },
   { code: '3102', name: 'Retiros del propietario' },
+  { code: '4101', name: 'Ingresos por ventas' },
+  { code: '4102', name: 'Sobrantes de caja' },
+  { code: '5101', name: 'Faltantes de caja' },
+  { code: '5102', name: 'Gastos operativos generales' },
 ]
 
 const ENTRY_TYPE_LABELS = {

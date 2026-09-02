@@ -35,6 +35,25 @@ const toLocalDateString = (d) => {
   return `${year}-${month}-${day}`
 }
 
+const toUtcBoundaryDateString = (value, endOfDay = false) => {
+  const [year, month, day] = value.split('-').map(Number)
+  const boundary = new Date(
+    year,
+    month - 1,
+    day,
+    endOfDay ? 23 : 0,
+    endOfDay ? 59 : 0,
+    endOfDay ? 59 : 0,
+    endOfDay ? 999 : 0
+  )
+  return boundary.toISOString().slice(0, 10)
+}
+
+const isSessionWithinLocalRange = (session, from, to) => {
+  const openedDate = toLocalDateString(new Date(session.opened_at))
+  return (!from || openedDate >= from) && (!to || openedDate <= to)
+}
+
 const validate = (from, to) => {
   if (from && to && from > to) return 'La fecha inicial no puede ser posterior a la fecha final.'
   return null
@@ -67,8 +86,12 @@ const FinancesCashSessions = () => {
     setLoading(true)
     setLoadError(null)
     try {
-      const result = await financialService.getCashSessionsReport(from || null, to || null)
-      setSessions(result?.sessions ?? [])
+      // The RPC applies UTC date boundaries; expand the query and trim results by local date.
+      const queryFrom = from ? toUtcBoundaryDateString(from) : null
+      const queryTo = to ? toUtcBoundaryDateString(to, true) : null
+      const result = await financialService.getCashSessionsReport(queryFrom, queryTo)
+      const receivedSessions = result?.sessions ?? []
+      setSessions(receivedSessions.filter((session) => isSessionWithinLocalRange(session, from, to)))
     } catch (err) {
       setLoadError(err.message || 'Error al cargar sesiones de caja.')
       setSessions([])

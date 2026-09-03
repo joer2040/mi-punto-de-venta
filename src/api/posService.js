@@ -60,12 +60,13 @@ export const posService = {
     })
   },
 
-  async finalizeSale({ table_id, expected_order_id, items, payments }) {
+  async finalizeSale({ table_id, expected_order_id, items, payments, idempotency_key }) {
     return invokePosOperation('finalize_sale', {
       table_id,
       expected_order_id,
       items: items || [],
       payments,
+      idempotency_key,
     })
   },
 }

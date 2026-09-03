@@ -847,6 +847,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
   const latestTableRef = useRef(null)
   const latestCartRef = useRef([])
   const finalizeSaleInFlightRef = useRef(false)
+  const finalizeSaleIdempotencyKeyRef = useRef(null)
   const tableOrderSaveQueueRef = useRef(Promise.resolve(null))
   const {
     inventory,
@@ -1319,6 +1320,15 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
         return
       }
 
+      const currentOrderId = finalizingTable.current_order_id
+      if (
+        !finalizeSaleIdempotencyKeyRef.current ||
+        finalizeSaleIdempotencyKeyRef.current.orderId !== currentOrderId
+      ) {
+        finalizeSaleIdempotencyKeyRef.current = { orderId: currentOrderId, key: crypto.randomUUID() }
+      }
+      const idempotencyKey = finalizeSaleIdempotencyKeyRef.current.key
+
       const cashSessionOverview = await cashControlService.getSessionOverview()
       if (cashSessionOverview?.session?.status !== 'open') {
         showNotice('No hay una caja abierta. Debes abrir caja antes de registrar ventas en efectivo.', 'warning')
@@ -1374,6 +1384,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
         expected_order_id: finalizingTable.current_order_id,
         items: normalizedCart,
         payments: [{ method: 'Efectivo', amount: saleAmount }],
+        idempotency_key: idempotencyKey,
       })
       const documentNumber = sale?.document_number || null
       const canonicalTicketItems = Array.isArray(sale?.items) && sale.items.length > 0
@@ -1389,6 +1400,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
         ticketData: buildTicketData(sale, canonicalTicketItems, finalizingTable, documentNumber),
       })
       showNotice('Venta realizada con exito', 'success')
+      finalizeSaleIdempotencyKeyRef.current = null
       latestTableRef.current = null
       latestCartRef.current = []
       dispatch({ type: 'leave_selected_table' })

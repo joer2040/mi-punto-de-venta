@@ -48,6 +48,50 @@ const BUNDLE_RULES = {
 }
 const appError = (message: string, status = 400) => Object.assign(new Error(message), { status })
 
+type OperationError = {
+  message?: unknown
+  details?: unknown
+  hint?: unknown
+  code?: unknown
+  status?: unknown
+}
+
+const readErrorText = (value: unknown) =>
+  typeof value === 'string' ? value.trim() : ''
+
+const normalizeOperationError = (error: unknown) => {
+  const source = error && typeof error === 'object' ? error as OperationError : {}
+  const message = readErrorText(source.message)
+  const details = readErrorText(source.details)
+  const hint = readErrorText(source.hint)
+  const code = readErrorText(source.code)
+  const searchable = `${message} ${details} ${hint}`.toLowerCase()
+  const explicitStatus = typeof source.status === 'number' && source.status >= 400 && source.status <= 599
+    ? source.status
+    : null
+  const isStateConflict =
+    searchable.includes('caja está en proceso de cierre') ||
+    searchable.includes('no hay una caja abierta') ||
+    searchable.includes('pedido activo') ||
+    searchable.includes('ya fue finalizada') ||
+    searchable.includes('cambió antes') ||
+    searchable.includes('cambio antes')
+  const isBusinessError = code === 'P0001'
+  const status = explicitStatus ?? (isStateConflict ? 409 : isBusinessError ? 422 : 500)
+  const publicMessage = status < 500 && message ? message : 'Error inesperado.'
+
+  return {
+    status,
+    publicMessage,
+    diagnostic: {
+      message: message || null,
+      details: details || null,
+      hint: hint || null,
+      code: code || null,
+    },
+  }
+}
+
 type RoleLinkRow = {
   role_id: string
   app_roles: { name: string | null } | { name: string | null }[] | null
@@ -614,11 +658,7 @@ Deno.serve(async (req) => {
       })
 
       if (finalizeError) {
-        const normalizedError = normalizeRoleName(finalizeError.message)
-        const status = normalizedError.includes('pedido activo') || normalizedError.includes('ya fue finalizada')
-          ? 409
-          : 400
-        throw appError(finalizeError.message, status)
+        throw finalizeError
       }
 
       const responseItems = Array.isArray(finalizedSale?.items) && finalizedSale.items.length > 0
@@ -644,8 +684,8 @@ Deno.serve(async (req) => {
 
     return json({ error: 'Accion no soportada.' }, 400)
   } catch (error) {
-    console.error(error)
-    const status = typeof error?.status === 'number' ? error.status : 500
-    return json({ error: error instanceof Error ? error.message : 'Error inesperado.' }, status)
+    const normalizedError = normalizeOperationError(error)
+    console.error('pos-operations failed', normalizedError.diagnostic)
+    return json({ error: normalizedError.publicMessage }, normalizedError.status)
   }
 })

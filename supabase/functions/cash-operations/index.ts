@@ -1,6 +1,5 @@
 // @ts-nocheck
 import { createClient } from 'npm:@supabase/supabase-js@2'
-import { countActiveSales } from './cashRules.js'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -40,13 +39,6 @@ const readRoleName = (roleLink: RoleLinkRow) => {
   return roleLink.app_roles?.name ?? null
 }
 
-const readCategoryValue = (
-  categories: { is_inventoried?: boolean | null } | { is_inventoried?: boolean | null }[] | null
-) => {
-  if (Array.isArray(categories)) return categories[0]?.is_inventoried ?? null
-  return categories?.is_inventoried ?? null
-}
-
 const toNumber = (value: unknown, fallback = 0) => {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : fallback
@@ -58,20 +50,6 @@ const sortByMaterialName = (rows: Array<{ material_name: string }>) =>
       sensitivity: 'base',
     })
   )
-
-const getSuggestedFileName = (session: { opened_at?: string | null; id?: string | null }) => {
-  const openedAt = session?.opened_at ? new Date(session.opened_at) : new Date()
-  const pad = (n: number) => String(n).padStart(2, '0')
-  const shortId = String(session?.id || '').slice(0, 8)
-  return [
-    'corte-caja',
-    `${openedAt.getFullYear()}${pad(openedAt.getMonth() + 1)}${pad(openedAt.getDate())}`,
-    `${pad(openedAt.getHours())}${pad(openedAt.getMinutes())}`,
-    shortId,
-  ]
-    .filter(Boolean)
-    .join('-') + '.pdf'
-}
 
 const serializeSession = (session: Record<string, unknown> | null) => {
   if (!session) return null
@@ -186,68 +164,6 @@ const loadLatestSession = async (adminClient: ReturnType<typeof createClient>) =
 
   if (error) throw error
   return data
-}
-
-const loadActiveSaleCount = async (adminClient: ReturnType<typeof createClient>) => {
-  const { data, error } = await adminClient.from('tables').select('status, current_order_id')
-  if (error) throw error
-  return countActiveSales(data || [])
-}
-
-const loadInventoriableInventory = async (adminClient: ReturnType<typeof createClient>) => {
-  const { data, error } = await adminClient.from('inventory').select(`
-    material_id,
-    stock_actual,
-    costo_promedio,
-    materials:material_id (
-      id,
-      name,
-      categories:cat_id (
-        is_inventoried
-      )
-    )
-  `)
-
-  if (error) throw error
-
-  return sortByMaterialName(
-    (data || [])
-      .filter((row) => {
-        const materialName = row.materials?.name
-        const isInventoried = readCategoryValue(row.materials?.categories)
-        return Boolean(materialName) && isInventoried !== false
-      })
-      .map((row) => ({
-        material_id:  row.material_id,
-        material_name: row.materials?.name || 'Material no identificado',
-        quantity:      toNumber(row.stock_actual),
-        average_cost:  toNumber(row.costo_promedio),
-      }))
-  )
-}
-
-const createInventorySnapshot = async (
-  adminClient: ReturnType<typeof createClient>,
-  sessionId: string,
-  snapshotType: 'opening' | 'closing'
-) => {
-  const inventoryRows = await loadInventoriableInventory(adminClient)
-
-  if (inventoryRows.length > 0) {
-    const { error } = await adminClient.from('cash_session_inventory_snapshots').insert(
-      inventoryRows.map((row) => ({
-        cash_session_id: sessionId,
-        snapshot_type:   snapshotType,
-        material_id:     row.material_id,
-        material_name:   row.material_name,
-        quantity:        row.quantity,
-        average_cost:    row.average_cost,
-      }))
-    )
-    if (error) throw error
-  }
-
-  return inventoryRows
 }
 
 const loadSnapshotRows = async (
@@ -365,59 +281,6 @@ const buildSessionOverview = async (adminClient: ReturnType<typeof createClient>
   return { session: serializeSession(latestSession) }
 }
 
-// ── Perform the actual close write ────────────────────────────────────────────
-const performClose = async (
-  adminClient: ReturnType<typeof createClient>,
-  openSession: Record<string, unknown>,
-  userId: string,
-  countedCash: number,
-  salesSummary: { sales: unknown[]; salesCashTotal: number; profitTotal: number },
-  closingStatus: 'closed' | 'closed_with_pending_difference',
-  isFirstCount: boolean
-) => {
-  const openingAmount = toNumber(openSession.opening_amount)
-  const expected      = computeExpectedCash(openingAmount, salesSummary.salesCashTotal)
-  const difference    = countedCash - expected
-
-  const openingInventory = await loadSnapshotRows(adminClient, String(openSession.id), 'opening')
-  const closingInventory = await createInventorySnapshot(adminClient, String(openSession.id), 'closing')
-
-  const reportPdfMetadata = {
-    generated_at:        new Date().toISOString(),
-    suggested_file_name: getSuggestedFileName(openSession),
-  }
-
-  const updatePayload: Record<string, unknown> = {
-    status:              closingStatus,
-    closed_at:           new Date().toISOString(),
-    closed_by:           userId,
-    sales_cash_total:    salesSummary.salesCashTotal,
-    expected_cash_total: expected,
-    closing_amount:      countedCash,
-    profit_total:        salesSummary.profitTotal,
-    difference_amount:   difference,
-    report_pdf_metadata: reportPdfMetadata,
-  }
-
-  if (isFirstCount) {
-    updatePayload.first_counted_cash = countedCash
-  } else {
-    updatePayload.final_counted_cash = countedCash
-  }
-
-  const { data: closedSession, error: closeError } = await adminClient
-    .from('cash_sessions')
-    .update(updatePayload)
-    .eq('id', openSession.id)
-    .eq('status', 'open')
-    .select('*')
-    .single()
-
-  if (closeError || !closedSession) throw closeError
-
-  return { closedSession, openingInventory, closingInventory }
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
@@ -468,33 +331,18 @@ Deno.serve(async (req) => {
         return json({ error: 'Debes ingresar un monto inicial mayor a 0.' }, 400)
       }
 
-      const currentOpenSession = await loadOpenSession(adminClient)
-      if (currentOpenSession) {
-        return json(
-          { error: 'Ya existe una caja abierta. Debes cerrarla antes de abrir una nueva.' },
-          409
-        )
+      const { data: rpcResult, error: rpcError } = await adminClient.rpc('open_cash_session_atomic', {
+        p_opening_amount: openingAmount,
+        p_opened_by:      user.id,
+      })
+
+      if (rpcError) throw rpcError
+
+      if (!rpcResult?.ok) {
+        return json({ error: rpcResult?.error ?? 'No se pudo abrir la caja.' }, 409)
       }
 
-      const { data: createdSession, error: createError } = await adminClient
-        .from('cash_sessions')
-        .insert([{
-          status:              'open',
-          opening_amount:      openingAmount,
-          sales_cash_total:    0,
-          expected_cash_total: openingAmount,
-          closing_amount:      openingAmount,
-          profit_total:        0,
-          opened_by:           user.id,
-        }])
-        .select('*')
-        .single()
-
-      if (createError || !createdSession) throw createError
-
-      await createInventorySnapshot(adminClient, createdSession.id, 'opening')
-
-      return json({ session: serializeSession(createdSession) })
+      return json({ session: serializeSession(rpcResult.session) })
     }
 
     // ── close_cash_session (primer conteo) ───────────────────────────────────
@@ -508,14 +356,6 @@ Deno.serve(async (req) => {
         return json({ error: 'No existe una caja abierta para cerrar.' }, 409)
       }
 
-      // Si ya hay primer conteo → usar submit_recount
-      if (openSession.first_counted_cash != null) {
-        return json(
-          { error: 'Ya existe un primer conteo registrado. Usa submit_recount para el segundo conteo.' },
-          409
-        )
-      }
-
       if (!Object.prototype.hasOwnProperty.call(body, 'counted_cash')) {
         return json({ error: 'Falta counted_cash. Ingresa el efectivo contado en caja.' }, 400)
       }
@@ -525,29 +365,32 @@ Deno.serve(async (req) => {
         return json({ error: 'El efectivo contado no puede ser negativo.' }, 400)
       }
 
-      const activeSaleCount = await loadActiveSaleCount(adminClient)
-      if (activeSaleCount > 0) {
-        return json(
-          {
-            error:              'No puedes cerrar la caja mientras haya ventas activas.',
-            active_sales_count: activeSaleCount,
-          },
-          409
-        )
+      const { data: rpcResult, error: rpcError } = await adminClient.rpc(
+        'record_first_cash_count_atomic',
+        {
+          p_session_id:   openSession.id,
+          p_counted_cash: countedCash,
+          p_counted_by:   user.id,
+        }
+      )
+
+      if (rpcError) throw rpcError
+
+      if (!rpcResult?.ok) {
+        return json({ error: rpcResult?.error ?? 'No se pudo registrar el primer conteo.' }, 409)
       }
 
-      const salesSummary  = await loadSalesSummary(adminClient, String(openSession.id))
-      const openingAmount = toNumber(openSession.opening_amount)
-      const expected      = computeExpectedCash(openingAmount, salesSummary.salesCashTotal)
-      const difference    = Number((countedCash - expected).toFixed(2))
+      const rpcSession = rpcResult.session as Record<string, unknown> | null
 
-      if (difference === 0) {
-        // Sin diferencia → cerrar normalmente
-        const { closedSession, openingInventory, closingInventory } = await performClose(
-          adminClient, openSession, user.id, countedCash, salesSummary, 'closed', true
-        )
+      if (rpcResult.close_result === 'closed') {
+        // Cierre sin diferencia: cargar snapshots y ventas desde DB (ya escritos por el RPC)
+        const [openingInventory, closingInventory, salesSummary] = await Promise.all([
+          loadSnapshotRows(adminClient, String(openSession.id), 'opening'),
+          loadSnapshotRows(adminClient, String(openSession.id), 'closing'),
+          loadSalesSummary(adminClient, String(openSession.id)),
+        ])
         return json({
-          session:           serializeSession(closedSession),
+          session:           serializeSession(rpcSession),
           close_result:      'closed',
           sales:             salesSummary.sales,
           opening_inventory: openingInventory,
@@ -555,30 +398,17 @@ Deno.serve(async (req) => {
         })
       }
 
-      // Con diferencia → guardar primer conteo, mantener sesión abierta
-      const { data: updatedSession, error: updateError } = await adminClient
-        .from('cash_sessions')
-        .update({
-          first_counted_cash: countedCash,
-          difference_amount:  difference,
-        })
-        .eq('id', openSession.id)
-        .eq('status', 'open')
-        .select('*')
-        .single()
-
-      if (updateError || !updatedSession) throw updateError
+      // difference_detected — incluye caso idempotente already_first_counted
+      const difference  = toNumber(rpcResult.difference    ?? rpcSession?.difference_amount)
+      const expected    = toNumber(rpcResult.expected_cash  ?? rpcSession?.expected_cash_total)
+      const counted     = toNumber(rpcResult.counted_cash   ?? rpcSession?.first_counted_cash)
 
       return json({
-        session:          serializeSession({
-          ...updatedSession,
-          sales_cash_total:    salesSummary.salesCashTotal,
-          expected_cash_total: expected,
-        }),
-        close_result:     'difference_detected',
+        session:       serializeSession(rpcSession),
+        close_result:  'difference_detected',
         difference,
-        expected_cash:    expected,
-        counted_cash:     countedCash,
+        expected_cash: expected,
+        counted_cash:  counted,
       })
     }
 
@@ -593,13 +423,6 @@ Deno.serve(async (req) => {
         return json({ error: 'No existe una caja abierta.' }, 409)
       }
 
-      if (openSession.first_counted_cash == null) {
-        return json(
-          { error: 'No hay un primer conteo registrado. Usa close_cash_session primero.' },
-          409
-        )
-      }
-
       if (!Object.prototype.hasOwnProperty.call(body, 'second_counted_cash')) {
         return json({ error: 'Falta second_counted_cash.' }, 400)
       }
@@ -609,38 +432,43 @@ Deno.serve(async (req) => {
         return json({ error: 'El segundo conteo no puede ser negativo.' }, 400)
       }
 
-      const activeSaleCount = await loadActiveSaleCount(adminClient)
-      if (activeSaleCount > 0) {
-        return json(
-          {
-            error:              'No puedes cerrar la caja mientras haya ventas activas.',
-            active_sales_count: activeSaleCount,
-          },
-          409
-        )
-      }
-
-      // Recalcular expected al momento del segundo conteo
-      const salesSummary  = await loadSalesSummary(adminClient, String(openSession.id))
-      const openingAmount = toNumber(openSession.opening_amount)
-      const expected      = computeExpectedCash(openingAmount, salesSummary.salesCashTotal)
-      const difference    = Number((secondCount - expected).toFixed(2))
-
-      const closingStatus = difference === 0 ? 'closed' : 'closed_with_pending_difference'
-
-      const { closedSession, openingInventory, closingInventory } = await performClose(
-        adminClient, openSession, user.id, secondCount, salesSummary, closingStatus, false
+      const { data: rpcResult, error: rpcError } = await adminClient.rpc(
+        'submit_cash_recount_atomic',
+        {
+          p_session_id:          openSession.id,
+          p_second_counted_cash: secondCount,
+          p_counted_by:          user.id,
+        }
       )
 
+      if (rpcError) throw rpcError
+
+      if (!rpcResult?.ok) {
+        return json({ error: rpcResult?.error ?? 'No se pudo registrar el segundo conteo.' }, 409)
+      }
+
+      const rpcSession   = rpcResult.session as Record<string, unknown> | null
+      const sessionId    = String(rpcSession?.id ?? openSession.id)
+
+      const [openingInventory, closingInventory, salesSummary] = await Promise.all([
+        loadSnapshotRows(adminClient, sessionId, 'opening'),
+        loadSnapshotRows(adminClient, sessionId, 'closing'),
+        loadSalesSummary(adminClient, sessionId),
+      ])
+
+      const difference    = toNumber(rpcResult.difference          ?? rpcSession?.difference_amount)
+      const expected      = toNumber(rpcResult.expected_cash        ?? rpcSession?.expected_cash_total)
+      const secondCounted = toNumber(rpcResult.second_counted_cash  ?? rpcSession?.final_counted_cash)
+
       return json({
-        session:           serializeSession(closedSession),
-        close_result:      closingStatus,
+        session:              serializeSession(rpcSession),
+        close_result:         rpcResult.close_result,
         difference,
-        expected_cash:     expected,
-        second_counted_cash: secondCount,
-        sales:             salesSummary.sales,
-        opening_inventory: openingInventory,
-        closing_inventory: closingInventory,
+        expected_cash:        expected,
+        second_counted_cash:  secondCounted,
+        sales:                salesSummary.sales,
+        opening_inventory:    openingInventory,
+        closing_inventory:    closingInventory,
       })
     }
 

@@ -260,10 +260,20 @@ const loadSalesSummary = async (adminClient: ReturnType<typeof createClient>, se
 const computeExpectedCash = (openingAmount: number, salesCashTotal: number) =>
   openingAmount + salesCashTotal
 
+const loadActivePosOperationCount = async (adminClient: ReturnType<typeof createClient>) => {
+  const { data, error } = await adminClient.rpc('active_pos_operation_count')
+
+  if (error) throw error
+  return Number(data || 0)
+}
+
 const buildSessionOverview = async (adminClient: ReturnType<typeof createClient>) => {
   const openSession = await loadOpenSession(adminClient)
   if (openSession) {
-    const salesSummary  = await loadSalesSummary(adminClient, openSession.id)
+    const [salesSummary, activeSalesCount] = await Promise.all([
+      loadSalesSummary(adminClient, openSession.id),
+      loadActivePosOperationCount(adminClient),
+    ])
     const openingAmount = toNumber(openSession.opening_amount)
     const expected      = computeExpectedCash(openingAmount, salesSummary.salesCashTotal)
     return {
@@ -274,11 +284,15 @@ const buildSessionOverview = async (adminClient: ReturnType<typeof createClient>
         closing_amount:      expected,
         profit_total:        salesSummary.profitTotal,
       }),
+      active_sales_count: activeSalesCount,
     }
   }
 
   const latestSession = await loadLatestSession(adminClient)
-  return { session: serializeSession(latestSession) }
+  return {
+    session: serializeSession(latestSession),
+    active_sales_count: 0,
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -383,7 +397,6 @@ Deno.serve(async (req) => {
       const rpcSession = rpcResult.session as Record<string, unknown> | null
 
       if (rpcResult.close_result === 'closed') {
-        // Cierre sin diferencia: cargar snapshots y ventas desde DB (ya escritos por el RPC)
         const [openingInventory, closingInventory, salesSummary] = await Promise.all([
           loadSnapshotRows(adminClient, String(openSession.id), 'opening'),
           loadSnapshotRows(adminClient, String(openSession.id), 'closing'),

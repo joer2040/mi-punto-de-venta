@@ -1,4 +1,5 @@
 begin;
+
 create or replace function public.active_pos_operation_count()
 returns integer
 language sql
@@ -28,8 +29,10 @@ as $$
     select operation_key from orphan_orders
   ) active_operations;
 $$;
+
 revoke all on function public.active_pos_operation_count() from public, anon, authenticated;
 grant execute on function public.active_pos_operation_count() to service_role;
+
 create or replace function public.require_open_cash_session_for_pos_operation()
 returns trigger
 language plpgsql
@@ -55,12 +58,15 @@ begin
   return new;
 end;
 $$;
+
 revoke all on function public.require_open_cash_session_for_pos_operation() from public, anon, authenticated;
+
 drop trigger if exists table_orders_require_open_cash_session on public.table_orders;
 create trigger table_orders_require_open_cash_session
 before insert or update on public.table_orders
 for each row
 execute function public.require_open_cash_session_for_pos_operation();
+
 drop trigger if exists tables_insert_require_open_cash_session on public.tables;
 create trigger tables_insert_require_open_cash_session
 before insert on public.tables
@@ -70,6 +76,7 @@ when (
   or new.current_order_id is not null
 )
 execute function public.require_open_cash_session_for_pos_operation();
+
 drop trigger if exists tables_activate_require_open_cash_session on public.tables;
 create trigger tables_activate_require_open_cash_session
 before update of status, current_order_id on public.tables
@@ -85,6 +92,7 @@ when (
   )
 )
 execute function public.require_open_cash_session_for_pos_operation();
+
 create or replace function public.prevent_cash_close_with_active_pos_operations()
 returns trigger
 language plpgsql
@@ -108,13 +116,16 @@ begin
   return new;
 end;
 $$;
+
 revoke all on function public.prevent_cash_close_with_active_pos_operations() from public, anon, authenticated;
+
 drop trigger if exists cash_sessions_prevent_close_with_active_pos_operations on public.cash_sessions;
 create trigger cash_sessions_prevent_close_with_active_pos_operations
 before update of status on public.cash_sessions
 for each row
 when (old.status = 'open' and new.status = 'closed')
 execute function public.prevent_cash_close_with_active_pos_operations();
+
 create or replace function public.close_cash_session_atomic(
   p_closed_by uuid
 )
@@ -247,6 +258,8 @@ begin
   );
 end;
 $$;
+
 revoke all on function public.close_cash_session_atomic(uuid) from public, anon, authenticated;
 grant execute on function public.close_cash_session_atomic(uuid) to service_role;
+
 commit;

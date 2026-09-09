@@ -335,6 +335,6 @@ Error 500 en cash-operations post-deploy, sesión con estado inesperado, snapsho
 | Riesgo | Impacto | Mitigación |
 |--------|---------|------------|
 | Control de caja no rehidrata visualmente el paso de primer conteo después de refresh; backend conserva y protege correctamente el estado | UX: cajero ve pantalla inicial tras refresh durante proceso de cierre | Backend idempotente: reenviar mismo monto = sin escritura duplicada |
-| `pos-operations` wrappea errores DB como "Error inesperado" cuando `PostgrestError` no es `instanceof Error` en catch EF | UX: mensaje genérico en lugar de "La caja está en proceso de cierre" | Guard funciona correctamente; mensaje es cosmético |
+| ~~`pos-operations` wrappea errores DB como "Error inesperado" cuando `PostgrestError` no es `instanceof Error` en catch EF~~ | **RESUELTO en Sprint 2B.2** — T27 post-fix confirma: HTTP 409, mensaje de negocio correcto, 0 venta, 0 póliza, 0 persistencia del intento bloqueado | — |
 
 *Actualizado: 2026-09-03 | Sprint 2B.1 QA Final | Branch: chore/code-cleanup*

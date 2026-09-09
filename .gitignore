@@ -39,3 +39,13 @@ sql/dev/generated/
 
 # Backups PRD — datos productivos, nunca commitear
 backups/
+
+# AI session prompts (not product documentation)
+docs/prompts/
+
+# Generated analysis reports
+analisis_la_carreta_pos/*.pdf
+
+# Debug and smoke screenshots
+smoke-*.png
+*-debug-*.png

@@ -20,17 +20,30 @@ const invokeErpOperation = async (action, payload) => {
   if (error) {
     const response = error.context
 
-    if (response) {
+    if (response && typeof response.clone === 'function') {
+      const jsonResponse = response.clone()
+      const textResponse = response.clone()
+
+      let parsedJson = null
       try {
-        const errorBody = await response.json()
-        throw new Error(errorBody?.error || error.message)
+        parsedJson = await jsonResponse.json()
       } catch {
-        try {
-          const errorText = await response.text()
-          throw new Error(errorText || error.message)
-        } catch {
-          throw new Error(error.message)
-        }
+        // Response may be plain text.
+      }
+
+      if (parsedJson?.error) {
+        throw new Error(parsedJson.error)
+      }
+
+      let errorText = ''
+      try {
+        errorText = await textResponse.text()
+      } catch {
+        // Fall through to the original Supabase error.
+      }
+
+      if (errorText) {
+        throw new Error(errorText)
       }
     }
 
@@ -48,10 +61,13 @@ export const erpService = {
     })
   },
 
-  async recordPurchase(purchaseHeader, items) {
+  async recordPurchase(purchaseHeader, items, payment, idempotencyKey, purchaseType) {
     return invokeErpOperation('record_purchase', {
       purchase_header: purchaseHeader,
       items,
+      purchase_type: purchaseType,
+      ...(payment ? { payment } : {}),
+      ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
     })
   },
 

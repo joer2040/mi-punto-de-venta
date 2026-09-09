@@ -2,9 +2,9 @@ import { supabase } from '../lib/supabase'
 
 const AUTH_DOMAIN = 'usuarios.mi-punto-de-venta.local'
 
-export const normalizeUsername = (value = '') => value.trim().toLowerCase()
+const normalizeUsername = (value = '') => value.trim().toLowerCase()
 
-export const usernameToAuthEmail = (username) =>
+const usernameToAuthEmail = (username) =>
   `${normalizeUsername(username)}@${AUTH_DOMAIN}`
 
 export const isValidPassword = (value = '') =>

@@ -1,0 +1,10 @@
+node_modules
+dist
+dist-ssr
+.env*.local
+.tools/
+sql/reset_*.sql
+sql/dev/generated/
+scripts/queries
+analisis_la_carreta_pos
+*.log

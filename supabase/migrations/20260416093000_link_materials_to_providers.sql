@@ -1,8 +1,6 @@
 begin;
-
 alter table public.materials
   add column if not exists provider_id uuid;
-
 do $$
 begin
   if not exists (
@@ -15,8 +13,6 @@ begin
       foreign key (provider_id) references public.providers(id);
   end if;
 end $$;
-
 create index if not exists materials_provider_id_idx
   on public.materials(provider_id);
-
 commit;

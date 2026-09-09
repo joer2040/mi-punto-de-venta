@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { countActiveSales, isActiveSaleTable } from './cashRules.js'
+import { countActiveSales, isActiveSaleTable, normalizePaymentMethod } from './cashRules.js'
 
 test('detecta como activa una mesa ocupada', () => {
   assert.equal(isActiveSaleTable({ status: 'ocupada', current_order_id: null }), true)
@@ -25,4 +25,18 @@ test('cuenta una vez cada mesa activa aunque cumpla ambas condiciones', () => {
     { status: 'libre', current_order_id: 'order-2' },
     { status: 'libre', current_order_id: null },
   ]), 2)
+})
+
+// ─── normalizePaymentMethod — regresión O3 ───────────────────────────────────
+
+test('regresion O3: efectivo (lowercase) normaliza a Efectivo (Title Case)', () => {
+  assert.equal(normalizePaymentMethod('efectivo'), 'Efectivo')
+})
+
+test('normalizePaymentMethod: tarjeta → Tarjeta', () => {
+  assert.equal(normalizePaymentMethod('tarjeta'), 'Tarjeta')
+})
+
+test('normalizePaymentMethod: transferencia → Transferencia', () => {
+  assert.equal(normalizePaymentMethod('transferencia'), 'Transferencia')
 })

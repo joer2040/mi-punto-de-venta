@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 import ReportView from '../components/ReportView'
 import { materialService } from '../api/materialService'
 import { formatCurrency, formatDateTime, formatNumericFolio } from '../lib/reportUtils'

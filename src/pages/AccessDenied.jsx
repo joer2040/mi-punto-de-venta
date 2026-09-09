@@ -1,4 +1,3 @@
-import React from 'react'
 import { colors, space, radius, shadow } from '../lib/designTokens'
 
 const AccessDenied = () => (

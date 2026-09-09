@@ -1,4 +1,5 @@
-﻿import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import { cashControlService } from '../api/cashControlService'
 import { materialService } from '../api/materialService'
 import { posService } from '../api/posService'
 import { useAuth } from '../contexts/AuthContext'
@@ -29,6 +30,7 @@ const CAGUAMITA_REQUIRED_PIECES = 5
 const CAGUAMITA_FIXED_PRICE = 130
 const CAGUAMITA_FIXED_UNIT_PRICE = CAGUAMITA_FIXED_PRICE / CAGUAMITA_REQUIRED_PIECES
 const BUNDLE_TYPES = new Set([CUBETA_BUNDLE_TYPE, CAGUAMITA_BUNDLE_TYPE])
+const CLOSED_CASH_SESSION_MESSAGE = 'No hay una sesión de caja abierta.'
 let jsPdfModulePromise = null
 
 const loadJsPdf = async () => {
@@ -929,6 +931,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
   const latestTableRef = useRef(null)
   const latestCartRef = useRef([])
   const finalizeSaleInFlightRef = useRef(false)
+  const finalizeSaleIdempotencyKeyRef = useRef(null)
   const tableOrderSaveQueueRef = useRef(Promise.resolve(null))
   const {
     inventory,
@@ -1103,11 +1106,24 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
         await loadTables()
       } catch (error) {
         console.error('Error al guardar automaticamente la mesa:', error)
+
+        let message = error?.message || 'No se pudo guardar la mesa.'
+        if (message === 'Error inesperado.') {
+          try {
+            const cashSessionOverview = await cashControlService.getSessionOverview()
+            if (cashSessionOverview?.session?.status !== 'open') {
+              message = CLOSED_CASH_SESSION_MESSAGE
+            }
+          } catch (cashSessionError) {
+            console.error('Error al verificar el estado de caja:', cashSessionError)
+          }
+        }
+
         dispatch({
           type: 'set_notice',
           notice: {
+            message,
             type: 'warning',
-            message: error instanceof Error ? error.message : 'No se pudo guardar el pedido.',
           },
         })
         refreshCashSessionStatus()
@@ -1441,7 +1457,20 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
         return
       }
 
-      if (!(await refreshCashSessionStatus({ notify: true }))) return
+      const currentOrderId = finalizingTable.current_order_id
+      if (
+        !finalizeSaleIdempotencyKeyRef.current ||
+        finalizeSaleIdempotencyKeyRef.current.orderId !== currentOrderId
+      ) {
+        finalizeSaleIdempotencyKeyRef.current = { orderId: currentOrderId, key: crypto.randomUUID() }
+      }
+      const idempotencyKey = finalizeSaleIdempotencyKeyRef.current.key
+
+      const cashSessionOverview = await cashControlService.getSessionOverview()
+      if (cashSessionOverview?.session?.status !== 'open') {
+        showNotice('No hay una caja abierta. Debes abrir caja antes de registrar ventas en efectivo.', 'warning')
+        return
+      }
 
       const centerId = inventory[0]?.centers?.id
       if (!centerId) {
@@ -1484,11 +1513,15 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
       }
 
 
+      const saleAmount = parseFloat(
+        normalizedCart.reduce((acc, item) => acc + Number(item.unit_price || 0) * Number(item.quantity || 0), 0).toFixed(2)
+      )
       const { sale } = await posService.finalizeSale({
         table_id: finalizingTable.id,
         expected_order_id: finalizingTable.current_order_id,
         items: normalizedCart,
-        payment_method: 'Efectivo',
+        payments: [{ method: 'Efectivo', amount: saleAmount }],
+        idempotency_key: idempotencyKey,
       })
       const documentNumber = sale?.document_number || null
       const canonicalTicketItems = Array.isArray(sale?.items) && sale.items.length > 0
@@ -1504,6 +1537,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
         ticketData: buildTicketData(sale, canonicalTicketItems, finalizingTable, documentNumber),
       })
       showNotice('Venta realizada con exito', 'success')
+      finalizeSaleIdempotencyKeyRef.current = null
       latestTableRef.current = null
       latestCartRef.current = []
       dispatch({ type: 'leave_selected_table' })
@@ -3184,7 +3218,6 @@ const getNoticeTitle = (type) => {
 }
 
 export default POS
-
 
 
 

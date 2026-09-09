@@ -48,6 +48,50 @@ const BUNDLE_RULES = {
 }
 const appError = (message: string, status = 400) => Object.assign(new Error(message), { status })
 
+type OperationError = {
+  message?: unknown
+  details?: unknown
+  hint?: unknown
+  code?: unknown
+  status?: unknown
+}
+
+const readErrorText = (value: unknown) =>
+  typeof value === 'string' ? value.trim() : ''
+
+const normalizeOperationError = (error: unknown) => {
+  const source = error && typeof error === 'object' ? error as OperationError : {}
+  const message = readErrorText(source.message)
+  const details = readErrorText(source.details)
+  const hint = readErrorText(source.hint)
+  const code = readErrorText(source.code)
+  const searchable = `${message} ${details} ${hint}`.toLowerCase()
+  const explicitStatus = typeof source.status === 'number' && source.status >= 400 && source.status <= 599
+    ? source.status
+    : null
+  const isStateConflict =
+    searchable.includes('caja está en proceso de cierre') ||
+    searchable.includes('no hay una caja abierta') ||
+    searchable.includes('pedido activo') ||
+    searchable.includes('ya fue finalizada') ||
+    searchable.includes('cambió antes') ||
+    searchable.includes('cambio antes')
+  const isBusinessError = code === 'P0001'
+  const status = explicitStatus ?? (isStateConflict ? 409 : isBusinessError ? 422 : 500)
+  const publicMessage = status < 500 && message ? message : 'Error inesperado.'
+
+  return {
+    status,
+    publicMessage,
+    diagnostic: {
+      message: message || null,
+      details: details || null,
+      hint: hint || null,
+      code: code || null,
+    },
+  }
+}
+
 type RoleLinkRow = {
   role_id: string
   app_roles: { name: string | null } | { name: string | null }[] | null
@@ -536,17 +580,14 @@ Deno.serve(async (req) => {
     if (action === 'finalize_sale') {
       const tableId = String(body.table_id ?? '')
       const items = normalizeItems(body.items)
-      const paymentMethod = String(body.payment_method ?? CASH_PAYMENT_METHOD).trim()
       const hasExpectedOrderId = Object.prototype.hasOwnProperty.call(body, 'expected_order_id')
       const requestedOrderId = String(body.expected_order_id ?? '').trim()
+      const idempotencyKey = body.idempotency_key ? String(body.idempotency_key).trim() : null
 
       if (!tableId) return json({ error: 'Falta table_id.' }, 400)
       if (items.length === 0) return json({ error: 'La mesa no tiene productos para cobrar.' }, 400)
       if (!hasExpectedOrderId || !requestedOrderId) {
         return json({ error: 'Falta expected_order_id para finalizar la venta.' }, 400)
-      }
-      if (normalizeRoleName(paymentMethod) !== normalizeRoleName(CASH_PAYMENT_METHOD)) {
-        return json({ error: 'Metodo de pago no soportado.' }, 400)
       }
       if (!(await hasOpenCashSession(adminClient))) {
         return json({ error: 'No hay una caja abierta. Debes abrir caja antes de finalizar ventas en efectivo.' }, 409)
@@ -597,6 +638,31 @@ Deno.serve(async (req) => {
 
       const canonicalItems = buildCanonicalSaleItems(items, materialRows || [], inventoryRows || [])
       validateCubetaBundles(canonicalItems, materialRows || [])
+      const computedTotal = computeTotal(canonicalItems)
+
+      // Build payments array. Accept new format [{method, amount}] or legacy payment_method.
+      type Payment = { method: string; amount: number }
+      const VALID_PAYMENT_METHODS = new Set(['efectivo', 'tarjeta', 'transferencia'])
+      let payments: Payment[]
+      if (Array.isArray(body.payments) && body.payments.length > 0) {
+        payments = (body.payments as unknown[]).map((p: Record<string, unknown>) => ({
+          method: String(p?.method ?? '').trim(),
+          amount: toNumber(p?.amount, 0),
+        })).filter((p) => p.method && p.amount > 0)
+      } else {
+        const legacyMethod = String(body.payment_method ?? CASH_PAYMENT_METHOD).trim()
+        payments = [{ method: legacyMethod, amount: computedTotal }]
+      }
+
+      const invalidMethods = payments.filter((p) => !VALID_PAYMENT_METHODS.has(p.method.toLowerCase()))
+      if (invalidMethods.length > 0) {
+        return json({ error: 'Metodo de pago no soportado.' }, 400)
+      }
+
+      const paymentsTotal = payments.reduce((sum, p) => sum + p.amount, 0)
+      if (Math.abs(paymentsTotal - computedTotal) > 0.01) {
+        return json({ error: 'El total de pagos no coincide con el total de la venta.' }, 400)
+      }
 
       const rpcItems = canonicalItems.map((item) => ({
         order_id: expectedOrderId,
@@ -608,18 +674,15 @@ Deno.serve(async (req) => {
       }))
 
       const { data: finalizedSale, error: finalizeError } = await adminClient.rpc('finalize_pos_sale', {
-        p_table_id: table.id,
-        p_items: rpcItems,
-        p_payment_method: CASH_PAYMENT_METHOD,
-        p_performed_by: user.id,
+        p_table_id:        table.id,
+        p_items:           rpcItems,
+        p_payments:        payments,
+        p_performed_by:    user.id,
+        p_idempotency_key: idempotencyKey,
       })
 
       if (finalizeError) {
-        const normalizedError = normalizeRoleName(finalizeError.message)
-        const status = normalizedError.includes('pedido activo') || normalizedError.includes('ya fue finalizada')
-          ? 409
-          : 400
-        throw appError(finalizeError.message, status)
+        throw finalizeError
       }
 
       const responseItems = Array.isArray(finalizedSale?.items) && finalizedSale.items.length > 0
@@ -645,14 +708,8 @@ Deno.serve(async (req) => {
 
     return json({ error: 'Accion no soportada.' }, 400)
   } catch (error) {
-    console.error(error)
-    const message = error instanceof Error ? error.message : 'Error inesperado.'
-    const requiresOpenCashSession = message.includes('No hay una caja abierta')
-    const status = requiresOpenCashSession
-      ? 409
-      : typeof error?.status === 'number'
-        ? error.status
-        : 500
-    return json({ error: message }, status)
+    const normalizedError = normalizeOperationError(error)
+    console.error('pos-operations failed', normalizedError.diagnostic)
+    return json({ error: normalizedError.publicMessage }, normalizedError.status)
   }
 })

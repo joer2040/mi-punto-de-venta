@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useReducer } from 'react';
+import { useEffect, useMemo, useReducer } from 'react';
 import { materialService } from '../api/materialService';
 import { providerService } from '../api/providerService';
 import { useAuth } from '../contexts/AuthContext';
@@ -6,12 +6,11 @@ import { ACTION_KEYS, PAGE_PERMISSION_MAP } from '../lib/permissionConfig';
 import { useResponsive } from '../lib/useResponsive';
 import { colors, space, type, radius, shadow } from '../lib/designTokens';
 
-const GENERAL_PROVIDER_NAME = 'Proveedor General';
 const DEFAULT_FREEFORM_UNIT_LABEL = 'pz';
 
+const roundCents = (v) => Math.round(v * 100) / 100;
+
 const createPurchaseEntryId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-const normalizeProviderName = (value) => String(value || '').trim().toLowerCase();
-const isGeneralProviderRecord = (provider) => normalizeProviderName(provider?.name) === normalizeProviderName(GENERAL_PROVIDER_NAME);
 
 const createInitialCurrentEntry = () => ({
   material_id: '',
@@ -30,7 +29,11 @@ const createInitialPurchaseEntryState = () => ({
   purchaseChecked: false,
   showPurchaseCheckModal: false,
   showProviderChangeModal: false,
+  showTypeChangeModal: false,
   pendingProviderId: '',
+  pendingPurchaseType: '',
+  purchaseType: '',
+  paymentMethod: '',
   purchase: {
     center_id: '',
     provider_id: '',
@@ -93,6 +96,42 @@ const purchaseEntryReducer = (state, action) => {
         showProviderChangeModal: false,
         pendingProviderId: '',
       };
+    case 'set_purchase_type':
+      return {
+        ...state,
+        purchaseType: action.purchaseType,
+        itemsList: action.clearItems ? [] : state.itemsList,
+        currentEntry: createInitialCurrentEntry(),
+        purchaseChecked: false,
+      };
+    case 'request_type_change_confirmation':
+      return {
+        ...state,
+        showTypeChangeModal: true,
+        pendingPurchaseType: action.purchaseType,
+      };
+    case 'cancel_type_change_confirmation':
+      return {
+        ...state,
+        showTypeChangeModal: false,
+        pendingPurchaseType: '',
+      };
+    case 'confirm_type_change':
+      return {
+        ...state,
+        purchaseType: state.pendingPurchaseType,
+        itemsList: [],
+        currentEntry: createInitialCurrentEntry(),
+        purchaseChecked: false,
+        showTypeChangeModal: false,
+        pendingPurchaseType: '',
+      };
+    case 'set_payment_method':
+      return {
+        ...state,
+        paymentMethod: action.value,
+        purchaseChecked: false,
+      };
     case 'set_invoice_ref':
       return {
         ...state,
@@ -146,11 +185,55 @@ const purchaseEntryReducer = (state, action) => {
         currentEntry: createInitialCurrentEntry(),
         purchaseChecked: false,
         showPurchaseCheckModal: false,
+        purchaseType: '',
+        paymentMethod: '',
       };
     default:
       return state;
   }
 };
+
+const PURCHASE_TYPE_LABELS = {
+  inventory: 'Compra de inventario',
+  expense: 'Gasto operativo',
+};
+
+const PurchaseTypeSection = ({ purchaseType, onPurchaseTypeChange, canProcessPurchases }) => (
+  <section style={sectionStyle}>
+    <h3>Tipo de documento</h3>
+    <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+      {Object.entries(PURCHASE_TYPE_LABELS).map(([value, label]) => (
+        <label
+          key={value}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            cursor: canProcessPurchases ? 'pointer' : 'not-allowed',
+            padding: '10px 16px',
+            borderRadius: '8px',
+            border: `2px solid ${purchaseType === value ? '#2563eb' : '#e2e8f0'}`,
+            backgroundColor: purchaseType === value ? '#eff6ff' : '#fff',
+            fontWeight: purchaseType === value ? 'bold' : 'normal',
+            color: purchaseType === value ? '#1d4ed8' : '#4a5568',
+            transition: 'all 0.15s',
+          }}
+        >
+          <input
+            type="radio"
+            name="purchase-type"
+            value={value}
+            checked={purchaseType === value}
+            onChange={() => onPurchaseTypeChange(value)}
+            disabled={!canProcessPurchases}
+            style={{ accentColor: '#2563eb' }}
+          />
+          {label}
+        </label>
+      ))}
+    </div>
+  </section>
+);
 
 const PurchaseHeader = ({ canProcessPurchases }) => (
   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
@@ -163,9 +246,12 @@ const PurchaseInvoiceSection = ({
   providers,
   selectedProvider,
   invoiceRef,
+  paymentMethod,
   onProviderChange,
   onInvoiceRefChange,
+  onPaymentMethodChange,
   canProcessPurchases,
+  purchaseType,
 }) => (
   <section style={sectionStyle}>
     <h3>Datos de la Factura / Remision</h3>
@@ -176,10 +262,10 @@ const PurchaseInvoiceSection = ({
         style={inputStyle}
         value={selectedProvider}
         onChange={(e) => onProviderChange(e.target.value)}
-        disabled={!canProcessPurchases}
+        disabled={!canProcessPurchases || !purchaseType}
         required
       >
-        <option value="">Selecciona un proveedor...</option>
+        <option value="">{purchaseType ? 'Selecciona un proveedor...' : 'Primero selecciona el tipo de documento...'}</option>
         {providers.map((provider) => (
           <option key={provider.id} value={provider.id}>
             {provider.name}{provider.rfc ? ` (${provider.rfc})` : ''}
@@ -197,8 +283,27 @@ const PurchaseInvoiceSection = ({
         placeholder="Ej: FAC-1234"
         value={invoiceRef}
         onChange={(e) => onInvoiceRefChange(e.target.value)}
-        disabled={!canProcessPurchases}
+        disabled={!canProcessPurchases || !purchaseType}
       />
+    </div>
+
+    <div style={{ marginBottom: '15px' }}>
+      <label htmlFor="purchase-payment-method" style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>
+        Metodo de pago: <span style={{ color: '#e53e3e' }}>*</span>
+      </label>
+      <select
+        id="purchase-payment-method"
+        style={inputStyle}
+        value={paymentMethod}
+        onChange={(e) => onPaymentMethodChange(e.target.value)}
+        disabled={!canProcessPurchases || !purchaseType}
+        required
+      >
+        <option value="">Selecciona metodo de pago...</option>
+        <option value="Efectivo">Efectivo</option>
+        <option value="Transferencia">Transferencia</option>
+        <option value="Tarjeta">Tarjeta</option>
+      </select>
     </div>
   </section>
 );
@@ -207,18 +312,19 @@ const PurchaseItemSection = ({
   isMobile,
   canProcessPurchases,
   selectedProvider,
-  isGeneralProvider,
+  isExpense,
   availableMaterials,
   selectedMaterial,
   currentEntry,
   computedUnitCost,
   onEntryFieldChange,
   onAddToList,
+  purchaseType,
 }) => (
   <section style={sectionStyle}>
-    <h3>Producto a Ingresar</h3>
+    <h3>{isExpense ? 'Concepto a Registrar' : 'Producto a Ingresar'}</h3>
 
-    {isGeneralProvider ? (
+    {isExpense ? (
       <>
         <label htmlFor="purchase-item-description" style={labelStyle}>Concepto / Material:</label>
         <input
@@ -227,8 +333,8 @@ const PurchaseItemSection = ({
           style={inputStyle}
           value={currentEntry.item_description}
           onChange={(e) => onEntryFieldChange('item_description', e.target.value)}
-          disabled={!canProcessPurchases || !selectedProvider}
-          placeholder={selectedProvider ? 'Describe el concepto a registrar...' : 'Primero selecciona un proveedor...'}
+          disabled={!canProcessPurchases || !selectedProvider || !purchaseType}
+          placeholder={!purchaseType ? 'Primero selecciona el tipo de documento...' : selectedProvider ? 'Describe el concepto a registrar...' : 'Primero selecciona un proveedor...'}
         />
         <div style={{ fontSize: '0.9em', color: '#4a5568', marginTop: '5px' }}>
           Unidad: <span style={{ fontWeight: 'bold' }}>{DEFAULT_FREEFORM_UNIT_LABEL}</span>
@@ -242,9 +348,9 @@ const PurchaseItemSection = ({
           style={inputStyle}
           onChange={(e) => onEntryFieldChange('material_id', e.target.value)}
           value={currentEntry.material_id}
-          disabled={!canProcessPurchases || !selectedProvider}
+          disabled={!canProcessPurchases || !selectedProvider || !purchaseType}
         >
-          <option value="">{selectedProvider ? 'Selecciona producto...' : 'Primero selecciona un proveedor...'}</option>
+          <option value="">{!purchaseType ? 'Primero selecciona el tipo de documento...' : selectedProvider ? 'Selecciona producto...' : 'Primero selecciona un proveedor...'}</option>
           {availableMaterials.map((material) => (
             <option key={material.materials.id} value={material.materials.id}>
               {material.materials.name} ({material.materials.sku})
@@ -441,6 +547,8 @@ const PurchaseCheckModal = ({
   invoiceRef,
   itemsList,
   totalAmount,
+  purchaseType,
+  paymentMethod,
   isSubmitting,
   onCancel,
   onConfirm,
@@ -450,11 +558,15 @@ const PurchaseCheckModal = ({
       <div style={{ ...confirmBadgeStyle, backgroundColor: '#eff6ff', color: '#1d4ed8' }}>Check de compra</div>
       <h3 style={confirmTitleStyle}>Revisa la factura antes de procesarla</h3>
       <p style={confirmTextStyle}>
-        Confirma que el proveedor, el folio y los renglones capturados esten correctos. Despues de validar este paso
-        ya podras procesar la compra completa.
+        Confirma que el tipo, proveedor, folio, metodo de pago y los renglones capturados esten correctos. Despues de
+        validar este paso ya podras procesar la compra completa.
       </p>
 
-      <div style={confirmSummaryStyle}>
+      <div style={{ ...confirmSummaryStyle, gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
+        <div style={confirmMetricStyle}>
+          <span style={confirmMetricLabelStyle}>Tipo</span>
+          <strong style={confirmMetricValueStyle}>{PURCHASE_TYPE_LABELS[purchaseType] || purchaseType}</strong>
+        </div>
         <div style={confirmMetricStyle}>
           <span style={confirmMetricLabelStyle}>Proveedor</span>
           <strong style={confirmMetricValueStyle}>{providerName || 'Sin seleccionar'}</strong>
@@ -462,6 +574,10 @@ const PurchaseCheckModal = ({
         <div style={confirmMetricStyle}>
           <span style={confirmMetricLabelStyle}>Folio</span>
           <strong style={confirmMetricValueStyle}>{invoiceRef || 'Sin folio'}</strong>
+        </div>
+        <div style={confirmMetricStyle}>
+          <span style={confirmMetricLabelStyle}>Metodo de pago</span>
+          <strong style={confirmMetricValueStyle}>{paymentMethod || 'Sin seleccionar'}</strong>
         </div>
         <div style={confirmMetricStyle}>
           <span style={confirmMetricLabelStyle}>Renglones</span>
@@ -530,6 +646,28 @@ const ProviderChangeModal = ({ onCancel, onConfirm }) => (
   </div>
 );
 
+const TypeChangeModal = ({ onCancel, onConfirm }) => (
+  <div style={confirmOverlayStyle}>
+    <div style={confirmCardStyle}>
+      <div style={confirmBadgeStyle}>Cambiar tipo de documento</div>
+      <h3 style={confirmTitleStyle}>Se limpiara la lista actual</h3>
+      <p style={confirmTextStyle}>
+        Cambiar el tipo de documento eliminara los renglones ya capturados. Si continuamos, empezaremos una nueva lista
+        con el tipo seleccionado.
+      </p>
+
+      <div style={confirmActionsStyle}>
+        <button type="button" onClick={onCancel} style={confirmCancelBtnStyle}>
+          Cancelar
+        </button>
+        <button type="button" onClick={onConfirm} style={confirmApproveBtnStyle}>
+          Continuar
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
 const PurchaseEntry = () => {
   const [state, dispatch] = useReducer(purchaseEntryReducer, undefined, createInitialPurchaseEntryState);
   const { isMobile } = useResponsive();
@@ -546,18 +684,21 @@ const PurchaseEntry = () => {
     purchaseChecked,
     showPurchaseCheckModal,
     showProviderChangeModal,
+    showTypeChangeModal,
     purchase,
     itemsList,
     currentEntry,
+    purchaseType,
+    paymentMethod,
   } = state;
 
   const selectedProviderRecord = useMemo(
     () => providers.find((provider) => provider.id === selectedProvider) || null,
     [providers, selectedProvider]
   );
-  const isGeneralProvider = isGeneralProviderRecord(selectedProviderRecord);
+  const isExpense = purchaseType === 'expense';
 
-  const availableMaterials = selectedProvider && !isGeneralProvider
+  const availableMaterials = selectedProvider && purchaseType === 'inventory'
     ? materials.filter((material) => material.materials?.provider_id === selectedProvider)
     : [];
 
@@ -595,6 +736,15 @@ const PurchaseEntry = () => {
     loadData();
   }, []);
 
+  const handlePurchaseTypeChange = (nextType) => {
+    if (isSubmitting) return;
+    if (itemsList.length > 0 && nextType !== purchaseType) {
+      dispatch({ type: 'request_type_change_confirmation', purchaseType: nextType });
+      return;
+    }
+    dispatch({ type: 'set_purchase_type', purchaseType: nextType, clearItems: false });
+  };
+
   const handleProviderChange = (nextProviderId) => {
     if (isSubmitting) return;
 
@@ -616,8 +766,18 @@ const PurchaseEntry = () => {
   };
 
   const validatePurchaseForCheck = () => {
+    if (!purchaseType) {
+      alert('Selecciona el tipo de documento antes de continuar');
+      return false;
+    }
+
     if (!selectedProvider) {
       alert('Primero selecciona un proveedor');
+      return false;
+    }
+
+    if (!paymentMethod) {
+      alert('Selecciona el metodo de pago antes de continuar');
       return false;
     }
 
@@ -656,13 +816,18 @@ const PurchaseEntry = () => {
   const handleAddToList = () => {
     if (!canProcessPurchases || isSubmitting) return;
 
+    if (!purchaseType) {
+      alert('Primero selecciona el tipo de documento');
+      return;
+    }
+
     if (!selectedProvider) {
       alert('Primero selecciona un proveedor');
       return;
     }
 
     if (!currentEntry.quantity || !currentEntry.total_cost) {
-      alert(isGeneralProvider ? 'Por favor completa descripcion, cantidad y costo' : 'Por favor completa material, cantidad y costo');
+      alert(isExpense ? 'Por favor completa descripcion, cantidad y costo' : 'Por favor completa material, cantidad y costo');
       return;
     }
 
@@ -674,14 +839,14 @@ const PurchaseEntry = () => {
       return;
     }
 
-    if (isGeneralProvider) {
+    if (isExpense) {
       const description = String(currentEntry.item_description || '').trim();
       if (!description) {
         alert('Debes capturar el concepto o descripcion del registro');
         return;
       }
 
-      const unitCost = quantity > 0 ? totalCost / quantity : 0;
+      const unitCost = roundCents(quantity > 0 ? totalCost / quantity : 0);
 
       dispatch({
         type: 'add_item',
@@ -694,7 +859,7 @@ const PurchaseEntry = () => {
           unit_cost: unitCost,
           name: description,
           sku: '',
-          subtotal: totalCost,
+          subtotal: roundCents(unitCost * quantity),
         },
       });
       return;
@@ -711,7 +876,7 @@ const PurchaseEntry = () => {
       return;
     }
 
-    const unitCost = quantity > 0 ? totalCost / quantity : 0;
+    const unitCost = roundCents(quantity > 0 ? totalCost / quantity : 0);
 
     dispatch({
       type: 'add_item',
@@ -724,7 +889,7 @@ const PurchaseEntry = () => {
         unit_cost: unitCost,
         name: materialInfo.materials.name,
         sku: materialInfo.materials.sku,
-        subtotal: totalCost,
+        subtotal: roundCents(unitCost * quantity),
       },
     });
   };
@@ -773,7 +938,10 @@ const PurchaseEntry = () => {
             }
       ));
 
-      await materialService.recordPurchase(purchaseData, payloadItems);
+      const payment = { method: paymentMethod, amount: purchaseTotal };
+      const idempotencyKey = crypto.randomUUID();
+
+      await materialService.recordPurchase(purchaseData, payloadItems, payment, idempotencyKey, purchaseType);
       alert('Compra registrada correctamente');
       dispatch({ type: 'reset_after_save' });
     } catch (error) {
@@ -791,26 +959,36 @@ const PurchaseEntry = () => {
       <PurchaseHeader canProcessPurchases={canProcessPurchases} />
 
       <form onSubmit={handleSavePurchase} style={formContainerStyle}>
+        <PurchaseTypeSection
+          purchaseType={purchaseType}
+          onPurchaseTypeChange={handlePurchaseTypeChange}
+          canProcessPurchases={canProcessPurchases}
+        />
+
         <PurchaseInvoiceSection
           providers={providers}
           selectedProvider={selectedProvider}
           invoiceRef={invoiceRef}
+          paymentMethod={paymentMethod}
           onProviderChange={handleProviderChange}
           onInvoiceRefChange={(value) => dispatch({ type: 'set_invoice_ref', value })}
+          onPaymentMethodChange={(value) => dispatch({ type: 'set_payment_method', value })}
           canProcessPurchases={canProcessPurchases}
+          purchaseType={purchaseType}
         />
 
         <PurchaseItemSection
           isMobile={isMobile}
           canProcessPurchases={canProcessPurchases}
           selectedProvider={selectedProvider}
-          isGeneralProvider={isGeneralProvider}
+          isExpense={isExpense}
           availableMaterials={availableMaterials}
           selectedMaterial={selectedMaterial}
           currentEntry={currentEntry}
           computedUnitCost={computedUnitCost}
           onEntryFieldChange={handleEntryFieldChange}
           onAddToList={handleAddToList}
+          purchaseType={purchaseType}
         />
       </form>
 
@@ -835,6 +1013,8 @@ const PurchaseEntry = () => {
           invoiceRef={invoiceRef}
           itemsList={itemsList}
           totalAmount={purchaseTotal}
+          purchaseType={purchaseType}
+          paymentMethod={paymentMethod}
           isSubmitting={isSubmitting}
           onCancel={() => dispatch({ type: 'set_purchase_check_modal', value: false })}
           onConfirm={handleConfirmPurchaseCheck}
@@ -845,6 +1025,13 @@ const PurchaseEntry = () => {
         <ProviderChangeModal
           onCancel={() => dispatch({ type: 'cancel_provider_change_confirmation' })}
           onConfirm={() => dispatch({ type: 'confirm_provider_change' })}
+        />
+      )}
+
+      {showTypeChangeModal && (
+        <TypeChangeModal
+          onCancel={() => dispatch({ type: 'cancel_type_change_confirmation' })}
+          onConfirm={() => dispatch({ type: 'confirm_type_change' })}
         />
       )}
     </div>

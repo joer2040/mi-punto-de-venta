@@ -1,4 +1,3 @@
-﻿import React from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import logoCarreta from '../assets/la_carreta_sin_fondo.png'
 import { useResponsive } from '../lib/useResponsive'
@@ -46,6 +45,12 @@ const sections = [
     label: 'Punto de Venta',
     description: 'Opera mesas, cuentas activas y el cierre de ventas.',
     accent: '#be123c',
+  },
+  {
+    id: 'finances',
+    label: 'Finanzas',
+    description: 'Consulta saldos de cuentas, polizas contables, mayor y sesiones de caja.',
+    accent: '#7c3aed',
   },
   {
     id: 'security',

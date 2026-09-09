@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { cashControlService } from '../api/cashControlService'
 import { useAuth } from '../contexts/AuthContext'
 import { ACTION_KEYS, PAGE_PERMISSION_MAP } from '../lib/permissionConfig'
@@ -244,6 +244,9 @@ const CashControl = ({ onCashSessionChange = () => {} }) => {
   const canManageCash = can(PAGE_PERMISSION_MAP['cash-control'], ACTION_KEYS.MANAGE)
   const [overview, setOverview] = useState({ session: null })
   const [openingAmount, setOpeningAmount] = useState('')
+  const [countedCash, setCountedCash] = useState('')
+  const [pendingDifference, setPendingDifference] = useState(null)
+  const [secondCountedCash, setSecondCountedCash] = useState('')
   const [isOpeningConfirmed, setIsOpeningConfirmed] = useState(false)
   const [isClosingConfirmed, setIsClosingConfirmed] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -345,6 +348,12 @@ const CashControl = ({ onCashSessionChange = () => {} }) => {
       return
     }
 
+    const counted = Number(countedCash)
+    if (!Number.isFinite(counted) || counted < 0) {
+      setNotice({ type: 'warning', message: 'Ingresa el efectivo contado en caja antes de cerrar.' })
+      return
+    }
+
     try {
       setSubmitting(true)
       setNotice(null)
@@ -362,8 +371,17 @@ const CashControl = ({ onCashSessionChange = () => {} }) => {
         return
       }
 
-      const data = await cashControlService.closeCashSession()
-      setOverview({ session: data.session, active_sales_count: 0 })
+      const data = await cashControlService.closeCashSession(counted)
+
+      if (data.close_result === 'difference_detected') {
+        setPendingDifference({ difference: data.difference, expectedCash: data.expected_cash })
+        setNotice({
+          type: 'warning',
+          message: `Diferencia detectada: ${formatCurrency(data.difference)}. Realiza un segundo conteo para confirmar.`,
+        })
+        return
+      }
+
       onCashSessionChange(false)
       setIsClosingConfirmed(false)
 
@@ -375,6 +393,8 @@ const CashControl = ({ onCashSessionChange = () => {} }) => {
           closingInventory: data.closing_inventory,
         })
         pdf.save(getSuggestedPdfName(data.session))
+        setOverview({ session: data.session })
+        setCountedCash('')
         setNotice({ type: 'success', message: 'Caja cerrada y reporte PDF generado.' })
       } catch (reportError) {
         console.error('Caja cerrada, pero no se pudo generar el reporte PDF:', reportError)
@@ -387,6 +407,39 @@ const CashControl = ({ onCashSessionChange = () => {} }) => {
       console.error('Error al cerrar caja:', error)
       setIsClosingConfirmed(false)
       setNotice({ type: 'warning', message: error.message || 'No se pudo cerrar la caja.' })
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleSubmitRecount = async () => {
+    if (!canManageCash) return
+
+    const second = Number(secondCountedCash)
+    if (!Number.isFinite(second) || second < 0) {
+      setNotice({ type: 'warning', message: 'Ingresa el monto del segundo conteo.' })
+      return
+    }
+
+    try {
+      setSubmitting(true)
+      setNotice(null)
+      const data = await cashControlService.submitRecount(second)
+      const pdf = await buildCashClosurePdf({
+        session: data.session,
+        sales: data.sales,
+        openingInventory: data.opening_inventory,
+        closingInventory: data.closing_inventory,
+      })
+      pdf.save(getSuggestedPdfName(data.session))
+      setOverview({ session: data.session })
+      setPendingDifference(null)
+      setCountedCash('')
+      setSecondCountedCash('')
+      setNotice({ type: 'success', message: 'Caja cerrada. Diferencia pendiente registrada. Reporte PDF generado.' })
+    } catch (error) {
+      console.error('Error al registrar segundo conteo:', error)
+      setNotice({ type: 'warning', message: error.message || 'No se pudo completar el segundo conteo.' })
     } finally {
       setSubmitting(false)
     }
@@ -499,29 +552,81 @@ const CashControl = ({ onCashSessionChange = () => {} }) => {
                 <div style={closeBlockedNoteStyle}>{closeBlockedMessage}</div>
               )}
 
-              <label style={checkWrapStyle}>
-                <input
-                  type="checkbox"
-                  checked={isClosingConfirmed}
-                  onChange={(event) => setIsClosingConfirmed(event.target.checked)}
-                  disabled={!canManageCash || submitting || activeSalesCount > 0}
-                />
-                <span>
-                  Confirmo que todas las mesas y barras estan libres y deseo cerrar la caja
-                </span>
-              </label>
+              {pendingDifference ? (
+                <>
+                  <div style={differenceCardStyle}>
+                    <span style={differenceLabelStyle}>Diferencia detectada</span>
+                    <strong style={differenceValueStyle}>{formatCurrency(pendingDifference.difference)}</strong>
+                    <span style={differenceNoteStyle}>
+                      Esperado: {formatCurrency(pendingDifference.expectedCash)}. Realiza un segundo conteo para confirmar.
+                    </span>
+                  </div>
 
-              <button
-                type="button"
-                onClick={handleCloseSession}
-                disabled={!canManageCash || submitting || activeSalesCount > 0 || !isClosingConfirmed}
-                style={{
-                  ...dangerButtonStyle,
-                  ...((!canManageCash || submitting || activeSalesCount > 0 || !isClosingConfirmed) ? disabledButtonStyle : null),
-                }}
-              >
-                {submitting ? 'Cerrando caja...' : 'Cerrar caja'}
-              </button>
+                  <label htmlFor="cash-second-counted" style={fieldLabelStyle}>Segundo conteo — Efectivo en caja</label>
+                  <input
+                    id="cash-second-counted"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={secondCountedCash}
+                    onChange={(event) => setSecondCountedCash(event.target.value)}
+                    style={inputStyle}
+                    placeholder="0.00"
+                    disabled={!canManageCash || submitting}
+                  />
+
+                  <button
+                    type="button"
+                    onClick={handleSubmitRecount}
+                    disabled={!canManageCash || submitting || Number(secondCountedCash) < 0}
+                    style={{
+                      ...dangerButtonStyle,
+                      ...((!canManageCash || submitting) ? disabledButtonStyle : null),
+                    }}
+                  >
+                    {submitting ? 'Procesando...' : 'Confirmar segundo conteo y cerrar'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <label htmlFor="cash-counted" style={fieldLabelStyle}>Efectivo contado en caja</label>
+                  <input
+                    id="cash-counted"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={countedCash}
+                    onChange={(event) => setCountedCash(event.target.value)}
+                    style={inputStyle}
+                    placeholder="0.00"
+                    disabled={!canManageCash || submitting}
+                  />
+
+                  <label style={checkWrapStyle}>
+                    <input
+                      type="checkbox"
+                      checked={isClosingConfirmed}
+                      onChange={(event) => setIsClosingConfirmed(event.target.checked)}
+                      disabled={!canManageCash || submitting || activeSalesCount > 0}
+                    />
+                    <span>
+                      Confirmo que todas las mesas y barras estan libres y deseo cerrar la caja
+                    </span>
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={handleCloseSession}
+                    disabled={!canManageCash || submitting || activeSalesCount > 0 || !isClosingConfirmed || Number(countedCash) < 0 || countedCash === ''}
+                    style={{
+                      ...dangerButtonStyle,
+                      ...((!canManageCash || submitting || activeSalesCount > 0 || !isClosingConfirmed || Number(countedCash) < 0 || countedCash === '') ? disabledButtonStyle : null),
+                    }}
+                  >
+                    {submitting ? 'Cerrando caja...' : 'Cerrar caja'}
+                  </button>
+                </>
+              )}
             </>
           )}
         </div>
@@ -813,6 +918,36 @@ const sessionInfoRowStyle = {
   paddingBottom: space[5],
   borderBottom: `1px solid ${colors.gray200}`,
   color: colors.gray700,
+}
+
+const differenceCardStyle = {
+  background: 'linear-gradient(135deg, #fef3c7 0%, #ffffff 100%)',
+  border: `1px solid #fde68a`,
+  borderRadius: radius.lg,
+  padding: space[7],
+  display: 'flex',
+  flexDirection: 'column',
+  gap: space[3],
+}
+
+const differenceLabelStyle = {
+  color: '#92400e',
+  fontWeight: type.black,
+  fontSize: type.xs,
+  textTransform: 'uppercase',
+  letterSpacing: '0.08em',
+}
+
+const differenceValueStyle = {
+  color: '#92400e',
+  fontWeight: type.black,
+  fontSize: type['4xl'],
+}
+
+const differenceNoteStyle = {
+  color: '#78350f',
+  fontSize: type.sm,
+  lineHeight: 1.5,
 }
 
 const frozenNoteStyle = {

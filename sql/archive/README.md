@@ -12,3 +12,12 @@ Prefer:
 - `sql/dev/`
 - `sql/prod/`
 - `supabase/migrations/`
+
+### `prod/`
+
+Contains historical one-off production data interventions retained for audit
+and implementation history.
+
+Files under `prod/` are **not operational scripts**, are not part of the
+migration pipeline, and must not be re-run against current production unless
+a new controlled intervention is explicitly reviewed and authorized.

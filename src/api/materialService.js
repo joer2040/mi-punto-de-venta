@@ -1,18 +1,27 @@
 ﻿import { supabase } from '../lib/supabase'
 import { erpService } from './erpService'
 
-const getPurchaseItemsTotals = async () => {
+const getPurchaseItemsSummary = async () => {
   const { data, error } = await supabase
     .from('purchase_items')
-    .select('purchase_id, quantity, unit_cost')
+    .select('purchase_id, quantity, unit_cost, material_id')
 
   if (error) throw error
 
-  return (data || []).reduce((totals, item) => {
+  const totals = {}
+  const typeMap = {}
+
+  for (const item of data || []) {
     const subtotal = parseFloat(item.quantity) * parseFloat(item.unit_cost)
     totals[item.purchase_id] = (totals[item.purchase_id] || 0) + subtotal
-    return totals
-  }, {})
+    if (item.material_id) {
+      typeMap[item.purchase_id] = 'inventory'
+    } else if (typeMap[item.purchase_id] === undefined) {
+      typeMap[item.purchase_id] = 'expense'
+    }
+  }
+
+  return { totals, typeMap }
 }
 
 const MATERIAL_MOVEMENT_REASON_LABELS = {
@@ -112,8 +121,8 @@ export const materialService = {
     return response.material
   },
 
-  async recordPurchase(purchaseHeader, items) {
-    const response = await erpService.recordPurchase(purchaseHeader, items)
+  async recordPurchase(purchaseHeader, items, payment, idempotencyKey, purchaseType) {
+    const response = await erpService.recordPurchase(purchaseHeader, items, payment, idempotencyKey, purchaseType)
     return response.purchase
   },
 
@@ -139,12 +148,12 @@ export const materialService = {
   },
 
   async getPurchasesReport() {
-    const [{ data: purchases, error: purchasesError }, purchaseTotals, { data: providers, error: providersError }] = await Promise.all([
+    const [{ data: purchases, error: purchasesError }, { totals, typeMap }, { data: providers, error: providersError }] = await Promise.all([
       supabase
         .from('purchases')
         .select('id, created_at, provider_id, invoice_ref')
         .order('created_at', { ascending: false }),
-      getPurchaseItemsTotals(),
+      getPurchaseItemsSummary(),
       supabase.from('providers').select('id, name'),
     ])
 
@@ -158,7 +167,12 @@ export const materialService = {
       created_at: purchase.created_at,
       provider_name: providerMap.get(purchase.provider_id) || 'Proveedor no identificado',
       invoice_ref: purchase.invoice_ref || 'Sin folio',
-      total_amount: parseFloat(purchaseTotals[purchase.id] || 0),
+      total_amount: parseFloat(totals[purchase.id] || 0),
+      purchase_type: typeMap[purchase.id] === 'inventory'
+        ? 'Compra de inventario'
+        : typeMap[purchase.id] === 'expense'
+          ? 'Gasto operativo'
+          : 'Sin tipo',
     }))
   },
 

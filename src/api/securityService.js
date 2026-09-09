@@ -28,18 +28,27 @@ const invokeUserAdmin = async (action, payload) => {
   if (error) {
     const response = error.context
 
-    if (response) {
+    if (response && typeof response.clone === 'function') {
+      const jsonResponse = response.clone()
+      const textResponse = response.clone()
+
+      let errorBody = null
       try {
-        const errorBody = await response.json()
-        throw new Error(errorBody?.error || error.message)
+        errorBody = await jsonResponse.json()
       } catch {
-        try {
-          const errorText = await response.text()
-          throw new Error(errorText || error.message)
-        } catch {
-          throw new Error(error.message)
-        }
+        // not JSON
       }
+
+      if (errorBody?.error) throw new Error(errorBody.error)
+
+      let errorText = ''
+      try {
+        errorText = await textResponse.text()
+      } catch {
+        // fall through
+      }
+
+      if (errorText) throw new Error(errorText)
     }
 
     throw new Error(error.message)

@@ -68,12 +68,13 @@ export const posService = {
     })
   },
 
-  async finalizeSale({ table_id, expected_order_id, items, payment_method = 'Efectivo' }) {
+  async finalizeSale({ table_id, expected_order_id, items, payments, idempotency_key }) {
     return invokePosOperation('finalize_sale', {
       table_id,
       expected_order_id,
       items: items || [],
-      payment_method,
+      payments,
+      idempotency_key,
     })
   },
 }

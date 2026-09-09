@@ -63,7 +63,13 @@ export const downloadReportAsExcel = async ({ filename, sheetName, columns, rows
     }
   })
 
+  const sanitized = String(sheetName || 'Reporte')
+    .replace(/[:\\/?*[\]]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const safeSheetName = (sanitized || 'Reporte').slice(0, 31)
+
   const workbook = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(workbook, worksheet, String(sheetName || 'Reporte').slice(0, 31))
+  XLSX.utils.book_append_sheet(workbook, worksheet, safeSheetName)
   XLSX.writeFile(workbook, `${filename}.xlsx`)
 }

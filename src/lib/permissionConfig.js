@@ -12,6 +12,7 @@ export const SCREEN_KEYS = {
   REPORT_MATERIAL_MOVEMENTS: 'report_material_movements',
   POS: 'pos',
   SECURITY_USERS: 'security_users',
+  FINANCES: 'finances',
 }
 
 export const ACTION_KEYS = {
@@ -36,6 +37,11 @@ export const PAGE_PERMISSION_MAP = {
   'report-movements': SCREEN_KEYS.REPORT_MATERIAL_MOVEMENTS,
   pos: SCREEN_KEYS.POS,
   security: SCREEN_KEYS.SECURITY_USERS,
+  finances: SCREEN_KEYS.FINANCES,
+  'finances-balances': SCREEN_KEYS.FINANCES,
+  'finances-journal': SCREEN_KEYS.FINANCES,
+  'finances-ledger': SCREEN_KEYS.FINANCES,
+  'finances-sessions': SCREEN_KEYS.FINANCES,
 }
 
 export const PAGE_ORDER = [
@@ -51,5 +57,10 @@ export const PAGE_ORDER = [
   'report-sales',
   'report-movements',
   'pos',
+  'finances',
+  'finances-balances',
+  'finances-journal',
+  'finances-ledger',
+  'finances-sessions',
   'security',
 ]

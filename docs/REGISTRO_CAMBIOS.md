@@ -38,6 +38,29 @@ Archivos:
 Nota operativa:
 - el service worker PWA (`autoUpdate`) sirvio el bundle anterior en la primera recarga tras el deploy; la segunda recarga trajo el nuevo. Tras un deploy, cerrar y reabrir `lacarreta.mobi` en Safari/iPad
 
+### POS: menos llamadas redundantes (PRD)
+
+Estado:
+- liberado en `PRD` (PR #8, merge `41ca019`, deploy Vercel 2026-09-14)
+- validado en `DEV` sobre Barra 1
+
+Cambios:
+- el autosave ya no recarga la lista completa de mesas tras cada `save_table_order`; mezcla en estado la `table` que devuelve la Edge Function (accion `upsert_table` del reducer). Recarga completa solo en "Volver a Barras y Mesas" y al finalizar venta
+- `AuthContext` ignora `SIGNED_IN` / `TOKEN_REFRESHED` del mismo usuario (supabase-js los re-emite al recuperar foco); ya no refetchea `app_profiles` y `app_user_roles` en cada cambio de pestana. Solo recarga si cambia `user.id` o el evento es `SIGNED_OUT` / `USER_UPDATED` (`src/lib/authEvents.js`, con tests)
+
+Medicion (DEV, 5 taps rapidos + volver):
+- `tables` durante taps: 8 → 0 (1 al volver, sin cambio)
+- `app_profiles` / `app_user_roles` en 3 cambios de foco: 3/3 → 0/0
+
+Descartado:
+- "Inicio no refresca Caja cerrada tras abrir caja" no era bug de codigo; era la Edge Function desactualizada en DEV respondiendo 400. Verificado: abrir caja → POS accesible sin recargar
+
+Archivos:
+- `src/pages/POS.jsx`
+- `src/pages/posReducer.js`
+- `src/contexts/AuthContext.jsx`
+- `src/lib/authEvents.js` (nuevo), `src/lib/authEvents.test.js` (nuevo)
+
 ### DEV alineado con PRD
 
 - `pos-operations` en DEV estaba desactualizada (v22, sin `get_cash_session_status`); redesplegada desde repo (v23)

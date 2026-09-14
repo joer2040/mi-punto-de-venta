@@ -36,13 +36,13 @@ Archivos:
 - `package.json` (script `test:pos`)
 
 Nota operativa:
-- el service worker PWA (`autoUpdate`) sirvio el bundle anterior en la primera recarga tras el deploy; la segunda recarga trajo el nuevo. Tras un deploy, cerrar y reabrir `lacarreta.mobi` en Safari/iPad
+- el service worker PWA (`autoUpdate`) sirvio el bundle anterior en la primera recarga tras el deploy; hicieron falta 2-3 recargas para recibir el nuevo. Tras un deploy, cerrar y reabrir `lacarreta.mobi` en Safari/iPad. Pendiente: `registerType: 'prompt'` con aviso "Actualizar" o `skipWaiting` + `clientsClaim`
 
 ### POS: menos llamadas redundantes (PRD)
 
 Estado:
 - liberado en `PRD` (PR #8, merge `41ca019`, deploy Vercel 2026-09-14)
-- validado en `DEV` sobre Barra 1
+- validado en `DEV` y `PRD` sobre Barra 1 (PRD: 0 `tables` durante taps, 0 refetch de perfil en 3 cambios de foco, 5/5 productos al reabrir)
 
 Cambios:
 - el autosave ya no recarga la lista completa de mesas tras cada `save_table_order`; mezcla en estado la `table` que devuelve la Edge Function (accion `upsert_table` del reducer). Recarga completa solo en "Volver a Barras y Mesas" y al finalizar venta

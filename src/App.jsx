@@ -2,6 +2,7 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useReducer, useRef, us
 import { posService } from './api/posService'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { useResponsive } from './lib/useResponsive'
+import UpdatePrompt from './components/UpdatePrompt'
 
 const Inventory = lazy(() => import('./pages/Inventory'))
 const ProviderMaster = lazy(() => import('./pages/ProviderMaster'))
@@ -522,6 +523,7 @@ function App() {
   return (
     <AuthProvider>
       <AppShell />
+      <UpdatePrompt />
     </AuthProvider>
   )
 }

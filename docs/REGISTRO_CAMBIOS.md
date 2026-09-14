@@ -2,6 +2,51 @@
 
 Este archivo concentra el registro historico de cambios funcionales, tecnicos y operativos liberados en el proyecto.
 
+## 2026-09-14
+
+### POS: perdida de productos con taps rapidos y reduccion de guardados (PRD)
+
+Estado:
+- liberado en `PRD` (PR #7, merge `76eb678`, deploy Vercel 2026-09-14 11:43 CST)
+- validado en `PRD` sobre Barra 1: 5 taps rapidos → 5 productos persistidos
+
+Sintoma reportado:
+- en Safari/iPad, al tocar varios productos seguidos y luego "Volver a Barras y Mesas", la mesa tardaba varios segundos y perdia productos ya seleccionados
+
+Causa raiz:
+- `addToCart` y `changeQuantity` hacian `await refreshCashSessionStatus()` (Edge Function, 650-1170 ms) antes de despachar; cada tap capturaba un `cart` obsoleto del closure y despachaba solo su producto. Ganaba la ultima respuesta, el resto se perdia en silencio. Reproducido en DEV: 5 taps → 1 producto en DB
+- el autosave se re-disparaba al cambiar `selectedTable` y tras hidratar una mesa ocupada: 10 `save_table_order` por 5 taps
+
+Cambios:
+- mutaciones de carrito movidas a `src/pages/posReducer.js` (`add_cart_item`, `change_cart_quantity`); el reducer siempre lee estado actual
+- sin llamada de red antes de cada tap; chequeo de caja con estado local, el servidor sigue validando en `save_table_order`
+- dedupe del autosave dentro de la cola de guardado (`lastPersistedCartRef`); los taps en vuelo se coalescen
+- tests `node:test` para el reducer: `npm run test:pos`
+
+Medicion (5 taps rapidos, mesa libre):
+- productos en DB: 1 → 5
+- `get_cash_session_status`: 5 → 0
+- `save_table_order`: 10 → 2
+- abrir mesa ocupada → `save_table_order`: 1 → 0
+
+Archivos:
+- `src/pages/POS.jsx`
+- `src/pages/posReducer.js` (nuevo)
+- `src/pages/posReducer.test.js` (nuevo)
+- `package.json` (script `test:pos`)
+
+Nota operativa:
+- el service worker PWA (`autoUpdate`) sirvio el bundle anterior en la primera recarga tras el deploy; la segunda recarga trajo el nuevo. Tras un deploy, cerrar y reabrir `lacarreta.mobi` en Safari/iPad
+
+### DEV alineado con PRD
+
+- `pos-operations` en DEV estaba desactualizada (v22, sin `get_cash_session_status`); redesplegada desde repo (v23)
+- migraciones `20260908100000` (HF1) y `20260909100000` (HF2) aplicadas a DEV via `supabase db push`; DEV queda 38/38 igual que PRD
+- datos de prueba en DEV limpiados via UI; caja DEV cerrada con conteo $500 (ejercito `submit_cash_recount_atomic` con HF1/HF2 sin error)
+- convencion: pruebas de POS siempre en Barra 1, en cualquier ambiente
+
+---
+
 ## 2026-08-11
 
 ### Ledger financiero — Fase 7: Reportes (DEV)

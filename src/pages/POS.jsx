@@ -9,6 +9,7 @@ import { supabase } from '../lib/supabase'
 import { useResponsive } from '../lib/useResponsive'
 import logoCarreta from '../assets/la_carreta_sin_fondo.png'
 import { colors, space, type, radius, shadow } from '../lib/designTokens'
+import { createInitialPosState, posReducer } from './posReducer'
 
 const TICKET_WIDTH_MM = 80
 const CUBETA_ALLOWED_SKUS = [
@@ -305,110 +306,6 @@ const shouldPersistTableOrder = (table, items) =>
     !table.current_order_id &&
     (items?.length ?? 0) === 0
   )
-
-const createInitialPosState = () => ({
-  inventory: [],
-  tables: [],
-  selectedTable: null,
-  cart: [],
-  ticketData: null,
-  notice: null,
-  loading: true,
-  isHydratingTable: false,
-  waiterEditLocked: false,
-  showFinalizeConfirm: false,
-  isFinalizingSale: false,
-})
-
-const posReducer = (state, action) => {
-  switch (action.type) {
-    case 'bootstrap_data':
-      return {
-        ...state,
-        inventory: action.inventory,
-        tables: action.tables,
-        loading: false,
-      }
-    case 'set_loading':
-      return {
-        ...state,
-        loading: action.value,
-      }
-    case 'set_inventory':
-      return {
-        ...state,
-        inventory: action.inventory,
-      }
-    case 'set_tables':
-      return {
-        ...state,
-        tables: action.tables,
-      }
-    case 'set_notice':
-      return {
-        ...state,
-        notice: action.notice,
-      }
-    case 'set_ticket_data':
-      return {
-        ...state,
-        ticketData: action.ticketData,
-      }
-    case 'set_show_finalize_confirm':
-      return {
-        ...state,
-        showFinalizeConfirm: action.value,
-      }
-    case 'set_finalizing_sale':
-      return {
-        ...state,
-        isFinalizingSale: action.value,
-      }
-    case 'set_selected_table':
-      return {
-        ...state,
-        selectedTable: action.table,
-      }
-    case 'set_cart':
-      return {
-        ...state,
-        cart: action.cart,
-      }
-    case 'set_waiter_edit_locked':
-      return {
-        ...state,
-        waiterEditLocked: action.value,
-      }
-    case 'hydrate_table_start':
-      return {
-        ...state,
-        isHydratingTable: true,
-        selectedTable: action.table,
-        waiterEditLocked: false,
-      }
-    case 'hydrate_table_ready':
-      return {
-        ...state,
-        cart: action.cart,
-        waiterEditLocked: action.waiterEditLocked,
-        isHydratingTable: false,
-      }
-    case 'hydrate_table_finish':
-      return {
-        ...state,
-        isHydratingTable: false,
-      }
-    case 'leave_selected_table':
-      return {
-        ...state,
-        selectedTable: null,
-        cart: [],
-        waiterEditLocked: false,
-      }
-    default:
-      return state
-  }
-}
 
 const ServiceMapView = ({
   notice,
@@ -933,6 +830,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
   const finalizeSaleInFlightRef = useRef(false)
   const finalizeSaleIdempotencyKeyRef = useRef(null)
   const tableOrderSaveQueueRef = useRef(Promise.resolve(null))
+  const lastPersistedCartRef = useRef(null)
   const {
     inventory,
     tables,
@@ -991,6 +889,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
     })
 
     latestTableRef.current = persistedTable
+    lastPersistedCartRef.current = items
     dispatch({ type: 'set_waiter_edit_locked', value: Boolean(order?.waiter_edit_locked) })
     return persistedTable
   }, [])
@@ -1007,6 +906,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
         const items = latestCartRef.current
 
         if (!shouldPersistTableOrder(table, items)) return table
+        if (items === lastPersistedCartRef.current && !options.lockWaiterEditing) return table
         return persistTableOrder(table, items, options)
       })
 
@@ -1090,7 +990,6 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
 
   useEffect(() => {
     if (isHydratingTable || !shouldPersistTableOrder(selectedTable, cart)) return undefined
-
     const persistCurrentTable = async () => {
       try {
         const persistedTable = await queueTableOrderSave()
@@ -1202,9 +1101,11 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
         .maybeSingle()
 
       if (error) throw error
+      const hydratedCart = order?.items || []
+      lastPersistedCartRef.current = hydratedCart
       dispatch({
         type: 'hydrate_table_ready',
-        cart: order?.items || [],
+        cart: hydratedCart,
         waiterEditLocked: Boolean(order?.waiter_edit_locked),
       })
     } catch (error) {
@@ -1239,9 +1140,13 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
     }
   }
 
-  const addToCart = async (item) => {
+  const addToCart = (item) => {
     if (!canOperatePOS || finalizeSaleInFlightRef.current) return
-    if (!(await refreshCashSessionStatus({ notify: true }))) return
+    if (!cashSessionState.isLoading && !cashSessionState.isOpen) {
+      showNotice(CLOSED_CASH_SESSION_MESSAGE, 'warning')
+      refreshCashSessionStatus()
+      return
+    }
     const isInventoried = item.materials?.categories?.is_inventoried === true
 
     if (item.precio_venta <= 0) {
@@ -1261,48 +1166,33 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
       return
     }
 
-    if (existing) {
-      dispatch({
-        type: 'set_cart',
-        cart: cart.map((c) =>
-          c.material_id === item.materials.id ? { ...c, quantity: c.quantity + 1 } : c
-        ),
-      })
-    } else {
-      dispatch({
-        type: 'set_cart',
-        cart: [
-          ...cart,
-          {
-            material_id: item.materials.id,
-            name: item.materials.name,
-            unit_price: item.precio_venta,
-            quantity: 1,
-            is_inventoried: isInventoried,
-          },
-        ],
-      })
-    }
+    dispatch({
+      type: 'add_cart_item',
+      item: {
+        material_id: item.materials.id,
+        name: item.materials.name,
+        unit_price: item.precio_venta,
+        is_inventoried: isInventoried,
+      },
+    })
   }
 
-  const changeQuantity = async (id, delta) => {
+  const changeQuantity = (id, delta) => {
     if (!canOperatePOS || finalizeSaleInFlightRef.current) return
-    if (delta > 0 && !(await refreshCashSessionStatus({ notify: true }))) return
+    if (delta > 0 && !cashSessionState.isLoading && !cashSessionState.isOpen) {
+      showNotice(CLOSED_CASH_SESSION_MESSAGE, 'warning')
+      refreshCashSessionStatus()
+      return
+    }
     if (delta < 0 && !canDecreaseOrRemoveFromOccupiedTable) {
       showNotice('Los meseros no pueden disminuir cantidades en una mesa ya ocupada. Solo un manager puede hacerlo.', 'warning')
       return
     }
 
-    const materialId = String(id || '').replace('material:', '')
-
     dispatch({
-      type: 'set_cart',
-      cart: cart
-        .map((item) => {
-          if (item.bundle_id || item.material_id !== materialId) return item
-          return { ...item, quantity: item.quantity + delta }
-        })
-        .filter((item) => item.quantity > 0),
+      type: 'change_cart_quantity',
+      materialId: String(id || '').replace('material:', ''),
+      delta,
     })
   }
 

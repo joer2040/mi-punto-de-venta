@@ -61,6 +61,29 @@ Archivos:
 - `src/contexts/AuthContext.jsx`
 - `src/lib/authEvents.js` (nuevo), `src/lib/authEvents.test.js` (nuevo)
 
+### PWA: aviso de nueva version en lugar de bundle viejo silencioso (PRD)
+
+Estado:
+- liberado en `PRD` (PR #9, merge `2687aca`, deploy Vercel 2026-09-14)
+- validado local con `vite preview` (build A → build B → banner → "Actualizar" → build B) y en `PRD` (bundle nuevo servido, SW tipo prompt activo)
+
+Problema:
+- con `registerType: 'autoUpdate'` y registro por script, el service worker seguia sirviendo el bundle anterior durante 2-3 recargas tras cada deploy; el personal corria codigo viejo sin saberlo
+
+Cambios:
+- `registerType: 'prompt'` en `vite.config.js`
+- `src/components/UpdatePrompt.jsx` (nuevo): banner fijo abajo "Hay una nueva version de La Carreta POS → Actualizar" cuando hay un SW en espera; al tocar, activa y recarga
+- chequeo de actualizacion cada 15 min (`registration.update()`) para tablets abiertas todo el dia
+- sin recarga automatica: podria interrumpir una venta
+
+Transicion (una sola vez por dispositivo):
+- los dispositivos que aun tengan el SW viejo (`autoUpdate`) no ven el banner con esta version; cerrar Safari por completo (todas las pestanas de `lacarreta.mobi`) y reabrir. A partir de ahi cada deploy muestra el banner
+
+Archivos:
+- `vite.config.js`
+- `src/components/UpdatePrompt.jsx` (nuevo)
+- `src/App.jsx`
+
 ### DEV alineado con PRD
 
 - `pos-operations` en DEV estaba desactualizada (v22, sin `get_cash_session_status`); redesplegada desde repo (v23)

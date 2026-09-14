@@ -1002,7 +1002,9 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
         ) {
           dispatch({ type: 'set_selected_table', table: persistedTable })
         }
-        await loadTables()
+        if (persistedTable) {
+          dispatch({ type: 'upsert_table', table: persistedTable })
+        }
       } catch (error) {
         console.error('Error al guardar automaticamente la mesa:', error)
 

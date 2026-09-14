@@ -1,7 +1,8 @@
 ﻿/* eslint-disable react-refresh/only-export-components */
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { authService } from '../api/authService'
 import { ACTION_KEYS, PAGE_ORDER, PAGE_PERMISSION_MAP } from '../lib/permissionConfig'
+import { shouldReloadAccess } from '../lib/authEvents'
 
 const AuthContext = createContext(null)
 const normalizeRoleName = (value = '') => value.trim().toLowerCase()
@@ -21,6 +22,7 @@ const getDefaultAccessState = () => ({
 
 export const AuthProvider = ({ children }) => {
   const [authState, setAuthState] = useState(getDefaultAccessState)
+  const loadedUserIdRef = useRef(null)
 
   const loadAccess = useCallback(async (session) => {
     if (!session?.user) {
@@ -72,6 +74,7 @@ export const AuthProvider = ({ children }) => {
       .getSession()
       .then((session) => {
         if (active) {
+          loadedUserIdRef.current = session?.user?.id ?? null
           loadAccess(session)
         }
       })
@@ -82,7 +85,12 @@ export const AuthProvider = ({ children }) => {
         }
       })
 
-    const { data } = authService.onAuthStateChange((_event, session) => {
+    const { data } = authService.onAuthStateChange((event, session) => {
+      const nextUserId = session?.user?.id ?? null
+      if (!shouldReloadAccess({ event, previousUserId: loadedUserIdRef.current, nextUserId })) {
+        return
+      }
+      loadedUserIdRef.current = nextUserId
       loadAccess(session)
     })
 

@@ -56,3 +56,19 @@ test('change_cart_quantity leaves bundle lines untouched', () => {
 
   assert.deepEqual(state.cart, [bundleLine])
 })
+
+test('upsert_table replaces the matching table in place and keeps order', () => {
+  const t1 = { id: 'a', number: 'Barra 1', status: 'libre', current_order_id: null }
+  const t2 = { id: 'b', number: 'Barra 2', status: 'libre', current_order_id: null }
+  const updated = { id: 'a', number: 'Barra 1', status: 'ocupada', current_order_id: 'o1' }
+  const state = posReducer({ ...createInitialPosState(), tables: [t1, t2] }, { type: 'upsert_table', table: updated })
+
+  assert.deepEqual(state.tables, [updated, t2])
+})
+
+test('upsert_table with unknown id leaves tables unchanged', () => {
+  const t1 = { id: 'a', number: 'Barra 1', status: 'libre', current_order_id: null }
+  const state = posReducer({ ...createInitialPosState(), tables: [t1] }, { type: 'upsert_table', table: { id: 'zzz' } })
+
+  assert.deepEqual(state.tables, [t1])
+})

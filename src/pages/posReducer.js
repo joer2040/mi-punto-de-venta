@@ -36,6 +36,11 @@ export const posReducer = (state, action) => {
         ...state,
         tables: action.tables,
       }
+    case 'upsert_table':
+      return {
+        ...state,
+        tables: state.tables.map((t) => (t.id === action.table.id ? action.table : t)),
+      }
     case 'set_notice':
       return {
         ...state,

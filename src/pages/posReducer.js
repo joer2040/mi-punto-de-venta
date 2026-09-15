@@ -10,6 +10,7 @@ export const createInitialPosState = () => ({
   waiterEditLocked: false,
   showFinalizeConfirm: false,
   isFinalizingSale: false,
+  paymentMethod: 'Efectivo',
 })
 
 export const posReducer = (state, action) => {
@@ -121,12 +122,19 @@ export const posReducer = (state, action) => {
         ...state,
         isHydratingTable: false,
       }
+    case 'set_payment_method':
+      if (action.value !== 'Efectivo' && action.value !== 'Tarjeta') return state
+      return {
+        ...state,
+        paymentMethod: action.value,
+      }
     case 'leave_selected_table':
       return {
         ...state,
         selectedTable: null,
         cart: [],
         waiterEditLocked: false,
+        paymentMethod: 'Efectivo',
       }
     default:
       return state

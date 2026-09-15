@@ -735,6 +735,7 @@ const ActiveOrderView = ({
   displayCart,
   canDecreaseOrRemoveFromOccupiedTable,
   showFinalizeConfirm,
+  paymentMethod,
   showCubetaBuilder,
   ticketData,
   onNoticeClose,
@@ -747,6 +748,7 @@ const ActiveOrderView = ({
   onCloseTicket,
   onCloseFinalizeConfirm,
   onConfirmFinalizeSale,
+  onPaymentMethodChange,
   onCloseCubetaBuilder,
   onConfirmCubetaBuilder,
 }) => {
@@ -817,6 +819,8 @@ const ActiveOrderView = ({
           table={selectedTable}
           total={total}
           totalItems={totalItems}
+          paymentMethod={paymentMethod}
+          onPaymentMethodChange={onPaymentMethodChange}
           onCancel={onCloseFinalizeConfirm}
           onConfirm={onConfirmFinalizeSale}
         />
@@ -860,6 +864,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
     waiterEditLocked,
     showFinalizeConfirm,
     isFinalizingSale,
+    paymentMethod,
   } = state
 
   const refreshCashSessionStatus = useCallback(async ({ notify = false } = {}) => {
@@ -1247,7 +1252,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
   const occupiedDiningTables = diningTables.filter((table) => table.status === 'ocupada').length
   const selectedStationLabel = getStationDisplayName(selectedTable)
 
-  const buildTicketData = (sale, items, table, documentNumber) => {
+  const buildTicketData = (sale, items, table, documentNumber, usedPaymentMethod) => {
     const chargedAt = sale?.created_at || new Date().toISOString()
     const authoritativeTotal = Number(sale?.total_amount)
 
@@ -1260,6 +1265,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
       total: Number.isFinite(authoritativeTotal)
         ? authoritativeTotal
         : items.reduce((acc, item) => acc + parseFloat(item.unit_price) * parseFloat(item.quantity), 0),
+      paymentMethod: sale?.payment_method || usedPaymentMethod || 'Efectivo',
     }
   }
 
@@ -1429,7 +1435,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
         table_id: finalizingTable.id,
         expected_order_id: finalizingTable.current_order_id,
         items: normalizedCart,
-        payments: [{ method: 'Efectivo', amount: saleAmount }],
+        payments: [{ method: paymentMethod, amount: saleAmount }],
         idempotency_key: idempotencyKey,
       })
       const documentNumber = sale?.document_number || null
@@ -1443,7 +1449,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
         : normalizedCart
       dispatch({
         type: 'set_ticket_data',
-        ticketData: buildTicketData(sale, canonicalTicketItems, finalizingTable, documentNumber),
+        ticketData: buildTicketData(sale, canonicalTicketItems, finalizingTable, documentNumber, paymentMethod),
       })
       showNotice('Venta realizada con exito', 'success')
       finalizeSaleIdempotencyKeyRef.current = null
@@ -1488,6 +1494,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
     displayCart,
     canDecreaseOrRemoveFromOccupiedTable,
     showFinalizeConfirm,
+    paymentMethod,
     showCubetaBuilder,
     handleSelectTable,
     handleSaveAndExit,
@@ -1499,6 +1506,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
     handleFinalizeSale,
     handleConfirmCubetaBuilder,
     setShowCubetaBuilder,
+    handleSetPaymentMethod: (value) => dispatch({ type: 'set_payment_method', value }),
   }
 }
 
@@ -1531,6 +1539,7 @@ const POS = ({ onEditingStateChange = () => {} }) => {
     displayCart,
     canDecreaseOrRemoveFromOccupiedTable,
     showFinalizeConfirm,
+    paymentMethod,
     showCubetaBuilder,
     handleSelectTable,
     handleSaveAndExit,
@@ -1542,6 +1551,7 @@ const POS = ({ onEditingStateChange = () => {} }) => {
     handleFinalizeSale,
     handleConfirmCubetaBuilder,
     setShowCubetaBuilder,
+    handleSetPaymentMethod,
   } = usePosController({ onEditingStateChange })
 
   if (loading) return <div style={{ padding: '20px' }}>Iniciando terminal de venta...</div>
@@ -1588,6 +1598,7 @@ const POS = ({ onEditingStateChange = () => {} }) => {
       displayCart={displayCart}
       canDecreaseOrRemoveFromOccupiedTable={canDecreaseOrRemoveFromOccupiedTable}
       showFinalizeConfirm={showFinalizeConfirm}
+      paymentMethod={paymentMethod}
       showCubetaBuilder={showCubetaBuilder}
       ticketData={ticketData}
       onNoticeClose={() => dispatch({ type: 'set_notice', notice: null })}
@@ -1600,6 +1611,7 @@ const POS = ({ onEditingStateChange = () => {} }) => {
       onCloseTicket={() => dispatch({ type: 'set_ticket_data', ticketData: null })}
       onCloseFinalizeConfirm={() => dispatch({ type: 'set_show_finalize_confirm', value: false })}
       onConfirmFinalizeSale={handleFinalizeSale}
+      onPaymentMethodChange={handleSetPaymentMethod}
       onCloseCubetaBuilder={() => setShowCubetaBuilder(false)}
       onConfirmCubetaBuilder={handleConfirmCubetaBuilder}
     />
@@ -1674,7 +1686,9 @@ const StationSection = ({ title, description, stations, isMobile, emptyMessage, 
   </section>
 )
 
-const FinalizeSaleModal = ({ table, total, totalItems, onCancel, onConfirm }) => (
+const PAYMENT_METHODS = ['Efectivo', 'Tarjeta']
+
+const FinalizeSaleModal = ({ table, total, totalItems, paymentMethod, onPaymentMethodChange, onCancel, onConfirm }) => (
   <div style={confirmOverlayStyle}>
     <div style={confirmCardStyle}>
       <div style={confirmBadgeStyle}>Confirmar venta</div>
@@ -1692,12 +1706,27 @@ const FinalizeSaleModal = ({ table, total, totalItems, onCancel, onConfirm }) =>
           <strong style={confirmMetricValueStyle}>{total.toFixed(2)}</strong>
         </div>
       </div>
+      <div style={paymentSelectorWrapStyle}>
+        <span style={paymentSelectorLabelStyle}>Forma de pago</span>
+        <div style={paymentSelectorBtnsStyle}>
+          {PAYMENT_METHODS.map((method) => (
+            <button
+              key={method}
+              type="button"
+              onClick={() => onPaymentMethodChange(method)}
+              style={paymentMethod === method ? paymentMethodBtnActiveStyle : paymentMethodBtnStyle}
+            >
+              {method}
+            </button>
+          ))}
+        </div>
+      </div>
       <div style={confirmActionsStyle}>
         <button type="button" onClick={onCancel} style={confirmCancelBtnStyle}>
           Cancelar
         </button>
         <button type="button" onClick={onConfirm} style={confirmApproveBtnStyle}>
-          Si, finalizar venta
+          Cobrar ${total.toFixed(2)} en {paymentMethod}
         </button>
       </div>
     </div>
@@ -2208,12 +2237,13 @@ const CubetaBuilderModal = ({ cubetaConfig, onCancel, onConfirm }) => {
   )
 }
 
-const TicketMeta = ({ ticketReference, dateLabel, timeLabel, tableNumber }) => (
+const TicketMeta = ({ ticketReference, dateLabel, timeLabel, tableNumber, paymentMethod }) => (
   <div style={ticketMetaStyle}>
     {ticketReference && <div><strong>Folio de venta:</strong> {ticketReference}</div>}
     <div><strong>Fecha:</strong> {dateLabel}</div>
     <div><strong>Hora:</strong> {timeLabel}</div>
     <div><strong>Cuenta:</strong> {tableNumber || 'General'}</div>
+    <div><strong>Forma de pago:</strong> {paymentMethod || 'Efectivo'}</div>
   </div>
 )
 
@@ -2286,6 +2316,7 @@ const TicketModal = ({ ticket, onClose }) => {
           dateLabel={dateLabel}
           timeLabel={timeLabel}
           tableNumber={ticket.tableNumber}
+          paymentMethod={ticket.paymentMethod}
         />
         <TicketItems items={ticket.items} />
         <TicketSummary total={ticket.total} />
@@ -2909,6 +2940,44 @@ const confirmApproveBtnStyle = {
   padding: `${space[4]} ${space[8]}`,
   fontWeight: type.black,
   cursor: 'pointer',
+}
+
+const paymentSelectorWrapStyle = {
+  marginTop: space[10],
+}
+
+const paymentSelectorLabelStyle = {
+  display: 'block',
+  fontSize: type.sm,
+  fontWeight: type.bold,
+  color: colors.gray600,
+  marginBottom: space[4],
+  textTransform: 'uppercase',
+  letterSpacing: '0.05em',
+}
+
+const paymentSelectorBtnsStyle = {
+  display: 'flex',
+  gap: space[6],
+}
+
+const paymentMethodBtnStyle = {
+  flex: 1,
+  minHeight: '48px',
+  border: `2px solid ${colors.gray300}`,
+  backgroundColor: colors.white,
+  color: colors.gray700,
+  borderRadius: radius.md,
+  fontWeight: type.bold,
+  fontSize: type.base,
+  cursor: 'pointer',
+}
+
+const paymentMethodBtnActiveStyle = {
+  ...paymentMethodBtnStyle,
+  border: `2px solid ${colors.green500}`,
+  backgroundColor: colors.green50,
+  color: colors.green700,
 }
 
 const cubetaSummaryStyle = {

@@ -72,3 +72,28 @@ test('upsert_table with unknown id leaves tables unchanged', () => {
 
   assert.deepEqual(state.tables, [t1])
 })
+
+test('initial state has paymentMethod Efectivo', () => {
+  assert.equal(createInitialPosState().paymentMethod, 'Efectivo')
+})
+
+test('set_payment_method accepts Efectivo', () => {
+  const state = posReducer(createInitialPosState(), { type: 'set_payment_method', value: 'Efectivo' })
+  assert.equal(state.paymentMethod, 'Efectivo')
+})
+
+test('set_payment_method accepts Tarjeta', () => {
+  const state = posReducer(createInitialPosState(), { type: 'set_payment_method', value: 'Tarjeta' })
+  assert.equal(state.paymentMethod, 'Tarjeta')
+})
+
+test('set_payment_method ignores unknown values', () => {
+  const state = posReducer(createInitialPosState(), { type: 'set_payment_method', value: 'Transferencia' })
+  assert.equal(state.paymentMethod, 'Efectivo')
+})
+
+test('leave_selected_table resets paymentMethod to Efectivo', () => {
+  const withTarjeta = posReducer(createInitialPosState(), { type: 'set_payment_method', value: 'Tarjeta' })
+  const state = posReducer(withTarjeta, { type: 'leave_selected_table' })
+  assert.equal(state.paymentMethod, 'Efectivo')
+})

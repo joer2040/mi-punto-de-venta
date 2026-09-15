@@ -4,6 +4,30 @@ Este archivo concentra el registro historico de cambios funcionales, tecnicos y 
 
 ## 2026-09-15
 
+### POS: selector de método de pago Efectivo/Tarjeta (PR pendiente de merge)
+
+Estado:
+- rama `feat/pos-card-payment`, PR abierto, pendiente de merge a `main`
+
+Cambios:
+- `posReducer.js`: estado `paymentMethod` (inicial `'Efectivo'`), acción `set_payment_method` (valida solo `'Efectivo'`|`'Tarjeta'`), `leave_selected_table` lo resetea
+- `posReducer.test.js`: 5 tests nuevos (initial, acepta Efectivo, acepta Tarjeta, ignora otros, reset al salir)
+- `POS.jsx` — `FinalizeSaleModal`: selector de 2 botones ≥48px; Efectivo activo por defecto; confirmar muestra "Cobrar $X.XX en Tarjeta"
+- `POS.jsx` — `handleFinalizeSale`: envía `payments: [{ method: paymentMethod, amount }]` en lugar de fijo `'Efectivo'`
+- `POS.jsx` — `buildTicketData`: incluye `paymentMethod` (`sale.payment_method` o el enviado)
+- `POS.jsx` — `TicketMeta`: muestra "Forma de pago: Efectivo/Tarjeta"
+
+Restricciones respetadas:
+- Edge Functions y migraciones intactos
+- Sin Transferencia ni pagos mixtos
+- Guard de caja abierta sin cambio (UI sigue exigiendo caja abierta para cualquier venta)
+
+Archivos:
+- `src/pages/posReducer.js`
+- `src/pages/posReducer.test.js`
+- `src/pages/POS.jsx`
+- `docs/REGISTRO_CAMBIOS.md`
+
 ### POS: orden estable de productos por categoría (PR pendiente de merge)
 
 Estado:

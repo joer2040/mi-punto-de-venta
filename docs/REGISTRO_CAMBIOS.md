@@ -2,6 +2,35 @@
 
 Este archivo concentra el registro historico de cambios funcionales, tecnicos y operativos liberados en el proyecto.
 
+## 2026-09-15
+
+### POS: orden estable de productos por categoría (PR pendiente de merge)
+
+Estado:
+- rama `feat/pos-stable-product-order`, PR abierto, pendiente de merge a `main`
+
+Problema:
+- "Productos Disponibles" aparecia en orden distinto cada vez; se reordenaba tras cada venta porque `getAllMaterials()` no ordena y `availableProducts` usaba ese orden directo
+
+Cambios:
+- `src/lib/sortProductsForPos.js` (nuevo): función pura `sortProductsForPos(products)` — ordena por categoría → nombre → id; estable y determinista; sin categoría va al final
+- `src/lib/sortProductsForPos.test.js` (nuevo, 5 tests): agrupa por categoría, alfa dentro de categoría, sin categoría al final, no muta entrada, salida idéntica con entrada barajada
+- `src/pages/POS.jsx`: aplica `sortProductsForPos` al calcular `availableProducts`; grilla muestra encabezado de categoría (`categoryHeaderInGridStyle`, `gridColumn: 1/-1`) al cambiar de grupo; bundles virtuales siguen primero
+- `package.json`: agrega `sortProductsForPos.test.js` al script `test:pos`
+
+Antes/después:
+| Antes | Después |
+|-------|---------|
+| Orden aleatorio del servidor | Orden fijo: categoría A→Z, nombre A→Z |
+| Sin separadores visuales | Encabezado de categoría en cada grupo |
+| Cambiaba al vender un producto | Idéntico en cada apertura y post-venta |
+
+Archivos:
+- `src/lib/sortProductsForPos.js` (nuevo)
+- `src/lib/sortProductsForPos.test.js` (nuevo)
+- `src/pages/POS.jsx`
+- `package.json`
+
 ## 2026-09-14
 
 ### POS: perdida de productos con taps rapidos y reduccion de guardados (PRD)

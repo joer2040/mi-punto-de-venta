@@ -9,6 +9,7 @@ import { supabase } from '../lib/supabase'
 import { useResponsive } from '../lib/useResponsive'
 import logoCarreta from '../assets/la_carreta_sin_fondo.png'
 import { colors, space, type, radius, shadow } from '../lib/designTokens'
+import { sortProductsForPos } from '../lib/sortProductsForPos'
 import { createInitialPosState, posReducer } from './posReducer'
 
 const TICKET_WIDTH_MM = 80
@@ -398,6 +399,44 @@ const ServiceMapView = ({
   </>
 )
 
+const renderProductCard = (item, isMobile, canOperatePOS, onAddToCart) => {
+  const isInventoried = item.materials?.categories?.is_inventoried === true
+  const isOutOfStock = isInventoried && item.stock_actual <= 0
+  const isProductDisabled = !canOperatePOS || isOutOfStock
+  return (
+    <button
+      key={item.materials?.id || item.id}
+      type="button"
+      onClick={() => onAddToCart(item)}
+      disabled={isProductDisabled}
+      style={{
+        ...getProductCardStyle(isMobile),
+        opacity: isOutOfStock ? 0.52 : 1,
+        cursor: isProductDisabled ? 'not-allowed' : 'pointer',
+        textAlign: 'left',
+        width: '100%',
+      }}
+    >
+      <div style={productCategoryPillStyle}>{item.materials?.categories?.name ?? 'Sin categoría'}</div>
+      <div style={{ fontWeight: 'bold', color: '#1f2937', fontSize: isMobile ? '0.95rem' : '1rem' }}>
+        {item.materials.name}
+      </div>
+      <div style={{ color: '#0f766e', fontWeight: 'bold', marginTop: '10px', fontSize: isMobile ? '1.1rem' : '1.2rem' }}>
+        ${item.precio_venta}
+      </div>
+      {item.materials.categories?.is_inventoried ? (
+        <div style={{ fontSize: '0.78rem', color: item.stock_actual <= 0 ? '#b91c1c' : '#475569', marginTop: '10px' }}>
+          Stock: {item.stock_actual}
+        </div>
+      ) : (
+        <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '10px' }}>
+          Venta sin inventario fisico
+        </div>
+      )}
+    </button>
+  )
+}
+
 const ProductCatalog = ({
   isMobile,
   canOperatePOS,
@@ -559,45 +598,23 @@ const ProductCatalog = ({
         )}
         </button>
       )}
-      {filteredProducts.map((item) => {
-        const isInventoried = item.materials?.categories?.is_inventoried === true
-        const isOutOfStock = isInventoried && item.stock_actual <= 0
-        const isProductDisabled = !canOperatePOS || isOutOfStock
-
-        return (
-          <button
-            key={item.materials?.id || item.id}
-            type="button"
-            onClick={() => onAddToCart(item)}
-            disabled={isProductDisabled}
-            style={{
-              ...getProductCardStyle(isMobile),
-              opacity: isOutOfStock ? 0.52 : 1,
-              cursor: isProductDisabled ? 'not-allowed' : 'pointer',
-              textAlign: 'left',
-              width: '100%',
-            }}
-          >
-            <div style={productCategoryPillStyle}>{item.materials.categories.name}</div>
-            <div style={{ fontWeight: 'bold', color: '#1f2937', fontSize: isMobile ? '0.95rem' : '1rem' }}>
-              {item.materials.name}
-            </div>
-            <div style={{ color: '#0f766e', fontWeight: 'bold', marginTop: '10px', fontSize: isMobile ? '1.1rem' : '1.2rem' }}>
-              ${item.precio_venta}
-            </div>
-
-            {item.materials.categories.is_inventoried ? (
-              <div style={{ fontSize: '0.78rem', color: item.stock_actual <= 0 ? '#b91c1c' : '#475569', marginTop: '10px' }}>
-                Stock: {item.stock_actual}
-              </div>
-            ) : (
-              <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '10px' }}>
-                Venta sin inventario fisico
-              </div>
-            )}
-          </button>
-        )
-      })}
+      {hasSearch
+        ? filteredProducts.map((item) => renderProductCard(item, isMobile, canOperatePOS, onAddToCart))
+        : filteredProducts.reduce((acc, item, idx) => {
+            const catName = item.materials?.categories?.name ?? 'Sin categoría'
+            const prevCatName = idx > 0
+              ? (filteredProducts[idx - 1].materials?.categories?.name ?? 'Sin categoría')
+              : null
+            if (catName !== prevCatName) {
+              acc.push(
+                <div key={`cat-hdr-${catName}`} style={categoryHeaderInGridStyle}>
+                  {catName}
+                </div>
+              )
+            }
+            acc.push(renderProductCard(item, isMobile, canOperatePOS, onAddToCart))
+            return acc
+          }, [])}
         </div>
       )}
     </>
@@ -1217,7 +1234,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
 
   const total = cart.reduce((acc, curr) => acc + curr.unit_price * curr.quantity, 0)
   const totalItems = cart.reduce((acc, curr) => acc + curr.quantity, 0)
-  const availableProducts = inventory.filter((item) => item.materials?.categories?.is_for_sale === true)
+  const availableProducts = sortProductsForPos(inventory.filter((item) => item.materials?.categories?.is_for_sale === true))
   const cubetaConfig = buildCubetaConfig(availableProducts, cart)
   const caguamitaConfig = buildCaguamitaConfig(availableProducts, cart)
   const activeBundleConfig = showCubetaBuilder === 'caguamita' ? caguamitaConfig : cubetaConfig
@@ -2546,6 +2563,19 @@ const productCategoryPillStyle = {
   fontSize: type.xs,
   fontWeight: type.bold,
   marginBottom: space[5],
+}
+
+const categoryHeaderInGridStyle = {
+  gridColumn: '1 / -1',
+  paddingTop: space[8],
+  paddingBottom: space[4],
+  paddingLeft: space[2],
+  fontSize: type.sm,
+  fontWeight: type.bold,
+  color: colors.gray600,
+  letterSpacing: '0.05em',
+  textTransform: 'uppercase',
+  borderBottom: `1px solid ${colors.gray200}`,
 }
 
 const cubetaPillStyle = {

@@ -4,6 +4,29 @@ Este archivo concentra el registro historico de cambios funcionales, tecnicos y 
 
 ## 2026-09-15
 
+### POS: tiles compactos en móvil con selección visible y hoja de cuenta (feat/pos-mobile-tiles)
+
+Cambios:
+- `src/components/PosCartSheet.jsx` (nuevo): hoja deslizable desde abajo con lista del carrito (+/−/Quitar); slide-in via `requestAnimationFrame` + `transform`; overlay cierra la hoja
+- `src/pages/POS.jsx`:
+  - `usePosController`: exporta `isPhone` (de `useResponsive`)
+  - `getProductGridStyle(isMobile, isPhone)`: en móvil → 2 col (isPhone ≤640) o 3 col (isMobile no-phone); desktop sin cambio
+  - `categoryHeaderInGridStyle` → `getCategoryHeaderInGridStyle(isMobile)`: en móvil `position: sticky, top: 56px` con `backgroundColor: gray100`
+  - `renderProductCard` → `ProductCard` (componente): en móvil tile compacto (minHeight 92px, nombre 2 líneas elipsis, badge circular con cantidad, borde verde + fondo si en carrito, escala 0.97 / 120ms al tocar); en desktop igual que antes
+  - `ProductCatalog`: acepta `isPhone`, `cartQuantityByMaterial`, `controlledSearch`, `onControlledSearchChange`; búsqueda se oculta en móvil (va en cabecera compacta)
+  - `ActiveOrderView` — layout móvil nuevo: cabecera fija 56px (Volver + estación + búsqueda), sección de productos con `paddingTop 60px / paddingBottom 80px`, barra inferior fija ("N artículos · $total", "Ver cuenta", "Cobrar"), `PosCartSheet` si `sheetOpen`; `CartPanel` no se renderiza en móvil
+  - Estilos añadidos: `mobileHeaderStyle`, `mobileHeaderStationStyle`, `mobileHeaderSearchStyle`, `mobileHeaderBackBtnStyle/Disabled`, `mobileProductsSectionStyle`, `mobileBottomBarRowStyle`, `mobileBottomBarSummaryStyle`, `mobileVerCuentaStyle/Disabled`, `mobileCheckoutBtnStyle`, `mobileDisabledCheckoutBtnStyle`
+
+Restricciones respetadas:
+- Reducer, autosave, cobro, posService intactos
+- Desktop/tablet (>768px) sin cambios de layout
+- Cero CSS global; solo inline styles con tokens
+
+Archivos:
+- `src/components/PosCartSheet.jsx` (nuevo)
+- `src/pages/POS.jsx`
+- `docs/REGISTRO_CAMBIOS.md`
+
 ### POS: estacion Venta Directa — cobro sin abrir mesa (PR pendiente de merge)
 
 Estado:

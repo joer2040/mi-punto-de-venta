@@ -4,6 +4,43 @@ Este archivo concentra el registro historico de cambios funcionales, tecnicos y 
 
 ## 2026-09-15
 
+### POS: estacion Venta Directa — cobro sin abrir mesa (PR pendiente de merge)
+
+Estado:
+- rama `feat/pos-direct-sale`, PR abierto, pendiente de merge a `main`
+- migración aplicada en DEV (`rtkdrnfqihulqdhixxzf`), **pendiente aplicar en PRD**
+
+Migración (idempotente, sin columnas nuevas):
+```sql
+INSERT INTO public.tables (number, status)
+SELECT 'Venta Directa', 'libre'
+WHERE NOT EXISTS (
+  SELECT 1 FROM public.tables WHERE lower(number) = lower('Venta Directa')
+);
+```
+
+Cambios:
+- `src/lib/stations.js` (nuevo): `isDirectSaleStation(table)` case+accent insensitive; `partitionStations(tables)` → `{ direct, bars, dining }`
+- `src/lib/stations.test.js` (nuevo, 8 tests)
+- `package.json`: agrega `stations.test.js` a `test:pos`
+- `src/pages/POS.jsx`:
+  - `getStationDisplayName`: "Venta Directa" retorna el `number` tal cual (antes devolvía "Mesa Venta Directa")
+  - `barTables/diningTables` calculados via `partitionStations` (Venta Directa excluida de ambos; contadores libres/ocupadas sin cambio)
+  - `ServiceMapView`: botón destacado "Venta Directa" arriba de Barras; subtítulo "Cobrar sin abrir mesa" o "Venta en curso — continuar"
+  - Flujo de `handleSelectTable`, autosave, cobro, ticket, inventario y ledger reutilizados sin cambios
+- `supabase/migrations/20260915100000_seed_venta_directa_station.sql` (nuevo)
+
+Restricciones respetadas:
+- Edge Functions y `finalize_pos_sale` intactos
+- Sin columnas nuevas en `tables`
+- Caja abierta requerida igual que hoy
+
+Archivos:
+- `src/lib/stations.js`, `src/lib/stations.test.js` (nuevos)
+- `src/pages/POS.jsx`
+- `package.json`
+- `supabase/migrations/20260915100000_seed_venta_directa_station.sql` (nuevo)
+
 ### POS: selector de método de pago Efectivo/Tarjeta (PR pendiente de merge)
 
 Estado:

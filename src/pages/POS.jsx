@@ -10,6 +10,7 @@ import { useResponsive } from '../lib/useResponsive'
 import logoCarreta from '../assets/la_carreta_sin_fondo.png'
 import { colors, space, type, radius, shadow } from '../lib/designTokens'
 import { sortProductsForPos } from '../lib/sortProductsForPos'
+import { isDirectSaleStation, partitionStations } from '../lib/stations'
 import { createInitialPosState, posReducer } from './posReducer'
 
 const TICKET_WIDTH_MM = 80
@@ -56,6 +57,7 @@ const isBarStation = (table) => /^barra\b/i.test(String(table?.number || '').tri
 const getStationDisplayName = (table) => {
   const rawValue = String(table?.number || '').trim()
   if (!rawValue) return 'General'
+  if (isDirectSaleStation(table)) return rawValue
   if (/^(barra|mesa)\b/i.test(rawValue)) return rawValue
   return `Mesa ${rawValue}`
 }
@@ -315,6 +317,7 @@ const ServiceMapView = ({
   isCashSessionOpen,
   cashStatusLoading,
   meseroLockedTable,
+  directStation,
   freeBars,
   occupiedBars,
   freeDiningTables,
@@ -373,6 +376,28 @@ const ServiceMapView = ({
           </div>
         </div>
       </div>
+
+      {directStation && (
+        <div style={directSaleWrapStyle}>
+          <button
+            type="button"
+            onClick={() => onSelectTable(directStation)}
+            disabled={cashStatusLoading || !isCashSessionOpen}
+            style={{
+              ...directSaleBtnStyle,
+              opacity: cashStatusLoading || !isCashSessionOpen ? 0.55 : 1,
+              cursor: cashStatusLoading || !isCashSessionOpen ? 'not-allowed' : 'pointer',
+            }}
+          >
+            <strong style={directSaleTitleStyle}>Venta Directa</strong>
+            <span style={directSaleSubtitleStyle}>
+              {directStation.status === 'ocupada'
+                ? 'Venta en curso — continuar'
+                : 'Cobrar sin abrir mesa'}
+            </span>
+          </button>
+        </div>
+      )}
 
       <div style={stationSectionsStyle}>
         <StationSection
@@ -1244,8 +1269,8 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
   const caguamitaConfig = buildCaguamitaConfig(availableProducts, cart)
   const activeBundleConfig = showCubetaBuilder === 'caguamita' ? caguamitaConfig : cubetaConfig
   const displayCart = buildDisplayCartItems(cart)
-  const barTables = tables.filter((table) => isBarStation(table))
-  const diningTables = tables.filter((table) => !isBarStation(table))
+  const { direct: directStations, bars: barTables, dining: diningTables } = partitionStations(tables)
+  const directStation = directStations[0] ?? null
   const freeBars = barTables.filter((table) => table.status === 'libre').length
   const occupiedBars = barTables.filter((table) => table.status === 'ocupada').length
   const freeDiningTables = diningTables.filter((table) => table.status === 'libre').length
@@ -1479,6 +1504,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
     notice,
     ticketData,
     meseroLockedTable,
+    directStation,
     freeBars,
     occupiedBars,
     freeDiningTables,
@@ -1524,6 +1550,7 @@ const POS = ({ onEditingStateChange = () => {} }) => {
     notice,
     ticketData,
     meseroLockedTable,
+    directStation,
     freeBars,
     occupiedBars,
     freeDiningTables,
@@ -1565,6 +1592,7 @@ const POS = ({ onEditingStateChange = () => {} }) => {
         isCashSessionOpen={isCashSessionOpen}
         cashStatusLoading={cashStatusLoading}
         meseroLockedTable={meseroLockedTable}
+        directStation={directStation}
         freeBars={freeBars}
         occupiedBars={occupiedBars}
         freeDiningTables={freeDiningTables}
@@ -2395,6 +2423,35 @@ const statValueStyle = {
 const stationSectionsStyle = {
   display: 'grid',
   gap: space[6],
+}
+
+const directSaleWrapStyle = {
+  marginBottom: space[6],
+}
+
+const directSaleBtnStyle = {
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'flex-start',
+  gap: space[3],
+  width: '100%',
+  padding: `${space[10]} ${space[12]}`,
+  background: `linear-gradient(135deg, ${colors.blue700} 0%, #1e40af 100%)`,
+  border: 'none',
+  borderRadius: radius.lg,
+  boxShadow: shadow.md,
+  textAlign: 'left',
+}
+
+const directSaleTitleStyle = {
+  fontSize: type.xl,
+  fontWeight: type.black,
+  color: colors.white,
+}
+
+const directSaleSubtitleStyle = {
+  fontSize: type.base,
+  color: 'rgba(255,255,255,0.80)',
 }
 
 const stationSectionStyle = {

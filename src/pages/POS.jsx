@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { cashControlService } from '../api/cashControlService'
 import { materialService } from '../api/materialService'
 import { posService } from '../api/posService'
@@ -12,6 +12,7 @@ import { colors, space, type, radius, shadow } from '../lib/designTokens'
 import { sortProductsForPos } from '../lib/sortProductsForPos'
 import { isDirectSaleStation, partitionStations } from '../lib/stations'
 import { createInitialPosState, posReducer } from './posReducer'
+import PosCartSheet from '../components/PosCartSheet'
 
 const TICKET_WIDTH_MM = 80
 const CUBETA_ALLOWED_SKUS = [
@@ -424,29 +425,111 @@ const ServiceMapView = ({
   </>
 )
 
-const renderProductCard = (item, isMobile, canOperatePOS, onAddToCart) => {
+const ProductCard = ({ item, isMobile, isPhone, canOperatePOS, onAddToCart, cartQty = 0 }) => {
+  const [pressed, setPressed] = useState(false)
   const isInventoried = item.materials?.categories?.is_inventoried === true
   const isOutOfStock = isInventoried && item.stock_actual <= 0
-  const isProductDisabled = !canOperatePOS || isOutOfStock
+  const isDisabled = !canOperatePOS || isOutOfStock
+  const inCart = cartQty > 0
+
+  if (isMobile) {
+    return (
+      <button
+        type="button"
+        onClick={() => onAddToCart(item)}
+        disabled={isDisabled}
+        onPointerDown={() => { if (!isDisabled) setPressed(true) }}
+        onPointerUp={() => setPressed(false)}
+        onPointerLeave={() => setPressed(false)}
+        style={{
+          position: 'relative',
+          padding: `${space[4]} ${space[4]}`,
+          backgroundColor: inCart ? colors.green50 : colors.white,
+          borderRadius: radius.md,
+          border: inCart ? `2px solid ${colors.green500}` : `1px solid ${colors.gray200}`,
+          boxShadow: shadow.sm,
+          display: 'flex',
+          flexDirection: 'column',
+          textAlign: 'left',
+          minHeight: '92px',
+          cursor: isDisabled ? 'not-allowed' : 'pointer',
+          opacity: isOutOfStock ? 0.52 : 1,
+          width: '100%',
+          transform: pressed ? 'scale(0.97)' : 'scale(1)',
+          transition: 'transform 0.12s ease',
+        }}
+      >
+        {inCart && (
+          <span style={{
+            position: 'absolute',
+            top: '-7px',
+            right: '-7px',
+            backgroundColor: colors.green500,
+            color: colors.white,
+            borderRadius: radius.full,
+            width: '20px',
+            height: '20px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: type.xs,
+            fontWeight: type.black,
+            pointerEvents: 'none',
+          }}>
+            {cartQty}
+          </span>
+        )}
+        <div style={{
+          fontWeight: type.bold,
+          color: colors.gray900,
+          fontSize: isPhone ? type.xs : type.sm,
+          overflow: 'hidden',
+          display: '-webkit-box',
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: 'vertical',
+          lineHeight: 1.35,
+        }}>
+          {item.materials.name}
+        </div>
+        <div style={{
+          color: colors.teal700,
+          fontWeight: type.bold,
+          marginTop: space[2],
+          fontSize: isPhone ? type.sm : type.md,
+        }}>
+          ${item.precio_venta}
+        </div>
+        {isInventoried && (
+          <div style={{
+            fontSize: type.xs,
+            color: item.stock_actual <= 0 ? colors.red700 : colors.gray500,
+            marginTop: space[1],
+          }}>
+            Stock: {item.stock_actual}
+          </div>
+        )}
+      </button>
+    )
+  }
+
   return (
     <button
-      key={item.materials?.id || item.id}
       type="button"
       onClick={() => onAddToCart(item)}
-      disabled={isProductDisabled}
+      disabled={isDisabled}
       style={{
-        ...getProductCardStyle(isMobile),
+        ...getProductCardStyle(false),
         opacity: isOutOfStock ? 0.52 : 1,
-        cursor: isProductDisabled ? 'not-allowed' : 'pointer',
+        cursor: isDisabled ? 'not-allowed' : 'pointer',
         textAlign: 'left',
         width: '100%',
       }}
     >
       <div style={productCategoryPillStyle}>{item.materials?.categories?.name ?? 'Sin categoría'}</div>
-      <div style={{ fontWeight: 'bold', color: '#1f2937', fontSize: isMobile ? '0.95rem' : '1rem' }}>
+      <div style={{ fontWeight: 'bold', color: '#1f2937', fontSize: '1rem' }}>
         {item.materials.name}
       </div>
-      <div style={{ color: '#0f766e', fontWeight: 'bold', marginTop: '10px', fontSize: isMobile ? '1.1rem' : '1.2rem' }}>
+      <div style={{ color: '#0f766e', fontWeight: 'bold', marginTop: '10px', fontSize: '1.2rem' }}>
         ${item.precio_venta}
       </div>
       {item.materials.categories?.is_inventoried ? (
@@ -464,6 +547,7 @@ const renderProductCard = (item, isMobile, canOperatePOS, onAddToCart) => {
 
 const ProductCatalog = ({
   isMobile,
+  isPhone,
   canOperatePOS,
   isCashSessionOpen,
   availableProducts,
@@ -472,8 +556,13 @@ const ProductCatalog = ({
   cubetaConfig,
   caguamitaConfig,
   onOpenBundleBuilder,
+  cartQuantityByMaterial,
+  controlledSearch,
+  onControlledSearchChange,
 }) => {
-  const [searchQuery, setSearchQuery] = useState('')
+  const [internalSearch, setInternalSearch] = useState('')
+  const searchQuery = controlledSearch !== undefined ? controlledSearch : internalSearch
+  const setSearchQuery = controlledSearch !== undefined ? onControlledSearchChange : setInternalSearch
   const filteredProducts = rankApproximateMatches(
     availableProducts,
     searchQuery,
@@ -519,38 +608,40 @@ const ProductCatalog = ({
       </div>
       </div>
 
-      <div style={getProductSearchStyle(isMobile)}>
-        <label htmlFor="pos-product-search" style={productSearchLabelStyle}>
-          Buscar productos
-        </label>
-        <div style={productSearchInputRowStyle}>
-          <input
-            id="pos-product-search"
-            type="search"
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="Nombre, SKU o categoria..."
-            autoComplete="off"
-            spellCheck={false}
-            style={productSearchInputStyle}
-          />
-          {hasSearch && (
-            <button
-              type="button"
-              onClick={() => setSearchQuery('')}
-              aria-label="Limpiar busqueda de productos"
-              style={productSearchClearButtonStyle}
-            >
-              Limpiar
-            </button>
-          )}
+      {!isMobile && (
+        <div style={getProductSearchStyle(isMobile)}>
+          <label htmlFor="pos-product-search" style={productSearchLabelStyle}>
+            Buscar productos
+          </label>
+          <div style={productSearchInputRowStyle}>
+            <input
+              id="pos-product-search"
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Nombre, SKU o categoria..."
+              autoComplete="off"
+              spellCheck={false}
+              style={productSearchInputStyle}
+            />
+            {hasSearch && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                aria-label="Limpiar busqueda de productos"
+                style={productSearchClearButtonStyle}
+              >
+                Limpiar
+              </button>
+            )}
+          </div>
+          <span aria-live="polite" style={productSearchResultStyle}>
+            {hasSearch
+              ? `${visibleResultCount} ${visibleResultCount === 1 ? 'coincidencia' : 'coincidencias'}`
+              : `${availableProducts.length} productos disponibles`}
+          </span>
         </div>
-        <span aria-live="polite" style={productSearchResultStyle}>
-          {hasSearch
-            ? `${visibleResultCount} ${visibleResultCount === 1 ? 'coincidencia' : 'coincidencias'}`
-            : `${availableProducts.length} productos disponibles`}
-        </span>
-      </div>
+      )}
 
       {visibleResultCount === 0 ? (
         <div style={productSearchEmptyStyle}>
@@ -560,7 +651,7 @@ const ProductCatalog = ({
           </span>
         </div>
       ) : (
-        <div style={getProductGridStyle(isMobile)}>
+        <div style={getProductGridStyle(isMobile, isPhone)}>
       {showCubeta && (
         <button
         type="button"
@@ -624,7 +715,17 @@ const ProductCatalog = ({
         </button>
       )}
       {hasSearch
-        ? filteredProducts.map((item) => renderProductCard(item, isMobile, canOperatePOS, onAddToCart))
+        ? filteredProducts.map((item) => (
+            <ProductCard
+              key={item.materials?.id || item.id}
+              item={item}
+              isMobile={isMobile}
+              isPhone={isPhone}
+              canOperatePOS={canOperatePOS}
+              onAddToCart={onAddToCart}
+              cartQty={cartQuantityByMaterial?.get(item.materials?.id) ?? 0}
+            />
+          ))
         : filteredProducts.reduce((acc, item, idx) => {
             const catName = item.materials?.categories?.name ?? 'Sin categoría'
             const prevCatName = idx > 0
@@ -632,12 +733,22 @@ const ProductCatalog = ({
               : null
             if (catName !== prevCatName) {
               acc.push(
-                <div key={`cat-hdr-${catName}`} style={categoryHeaderInGridStyle}>
+                <div key={`cat-hdr-${catName}`} style={getCategoryHeaderInGridStyle(isMobile)}>
                   {catName}
                 </div>
               )
             }
-            acc.push(renderProductCard(item, isMobile, canOperatePOS, onAddToCart))
+            acc.push(
+              <ProductCard
+                key={item.materials?.id || item.id}
+                item={item}
+                isMobile={isMobile}
+                isPhone={isPhone}
+                canOperatePOS={canOperatePOS}
+                onAddToCart={onAddToCart}
+                cartQty={cartQuantityByMaterial?.get(item.materials?.id) ?? 0}
+              />
+            )
             return acc
           }, [])}
         </div>
@@ -746,6 +857,7 @@ const ActiveOrderView = ({
   notice,
   isTablet,
   isMobile,
+  isPhone,
   canOperatePOS,
   canLeaveStation,
   isCashSessionOpen,
@@ -779,6 +891,12 @@ const ActiveOrderView = ({
 }) => {
   const cartRef = useRef(null)
   const [cartPanelHeight, setCartPanelHeight] = useState(0)
+  const [sheetOpen, setSheetOpen] = useState(false)
+  const [mobileSearch, setMobileSearch] = useState('')
+  const cartQuantityByMaterial = useMemo(
+    () => (isMobile ? getCartMaterialQuantityMap(cart) : null),
+    [isMobile, cart]
+  )
 
   useEffect(() => {
     if (!isMobile || !cartRef.current) return undefined
@@ -792,52 +910,8 @@ const ActiveOrderView = ({
     return () => observer.disconnect()
   }, [isMobile])
 
-  return (
+  const modals = (
     <>
-      {notice && <NoticeBanner notice={notice} onClose={onNoticeClose} />}
-      <div style={getWorkspaceStyle(isTablet, isMobile)}>
-        <section>
-          <div style={topBarStyle(isMobile)}>
-            <button onClick={onSaveAndExit} disabled={!canLeaveStation} style={canLeaveStation ? btnSecondaryStyle : disabledSecondaryBtnStyle}>
-              Volver a Barras y Mesas
-            </button>
-            <div style={tableInfoCardStyle}>
-              <span style={tableInfoLabelStyle}>Atendiendo</span>
-              <strong style={{ color: '#1f2937', fontSize: isMobile ? '1rem' : '1.15rem' }}>
-                {selectedStationLabel}
-              </strong>
-            </div>
-          </div>
-
-          <ProductCatalog
-            isMobile={isMobile}
-            canOperatePOS={canOperatePOS}
-            isCashSessionOpen={isCashSessionOpen}
-            availableProducts={availableProducts}
-            cubetaConfig={cubetaConfig}
-            caguamitaConfig={caguamitaConfig}
-            totalItems={totalItems}
-            onAddToCart={onAddToCart}
-            onOpenBundleBuilder={onOpenBundleBuilder}
-          />
-        </section>
-
-        <CartPanel
-          isTablet={isTablet}
-          isMobile={isMobile}
-          cart={cart}
-          displayCart={displayCart}
-          total={total}
-          totalItems={totalItems}
-          canOperatePOS={canOperatePOS}
-          canDecreaseOrRemoveFromOccupiedTable={canDecreaseOrRemoveFromOccupiedTable}
-          onChangeQuantity={onChangeQuantity}
-          onRemoveFromCart={onRemoveFromCart}
-          onRequestFinalizeSale={onRequestFinalizeSale}
-          outerRef={cartRef}
-          checkoutHeight={cartPanelHeight}
-        />
-      </div>
       {ticketData && <TicketModal ticket={ticketData} onClose={onCloseTicket} />}
       {showFinalizeConfirm && (
         <FinalizeSaleModal
@@ -859,13 +933,151 @@ const ActiveOrderView = ({
       )}
     </>
   )
+
+  if (isMobile) {
+    return (
+      <>
+        {notice && <NoticeBanner notice={notice} onClose={onNoticeClose} />}
+
+        <div style={mobileHeaderStyle}>
+          <button
+            type="button"
+            onClick={onSaveAndExit}
+            disabled={!canLeaveStation}
+            style={canLeaveStation ? mobileHeaderBackBtnStyle : mobileHeaderBackBtnDisabledStyle}
+          >
+            Volver
+          </button>
+          <span style={mobileHeaderStationStyle}>{selectedStationLabel}</span>
+          <input
+            type="search"
+            value={mobileSearch}
+            onChange={(e) => setMobileSearch(e.target.value)}
+            placeholder="Buscar..."
+            autoComplete="off"
+            spellCheck={false}
+            style={mobileHeaderSearchStyle}
+          />
+        </div>
+
+        <section style={mobileProductsSectionStyle}>
+          <ProductCatalog
+            isMobile={isMobile}
+            isPhone={isPhone}
+            canOperatePOS={canOperatePOS}
+            isCashSessionOpen={isCashSessionOpen}
+            availableProducts={availableProducts}
+            cubetaConfig={cubetaConfig}
+            caguamitaConfig={caguamitaConfig}
+            totalItems={totalItems}
+            onAddToCart={onAddToCart}
+            onOpenBundleBuilder={onOpenBundleBuilder}
+            cartQuantityByMaterial={cartQuantityByMaterial}
+            controlledSearch={mobileSearch}
+            onControlledSearchChange={setMobileSearch}
+          />
+        </section>
+
+        <div style={getCheckoutPanelStyle(true)}>
+          <div style={mobileBottomBarRowStyle}>
+            <span style={mobileBottomBarSummaryStyle}>
+              {totalItems} {totalItems === 1 ? 'artículo' : 'artículos'} · ${total.toFixed(2)}
+            </span>
+            <div style={{ display: 'flex', gap: space[3], flexShrink: 0 }}>
+              <button
+                type="button"
+                onClick={() => setSheetOpen(true)}
+                disabled={cart.length === 0}
+                style={cart.length === 0 ? mobileVerCuentaDisabledStyle : mobileVerCuentaStyle}
+              >
+                Ver cuenta
+              </button>
+              <button
+                type="button"
+                onClick={onRequestFinalizeSale}
+                disabled={cart.length === 0 || !canOperatePOS}
+                style={cart.length === 0 || !canOperatePOS ? mobileDisabledCheckoutBtnStyle : mobileCheckoutBtnStyle}
+              >
+                Cobrar
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {sheetOpen && (
+          <PosCartSheet
+            displayCart={displayCart}
+            canOperatePOS={canOperatePOS}
+            canDecreaseOrRemoveFromOccupiedTable={canDecreaseOrRemoveFromOccupiedTable}
+            onChangeQuantity={onChangeQuantity}
+            onRemoveFromCart={onRemoveFromCart}
+            onClose={() => setSheetOpen(false)}
+          />
+        )}
+
+        {modals}
+      </>
+    )
+  }
+
+  return (
+    <>
+      {notice && <NoticeBanner notice={notice} onClose={onNoticeClose} />}
+      <div style={getWorkspaceStyle(isTablet, isMobile)}>
+        <section>
+          <div style={topBarStyle(isMobile)}>
+            <button onClick={onSaveAndExit} disabled={!canLeaveStation} style={canLeaveStation ? btnSecondaryStyle : disabledSecondaryBtnStyle}>
+              Volver a Barras y Mesas
+            </button>
+            <div style={tableInfoCardStyle}>
+              <span style={tableInfoLabelStyle}>Atendiendo</span>
+              <strong style={{ color: '#1f2937', fontSize: '1.15rem' }}>
+                {selectedStationLabel}
+              </strong>
+            </div>
+          </div>
+
+          <ProductCatalog
+            isMobile={isMobile}
+            isPhone={isPhone}
+            canOperatePOS={canOperatePOS}
+            isCashSessionOpen={isCashSessionOpen}
+            availableProducts={availableProducts}
+            cubetaConfig={cubetaConfig}
+            caguamitaConfig={caguamitaConfig}
+            totalItems={totalItems}
+            onAddToCart={onAddToCart}
+            onOpenBundleBuilder={onOpenBundleBuilder}
+            cartQuantityByMaterial={cartQuantityByMaterial}
+          />
+        </section>
+
+        <CartPanel
+          isTablet={isTablet}
+          isMobile={isMobile}
+          cart={cart}
+          displayCart={displayCart}
+          total={total}
+          totalItems={totalItems}
+          canOperatePOS={canOperatePOS}
+          canDecreaseOrRemoveFromOccupiedTable={canDecreaseOrRemoveFromOccupiedTable}
+          onChangeQuantity={onChangeQuantity}
+          onRemoveFromCart={onRemoveFromCart}
+          onRequestFinalizeSale={onRequestFinalizeSale}
+          outerRef={cartRef}
+          checkoutHeight={cartPanelHeight}
+        />
+      </div>
+      {modals}
+    </>
+  )
 }
 
 const usePosController = ({ onEditingStateChange = () => {} }) => {
   const [state, dispatch] = useReducer(posReducer, undefined, createInitialPosState)
   const [showCubetaBuilder, setShowCubetaBuilder] = useState(false)
   const [cashSessionState, setCashSessionState] = useState({ isOpen: false, isLoading: true })
-  const { isMobile, isTablet } = useResponsive()
+  const { isMobile, isTablet, isPhone } = useResponsive()
   const { can, isManager, isSuperadmin, isWaiter } = useAuth()
   const canCreateSale = can(PAGE_PERMISSION_MAP.pos, ACTION_KEYS.CREATE)
   const canEditSale = can(PAGE_PERMISSION_MAP.pos, ACTION_KEYS.EDIT)
@@ -1495,6 +1707,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
     dispatch,
     isMobile,
     isTablet,
+    isPhone,
     canOperatePOS: canOperatePOS && !isFinalizingSale,
     isCashSessionOpen: cashSessionState.isOpen,
     cashStatusLoading: cashSessionState.isLoading,
@@ -1541,6 +1754,7 @@ const POS = ({ onEditingStateChange = () => {} }) => {
     dispatch,
     isMobile,
     isTablet,
+    isPhone,
     canOperatePOS,
     isCashSessionOpen,
     cashStatusLoading,
@@ -1612,6 +1826,7 @@ const POS = ({ onEditingStateChange = () => {} }) => {
       notice={notice}
       isTablet={isTablet}
       isMobile={isMobile}
+      isPhone={isPhone}
       canOperatePOS={canOperatePOS && isCashSessionOpen && !cashStatusLoading}
       canLeaveStation={canOperatePOS}
       isCashSessionOpen={isCashSessionOpen}
@@ -2624,10 +2839,12 @@ const productSearchEmptyStyle = {
   borderRadius: radius.lg,
 }
 
-const getProductGridStyle = (isMobile) => ({
+const getProductGridStyle = (isMobile, isPhone) => ({
   display: 'grid',
-  gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(170px, 1fr))',
-  gap: isMobile ? space[4] : space[5],
+  gridTemplateColumns: isMobile
+    ? (isPhone ? 'repeat(2, 1fr)' : 'repeat(3, 1fr)')
+    : 'repeat(auto-fill, minmax(170px, 1fr))',
+  gap: isMobile ? space[3] : space[5],
 })
 
 const getProductCardStyle = (isMobile) => ({
@@ -2653,10 +2870,10 @@ const productCategoryPillStyle = {
   marginBottom: space[5],
 }
 
-const categoryHeaderInGridStyle = {
+const getCategoryHeaderInGridStyle = (isMobile) => ({
   gridColumn: '1 / -1',
-  paddingTop: space[8],
-  paddingBottom: space[4],
+  paddingTop: isMobile ? space[5] : space[8],
+  paddingBottom: isMobile ? space[3] : space[4],
   paddingLeft: space[2],
   fontSize: type.sm,
   fontWeight: type.bold,
@@ -2664,7 +2881,13 @@ const categoryHeaderInGridStyle = {
   letterSpacing: '0.05em',
   textTransform: 'uppercase',
   borderBottom: `1px solid ${colors.gray200}`,
-}
+  ...(isMobile ? {
+    position: 'sticky',
+    top: '56px',
+    backgroundColor: colors.gray100,
+    zIndex: 10,
+  } : {}),
+})
 
 const cubetaPillStyle = {
   alignSelf: 'flex-start',
@@ -2876,6 +3099,126 @@ const disabledCheckoutBtnStyle = {
   backgroundColor: colors.gray400,
   cursor: 'not-allowed',
 }
+
+const mobileHeaderStyle = {
+  position: 'fixed',
+  top: 0,
+  left: 0,
+  right: 0,
+  height: '56px',
+  backgroundColor: colors.white,
+  borderBottom: `1px solid ${colors.gray200}`,
+  display: 'flex',
+  alignItems: 'center',
+  gap: space[3],
+  padding: `0 ${space[6]}`,
+  zIndex: 150,
+  boxShadow: shadow.sm,
+}
+
+const mobileHeaderStationStyle = {
+  flex: 1,
+  fontWeight: type.bold,
+  fontSize: type.sm,
+  color: colors.gray900,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+}
+
+const mobileHeaderSearchStyle = {
+  width: '110px',
+  minHeight: '30px',
+  padding: `0 ${space[4]}`,
+  border: `1px solid ${colors.gray300}`,
+  borderRadius: radius.full,
+  color: colors.gray900,
+  backgroundColor: colors.gray100,
+  fontSize: '14px',
+  flexShrink: 0,
+}
+
+const mobileHeaderBackBtnStyle = {
+  padding: `${space[2]} ${space[5]}`,
+  backgroundColor: colors.gray800,
+  color: colors.white,
+  border: 'none',
+  borderRadius: radius.md,
+  fontSize: type.xs,
+  fontWeight: type.bold,
+  cursor: 'pointer',
+  whiteSpace: 'nowrap',
+  flexShrink: 0,
+}
+
+const mobileHeaderBackBtnDisabledStyle = {
+  ...mobileHeaderBackBtnStyle,
+  backgroundColor: colors.gray400,
+  cursor: 'not-allowed',
+}
+
+const mobileProductsSectionStyle = {
+  paddingTop: '60px',
+  paddingLeft: space[4],
+  paddingRight: space[4],
+  paddingBottom: '80px',
+  backgroundColor: colors.gray100,
+  minHeight: '100vh',
+}
+
+const mobileBottomBarRowStyle = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  gap: space[4],
+}
+
+const mobileBottomBarSummaryStyle = {
+  fontSize: type.sm,
+  fontWeight: type.bold,
+  color: colors.gray900,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  flex: 1,
+}
+
+const mobileVerCuentaStyle = {
+  padding: `${space[3]} ${space[7]}`,
+  backgroundColor: colors.blue100,
+  color: colors.blue700,
+  border: `1px solid ${colors.blue100}`,
+  borderRadius: radius.md,
+  fontWeight: type.bold,
+  fontSize: type.sm,
+  cursor: 'pointer',
+  whiteSpace: 'nowrap',
+}
+
+const mobileVerCuentaDisabledStyle = {
+  ...mobileVerCuentaStyle,
+  opacity: 0.5,
+  cursor: 'not-allowed',
+}
+
+const mobileCheckoutBtnStyle = {
+  padding: `${space[3]} ${space[7]}`,
+  backgroundColor: colors.green500,
+  color: colors.white,
+  border: 'none',
+  borderRadius: radius.md,
+  fontWeight: type.black,
+  fontSize: type.sm,
+  cursor: 'pointer',
+  whiteSpace: 'nowrap',
+}
+
+const mobileDisabledCheckoutBtnStyle = {
+  ...mobileCheckoutBtnStyle,
+  backgroundColor: colors.gray400,
+  cursor: 'not-allowed',
+}
+
 const readOnlyHintStyle = {
   marginTop: space[6],
   display: 'inline-flex',

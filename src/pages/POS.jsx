@@ -3134,7 +3134,7 @@ const mobileHeaderSearchStyle = {
   borderRadius: radius.full,
   color: colors.gray900,
   backgroundColor: colors.gray100,
-  fontSize: '14px',
+  fontSize: type.base,
   flexShrink: 0,
 }
 

@@ -109,4 +109,8 @@ export const erpService = {
   async postMaterialMovement(payload) {
     return invokeErpOperation('post_material_movement', payload)
   },
+
+  async deleteMaterial(materialId) {
+    return invokeErpOperation('delete_material', { material_id: materialId })
+  },
 }

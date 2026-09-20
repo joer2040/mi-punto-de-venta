@@ -1,6 +1,5 @@
 // @ts-nocheck
 import { createClient } from 'npm:@supabase/supabase-js@2'
-import { validateDeleteInput, mapDeleteResult } from './materialDeleteRules.js'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -1080,21 +1079,6 @@ Deno.serve(async (req) => {
       })
 
       return json({ material: data })
-    }
-
-    if (action === 'delete_material') {
-      const { valid, materialId, error: inputError } = validateDeleteInput(body)
-      if (!valid) return json({ error: inputError }, 400)
-
-      const { data, error } = await adminClient.rpc('delete_material_safely', {
-        p_material_id: materialId,
-        p_performed_by: caller.performedBy,
-      })
-
-      if (error) throw error
-
-      const mapped = mapDeleteResult(data)
-      return json(mapped.body, mapped.status)
     }
 
     return json({ error: 'Accion no soportada.' }, 400)

@@ -7,7 +7,7 @@ Este archivo concentra el registro historico de cambios funcionales, tecnicos y 
 ### Materiales: eliminación segura con lógica de bloqueo/desactivación/borrado (feat/material-safe-delete)
 
 Cambios:
-- `supabase/migrations/20260919001803_add_material_safe_delete.sql` (nuevo): agrega columna `is_active boolean NOT NULL DEFAULT true` a `materials`; extiende CHECK de `audit_log.event_type` con `material_deactivated` y `material_deleted`; crea RPC `delete_material_safely(uuid, text)` SECURITY DEFINER con lógica atómica: blocked (inventario disponible) → deactivated (tiene historial) → deleted (sin historial, ON DELETE CASCADE limpia `inventory`)
+- `supabase/migrations/20260919002848_add_material_safe_delete.sql` (nuevo): agrega columna `is_active boolean NOT NULL DEFAULT true` a `materials`; extiende CHECK de `audit_log.event_type` con `material_deactivated` y `material_deleted`; crea RPC `delete_material_safely(uuid, text)` SECURITY DEFINER con lógica atómica: blocked (inventario disponible) → deactivated (tiene historial) → deleted (sin historial, ON DELETE CASCADE limpia `inventory`)
 - `supabase/functions/erp-operations/materialDeleteRules.js` (nuevo): funciones puras `validateDeleteInput` y `mapDeleteResult`; sin efectos secundarios
 - `supabase/functions/erp-operations/materialDelete.test.js` (nuevo): 16 tests con Node.js `--test`; cubre validación de input, mapeo de resultados y 5 escenarios funcionales
 - `supabase/functions/erp-operations/index.ts`: agrega acción `delete_material`; importa helpers de `materialDeleteRules.js`; reutiliza `loadCallerContext` y `caller.performedBy`
@@ -28,7 +28,7 @@ Restricciones respetadas:
 - RPC solo accesible por `service_role`
 
 Archivos:
-- `supabase/migrations/20260919001803_add_material_safe_delete.sql` (nuevo)
+- `supabase/migrations/20260919002848_add_material_safe_delete.sql` (nuevo)
 - `supabase/functions/erp-operations/materialDeleteRules.js` (nuevo)
 - `supabase/functions/erp-operations/materialDelete.test.js` (nuevo)
 - `supabase/functions/erp-operations/index.ts`

@@ -104,6 +104,7 @@ const InventoryMobileList = ({
   manualEditUnlocked,
   onFieldChange,
   onSaveField,
+  onDelete,
   providers,
   savingKey,
 }) => (
@@ -202,6 +203,16 @@ const InventoryMobileList = ({
               )}
             </div>
           </div>
+
+          {manualEditUnlocked && (
+            <button
+              type="button"
+              onClick={() => onDelete(item)}
+              style={deleteButtonStyle}
+            >
+              Eliminar
+            </button>
+          )}
         </article>
       )
     })}
@@ -213,6 +224,7 @@ const InventoryDesktopTable = ({
   manualEditUnlocked,
   onFieldChange,
   onSaveField,
+  onDelete,
   providers,
   savingKey,
 }) => (
@@ -226,6 +238,7 @@ const InventoryDesktopTable = ({
           <th style={headerCellStyle}>CATEGORIA</th>
           <th style={headerCellStyle}>PRECIO VENTA</th>
           <th style={headerCellStyle}>STOCK ACTUAL</th>
+          {manualEditUnlocked && <th style={headerCellStyle}>ACCIONES</th>}
         </tr>
       </thead>
       <tbody>
@@ -307,6 +320,17 @@ const InventoryDesktopTable = ({
                 <div>{Number(item.stock || 0)}</div>
                 {manualEditUnlocked && <div style={stockHintStyle}>Ajusta desde Movimiento de Materiales.</div>}
               </td>
+              {manualEditUnlocked && (
+                <td style={bodyCellStyle}>
+                  <button
+                    type="button"
+                    onClick={() => onDelete(item)}
+                    style={deleteButtonStyle}
+                  >
+                    Eliminar
+                  </button>
+                </td>
+              )}
             </tr>
           )
         })}
@@ -399,6 +423,33 @@ const Inventory = () => {
     }
   }
 
+  const handleDeleteMaterial = async (item) => {
+    const pin = window.prompt('PIN de autorizacion:')
+    if (pin === null) return
+    if (pin !== EDITION_PIN) {
+      window.alert('PIN incorrecto.')
+      return
+    }
+
+    const confirmed = window.confirm(
+      `¿Eliminar "${item.name}" (SKU: ${item.sku || 'sin SKU'})?\n\nEsta accion no se puede deshacer.`
+    )
+    if (!confirmed) return
+
+    try {
+      const result = await materialService.deleteMaterial(item.materialId)
+      if (result?.result === 'deactivated') {
+        window.alert(`"${item.name}" fue desactivado. Tiene historial de operaciones y no puede eliminarse permanentemente.`)
+      } else if (result?.result === 'deleted') {
+        window.alert(`"${item.name}" fue eliminado permanentemente.`)
+      }
+      await loadMaterials()
+    } catch (error) {
+      console.error('Error eliminando material:', error)
+      window.alert(error?.message || 'No se pudo eliminar el material.')
+    }
+  }
+
   if (loading) {
     return <div style={{ padding: '24px' }}>Cargando maestro de materiales...</div>
   }
@@ -422,6 +473,7 @@ const Inventory = () => {
             manualEditUnlocked={manualEditUnlocked}
             onFieldChange={handleFieldChange}
             onSaveField={handleSaveField}
+            onDelete={handleDeleteMaterial}
             providers={providers}
             savingKey={savingKey}
           />
@@ -431,6 +483,7 @@ const Inventory = () => {
             manualEditUnlocked={manualEditUnlocked}
             onFieldChange={handleFieldChange}
             onSaveField={handleSaveField}
+            onDelete={handleDeleteMaterial}
             providers={providers}
             savingKey={savingKey}
           />
@@ -637,6 +690,17 @@ const tableInputStyle = {
 const priceTextStyle = {
   color: colors.green700,
   fontWeight: type.black,
+}
+
+const deleteButtonStyle = {
+  border: 'none',
+  background: colors.red600,
+  color: colors.white,
+  fontWeight: type.black,
+  borderRadius: radius.md,
+  padding: `${space[3]} ${space[6]}`,
+  cursor: 'pointer',
+  fontSize: type.sm,
 }
 
 export default Inventory

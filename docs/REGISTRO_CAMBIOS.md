@@ -2,6 +2,42 @@
 
 Este archivo concentra el registro historico de cambios funcionales, tecnicos y operativos liberados en el proyecto.
 
+## 2026-09-19
+
+### Materiales: eliminación segura con lógica de bloqueo/desactivación/borrado (feat/material-safe-delete)
+
+Cambios:
+- `supabase/migrations/20260919002848_add_material_safe_delete.sql` (nuevo): agrega columna `is_active boolean NOT NULL DEFAULT true` a `materials`; extiende CHECK de `audit_log.event_type` con `material_deactivated` y `material_deleted`; crea RPC `delete_material_safely(uuid, text)` SECURITY DEFINER con lógica atómica: blocked (inventario disponible) → deactivated (tiene historial) → deleted (sin historial, ON DELETE CASCADE limpia `inventory`)
+- `supabase/functions/erp-operations/materialDeleteRules.js` (nuevo): funciones puras `validateDeleteInput` y `mapDeleteResult`; sin efectos secundarios
+- `supabase/functions/erp-operations/materialDelete.test.js` (nuevo): 16 tests con Node.js `--test`; cubre validación de input, mapeo de resultados y 5 escenarios funcionales
+- `supabase/functions/erp-operations/index.ts`: agrega acción `delete_material`; importa helpers de `materialDeleteRules.js`; reutiliza `loadCallerContext` y `caller.performedBy`
+- `src/api/erpService.js`: agrega `deleteMaterial(materialId)` → `invokeErpOperation('delete_material', ...)`
+- `src/api/materialService.js`: agrega `deleteMaterial(materialId)`; `getAllMaterials` incluye `is_active` en select y filtra `row.materials?.is_active !== false` (retrocompatible: undefined pasa)
+- `src/pages/Inventory.jsx`: agrega `handleDeleteMaterial(item)` con PIN por acción + confirm + mensajes diferenciados; botón Eliminar visible solo cuando `manualEditUnlocked`; en desktop agrega columna ACCIONES; en móvil agrega botón al pie de cada tarjeta
+- `package.json`: agrega script `test:materials`
+
+Reglas de negocio:
+- Material inventariable con stock > 0 → **blocked** (HTTP 409, no se elimina)
+- Tiene historial (movimientos, ajustes, compras, ventas, snapshots de caja) → **deactivated** (soft delete, `is_active = false`, se oculta en UI)
+- Sin historial → **deleted** (hard delete + audit_log; `inventory` row eliminada por CASCADE)
+
+Restricciones respetadas:
+- PRD no tocado (migración aplicada solo en DEV `rtkdrnfqihulqdhixxzf`)
+- Reportes históricos intactos
+- PIN EDITION_PIN exigido por acción, nunca almacenado
+- RPC solo accesible por `service_role`
+
+Archivos:
+- `supabase/migrations/20260919002848_add_material_safe_delete.sql` (nuevo)
+- `supabase/functions/erp-operations/materialDeleteRules.js` (nuevo)
+- `supabase/functions/erp-operations/materialDelete.test.js` (nuevo)
+- `supabase/functions/erp-operations/index.ts`
+- `src/api/erpService.js`
+- `src/api/materialService.js`
+- `src/pages/Inventory.jsx`
+- `package.json`
+- `docs/REGISTRO_CAMBIOS.md`
+
 ## 2026-09-15
 
 ### POS: tiles compactos en móvil con selección visible y hoja de cuenta (feat/pos-mobile-tiles)

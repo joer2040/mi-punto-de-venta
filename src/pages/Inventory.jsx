@@ -1,4 +1,4 @@
-import { useEffect, useReducer } from 'react'
+import { useEffect, useReducer, useRef } from 'react'
 import MaterialForm from '../components/MaterialForm'
 import { materialService } from '../api/materialService'
 import { providerService } from '../api/providerService'
@@ -31,6 +31,7 @@ const normalizeMaterials = (rows = []) =>
 
 const createInitialInventoryState = () => ({
   items: [],
+  savedItems: [],
   providers: [],
   loading: true,
   manualEditUnlocked: false,
@@ -48,8 +49,27 @@ const inventoryReducer = (state, action) => {
       return {
         ...state,
         loading: false,
-        items: action.items,
+        items: action.silent
+          ? action.items.map((item) => {
+              const draft = state.items.find((row) => row.rowKey === item.rowKey)
+              const saved = state.savedItems.find((row) => row.rowKey === item.rowKey)
+              if (!draft || !saved) return item
+              const merged = { ...item }
+              for (const field of ['sku', 'name', 'providerId', 'price']) {
+                if (draft[field] !== saved[field]) merged[field] = draft[field]
+              }
+              return merged
+            })
+          : action.items,
+        savedItems: action.items,
         providers: action.providers,
+      }
+    case 'save-success':
+      return {
+        ...state,
+        savedItems: state.savedItems.map((item) =>
+          item.rowKey === action.rowKey ? { ...item, [action.field]: action.value } : item
+        ),
       }
     case 'load-finish':
       return {
@@ -186,7 +206,7 @@ const InventoryMobileList = ({
                     value={item.price}
                     onChange={(event) => onFieldChange(item.rowKey, 'price', event.target.value)}
                     onBlur={() => onSaveField(item, 'price')}
-                    style={tableInputStyle}
+                    style={{ ...tableInputStyle, paddingLeft: '30px' }}
                     disabled={savingKey === priceSaveKey}
                   />
                 </div>
@@ -308,7 +328,7 @@ const InventoryDesktopTable = ({
                       value={item.price}
                       onChange={(event) => onFieldChange(item.rowKey, 'price', event.target.value)}
                       onBlur={() => onSaveField(item, 'price')}
-                      style={tableInputStyle}
+                      style={{ ...tableInputStyle, paddingLeft: '30px' }}
                       disabled={savingKey === priceSaveKey}
                     />
                   </div>
@@ -342,10 +362,11 @@ const InventoryDesktopTable = ({
 const Inventory = () => {
   const { isMobile } = useResponsive()
   const [state, dispatch] = useReducer(inventoryReducer, undefined, createInitialInventoryState)
-  const { items, providers, loading, manualEditUnlocked, savingKey } = state
+  const { items, savedItems, providers, loading, manualEditUnlocked, savingKey } = state
+  const pendingSaves = useRef(new Set())
 
-  const loadMaterials = async () => {
-    dispatch({ type: 'load-start' })
+  const loadMaterials = async ({ silent = false } = {}) => {
+    if (!silent) dispatch({ type: 'load-start' })
     try {
       const [data, providerRows] = await Promise.all([
         materialService.getAllMaterials(),
@@ -353,6 +374,7 @@ const Inventory = () => {
       ])
       dispatch({
         type: 'load-success',
+        silent,
         items: normalizeMaterials(data),
         providers: providerRows || [],
       })
@@ -392,6 +414,11 @@ const Inventory = () => {
     if (!item.materialId) return
 
     const saveKey = `${item.rowKey}:${field}`
+    const saved = savedItems.find((row) => row.rowKey === item.rowKey)
+    const value = field === 'price' ? Number(item.price || 0) : item[field]
+    if (!saved || value === saved[field] || pendingSaves.current.has(saveKey)) return
+
+    pendingSaves.current.add(saveKey)
     dispatch({ type: 'set-saving-key', value: saveKey })
     try {
       if (field === 'sku' || field === 'name' || field === 'providerId') {
@@ -414,11 +441,13 @@ const Inventory = () => {
         })
       }
 
-      await loadMaterials()
+      dispatch({ type: 'save-success', rowKey: item.rowKey, field, value: item[field] })
+      await loadMaterials({ silent: true })
     } catch (error) {
       console.error('Error guardando campo del material:', error)
       alert(error?.message || 'No se pudo guardar el cambio.')
     } finally {
+      pendingSaves.current.delete(saveKey)
       dispatch({ type: 'set-saving-key', value: '' })
     }
   }
@@ -685,6 +714,10 @@ const tableInputStyle = {
   padding: '7px 10px',
   fontSize: type.base,
   background: colors.white,
+  color: colors.gray900,
+  WebkitTextFillColor: colors.gray900,
+  caretColor: colors.gray900,
+  colorScheme: 'light',
 }
 
 const priceTextStyle = {

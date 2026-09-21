@@ -103,7 +103,8 @@ export const materialService = {
             is_for_sale,
             is_inventoried,
             is_internal_production
-          )
+          ),
+          is_active
         ),
         centers ( id, name )
       `)
@@ -113,7 +114,7 @@ export const materialService = {
       throw error
     }
 
-    return data
+    return (data || []).filter((row) => row.materials?.is_active !== false)
   },
 
   async createMaterial(formData) {
@@ -292,6 +293,10 @@ export const materialService = {
   async updateMaterialField(id, field, value) {
     const response = await erpService.updateMaterialField(id, field, value)
     return response.material
+  },
+
+  async deleteMaterial(materialId) {
+    return erpService.deleteMaterial(materialId)
   },
 }
 

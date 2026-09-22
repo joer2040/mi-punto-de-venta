@@ -6,6 +6,7 @@ export const createInitialPosState = () => ({
   ticketData: null,
   notice: null,
   loading: true,
+  loadError: false,
   isHydratingTable: false,
   waiterEditLocked: false,
   showFinalizeConfirm: false,
@@ -21,6 +22,13 @@ export const posReducer = (state, action) => {
         inventory: action.inventory,
         tables: action.tables,
         loading: false,
+        loadError: false,
+      }
+    case 'bootstrap_error':
+      return {
+        ...state,
+        loading: false,
+        loadError: true,
       }
     case 'set_loading':
       return {

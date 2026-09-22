@@ -1076,6 +1076,7 @@ const ActiveOrderView = ({
 const usePosController = ({ onEditingStateChange = () => {} }) => {
   const [state, dispatch] = useReducer(posReducer, undefined, createInitialPosState)
   const [showCubetaBuilder, setShowCubetaBuilder] = useState(false)
+  const [loadKey, setLoadKey] = useState(0)
   const [cashSessionState, setCashSessionState] = useState({ isOpen: false, isLoading: true })
   const { isMobile, isTablet, isPhone } = useResponsive()
   const { can, isManager, isSuperadmin, isWaiter } = useAuth()
@@ -1097,6 +1098,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
     ticketData,
     notice,
     loading,
+    loadError,
     isHydratingTable,
     waiterEditLocked,
     showFinalizeConfirm,
@@ -1190,12 +1192,12 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
         })
       } catch (error) {
         console.error('Error al iniciar POS:', error)
-        dispatch({ type: 'set_loading', value: false })
+        dispatch({ type: 'bootstrap_error' })
       }
     }
 
     loadData()
-  }, [isWaiter])
+  }, [isWaiter, loadKey])
 
   useEffect(() => {
     refreshCashSessionStatus()
@@ -1703,6 +1705,11 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
     }
   }
 
+  const retryLoad = useCallback(() => {
+    dispatch({ type: 'set_loading', value: true })
+    setLoadKey((k) => k + 1)
+  }, [])
+
   return {
     dispatch,
     isMobile,
@@ -1714,6 +1721,8 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
     selectedTable,
     selectedStationLabel,
     loading,
+    loadError,
+    retryLoad,
     notice,
     ticketData,
     meseroLockedTable,
@@ -1761,6 +1770,8 @@ const POS = ({ onEditingStateChange = () => {} }) => {
     selectedTable,
     selectedStationLabel,
     loading,
+    loadError,
+    retryLoad,
     notice,
     ticketData,
     meseroLockedTable,
@@ -1796,6 +1807,16 @@ const POS = ({ onEditingStateChange = () => {} }) => {
   } = usePosController({ onEditingStateChange })
 
   if (loading) return <div style={{ padding: '20px' }}>Iniciando terminal de venta...</div>
+
+  if (loadError)
+    return (
+      <div style={{ padding: '20px' }}>
+        <p>No se pudieron cargar las estaciones. Verifica tu conexión e intenta de nuevo.</p>
+        <button onClick={retryLoad} style={{ marginTop: '8px' }}>
+          Reintentar
+        </button>
+      </div>
+    )
 
   if (!selectedTable) {
     return (

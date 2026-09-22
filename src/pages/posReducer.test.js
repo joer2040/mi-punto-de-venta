@@ -97,3 +97,24 @@ test('leave_selected_table resets paymentMethod to Efectivo', () => {
   const state = posReducer(withTarjeta, { type: 'leave_selected_table' })
   assert.equal(state.paymentMethod, 'Efectivo')
 })
+
+test('initial state has loadError false', () => {
+  assert.equal(createInitialPosState().loadError, false)
+})
+
+test('bootstrap_error sets loading false and loadError true', () => {
+  const state = posReducer(createInitialPosState(), { type: 'bootstrap_error' })
+  assert.equal(state.loading, false)
+  assert.equal(state.loadError, true)
+})
+
+test('bootstrap_data clears loadError after a previous error', () => {
+  const withError = posReducer(createInitialPosState(), { type: 'bootstrap_error' })
+  const state = posReducer(withError, {
+    type: 'bootstrap_data',
+    inventory: [],
+    tables: [],
+  })
+  assert.equal(state.loading, false)
+  assert.equal(state.loadError, false)
+})

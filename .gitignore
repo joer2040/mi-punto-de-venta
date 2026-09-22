@@ -40,6 +40,13 @@ sql/dev/generated/
 # Backups PRD — datos productivos, nunca commitear
 backups/
 
+# Local tooling / IDE config
+.claude/
+
+# PRD financial audit data and reports — nunca commitear
+docs/audits/
+docs/reports/
+
 # AI session prompts (not product documentation)
 docs/prompts/
 

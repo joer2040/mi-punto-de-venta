@@ -1373,7 +1373,14 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
       })
     } catch (error) {
       console.error('Error al cargar la mesa:', error)
-      alert('No se pudo abrir la mesa.')
+      dispatch({ type: 'leave_selected_table' })
+      dispatch({
+        type: 'set_notice',
+        notice: {
+          message: 'No se pudo abrir la mesa. Intenta de nuevo.',
+          type: 'warning',
+        },
+      })
     } finally {
       dispatch({ type: 'hydrate_table_finish' })
     }

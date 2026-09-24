@@ -1087,6 +1087,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
   const latestTableRef = useRef(null)
   const latestCartRef = useRef([])
   const finalizeSaleInFlightRef = useRef(false)
+  const isSelectingTableRef = useRef(false)
   const finalizeSaleIdempotencyKeyRef = useRef(null)
   const tableOrderSaveQueueRef = useRef(Promise.resolve(null))
   const lastPersistedCartRef = useRef(null)
@@ -1342,40 +1343,53 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
   }
 
   const handleSelectTable = async (table) => {
-    if (finalizeSaleInFlightRef.current) return
-    if (!(await refreshCashSessionStatus({ notify: true }))) return
+    if (finalizeSaleInFlightRef.current || isSelectingTableRef.current) return
+    isSelectingTableRef.current = true
 
     try {
-      dispatch({ type: 'hydrate_table_start', table })
+      if (!(await refreshCashSessionStatus({ notify: true }))) return
 
-      if (!table.current_order_id) {
+      try {
+        dispatch({ type: 'hydrate_table_start', table })
+
+        if (!table.current_order_id) {
+          dispatch({
+            type: 'hydrate_table_ready',
+            cart: [],
+            waiterEditLocked: false,
+          })
+          return
+        }
+
+        const { data: order, error } = await supabase
+          .from('table_orders')
+          .select('*')
+          .eq('id', table.current_order_id)
+          .maybeSingle()
+
+        if (error) throw error
+        const hydratedCart = order?.items || []
+        lastPersistedCartRef.current = hydratedCart
         dispatch({
           type: 'hydrate_table_ready',
-          cart: [],
-          waiterEditLocked: false,
+          cart: hydratedCart,
+          waiterEditLocked: Boolean(order?.waiter_edit_locked),
         })
-        return
+      } catch (error) {
+        console.error('Error al cargar la mesa:', error)
+        dispatch({ type: 'leave_selected_table' })
+        dispatch({
+          type: 'set_notice',
+          notice: {
+            message: 'No se pudo abrir la mesa. Intenta de nuevo.',
+            type: 'warning',
+          },
+        })
+      } finally {
+        dispatch({ type: 'hydrate_table_finish' })
       }
-
-      const { data: order, error } = await supabase
-        .from('table_orders')
-        .select('*')
-        .eq('id', table.current_order_id)
-        .maybeSingle()
-
-      if (error) throw error
-      const hydratedCart = order?.items || []
-      lastPersistedCartRef.current = hydratedCart
-      dispatch({
-        type: 'hydrate_table_ready',
-        cart: hydratedCart,
-        waiterEditLocked: Boolean(order?.waiter_edit_locked),
-      })
-    } catch (error) {
-      console.error('Error al cargar la mesa:', error)
-      alert('No se pudo abrir la mesa.')
     } finally {
-      dispatch({ type: 'hydrate_table_finish' })
+      isSelectingTableRef.current = false
     }
   }
 

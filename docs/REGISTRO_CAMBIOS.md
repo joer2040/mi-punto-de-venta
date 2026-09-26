@@ -63,11 +63,14 @@ Archivos:
 - `src/pages/POS.jsx`
 - `docs/REGISTRO_CAMBIOS.md`
 
-### POS: estacion Venta Directa — cobro sin abrir mesa (PR pendiente de merge)
+### POS: estacion Venta Directa — cobro sin abrir mesa
 
 Estado:
-- rama `feat/pos-direct-sale`, PR abierto, pendiente de merge a `main`
-- migración aplicada en DEV (`rtkdrnfqihulqdhixxzf`), **pendiente aplicar en PRD**
+- PR #12 mergeado a `main` (`31366042c9d6bc91750eb5cd5c6646f93000e8f3`).
+- Migración aplicada en DEV (`rtkdrnfqihulqdhixxzf`) y PRD (`cxpouhmrpcpiohrueuwk`).
+- PRD: `seed_venta_directa_station`, version `20260926225931`, aplicada el 2026-09-26.
+- UI validada en desktop y mobile en PRD; Venta Directa visible y disponible en POS sin escrituras de negocio durante la validación.
+- La ausencia temporal de Venta Directa en PRD se debió a que la seed no había sido aplicada; no fue un defecto de frontend ni responsive.
 
 Migración (idempotente, sin columnas nuevas):
 ```sql

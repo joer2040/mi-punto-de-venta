@@ -34,6 +34,7 @@ const createInitialPurchaseEntryState = () => ({
   pendingPurchaseType: '',
   purchaseType: '',
   paymentMethod: '',
+  cashSource: '',
   purchase: {
     center_id: '',
     provider_id: '',
@@ -130,6 +131,13 @@ const purchaseEntryReducer = (state, action) => {
       return {
         ...state,
         paymentMethod: action.value,
+        cashSource: '',
+        purchaseChecked: false,
+      };
+    case 'set_cash_source':
+      return {
+        ...state,
+        cashSource: action.value,
         purchaseChecked: false,
       };
     case 'set_invoice_ref':
@@ -187,6 +195,7 @@ const purchaseEntryReducer = (state, action) => {
         showPurchaseCheckModal: false,
         purchaseType: '',
         paymentMethod: '',
+        cashSource: '',
       };
     default:
       return state;
@@ -196,6 +205,11 @@ const purchaseEntryReducer = (state, action) => {
 const PURCHASE_TYPE_LABELS = {
   inventory: 'Compra de inventario',
   expense: 'Gasto operativo',
+};
+
+const CASH_SOURCE_LABELS = {
+  caja_operativa: 'Caja operativa',
+  caja_fuerte: 'Caja fuerte',
 };
 
 const PurchaseTypeSection = ({ purchaseType, onPurchaseTypeChange, canProcessPurchases }) => (
@@ -247,9 +261,11 @@ const PurchaseInvoiceSection = ({
   selectedProvider,
   invoiceRef,
   paymentMethod,
+  cashSource,
   onProviderChange,
   onInvoiceRefChange,
   onPaymentMethodChange,
+  onCashSourceChange,
   canProcessPurchases,
   purchaseType,
 }) => (
@@ -305,6 +321,26 @@ const PurchaseInvoiceSection = ({
         <option value="Tarjeta">Tarjeta</option>
       </select>
     </div>
+
+    {paymentMethod === 'Efectivo' && (
+      <div style={{ marginBottom: '15px' }}>
+        <label htmlFor="purchase-cash-source" style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>
+          Origen del efectivo: <span style={{ color: '#e53e3e' }}>*</span>
+        </label>
+        <select
+          id="purchase-cash-source"
+          style={inputStyle}
+          value={cashSource}
+          onChange={(e) => onCashSourceChange(e.target.value)}
+          disabled={!canProcessPurchases || !purchaseType}
+          required
+        >
+          <option value="">Seleccione...</option>
+          <option value="caja_operativa">{CASH_SOURCE_LABELS.caja_operativa}</option>
+          <option value="caja_fuerte">{CASH_SOURCE_LABELS.caja_fuerte}</option>
+        </select>
+      </div>
+    )}
   </section>
 );
 
@@ -690,6 +726,7 @@ const PurchaseEntry = () => {
     currentEntry,
     purchaseType,
     paymentMethod,
+    cashSource,
   } = state;
 
   const selectedProviderRecord = useMemo(
@@ -778,6 +815,11 @@ const PurchaseEntry = () => {
 
     if (!paymentMethod) {
       alert('Selecciona el metodo de pago antes de continuar');
+      return false;
+    }
+
+    if (paymentMethod === 'Efectivo' && !cashSource) {
+      alert('Selecciona el origen del efectivo.');
       return false;
     }
 
@@ -938,7 +980,9 @@ const PurchaseEntry = () => {
             }
       ));
 
-      const payment = { method: paymentMethod, amount: purchaseTotal };
+      const payment = paymentMethod === 'Efectivo'
+        ? { method: paymentMethod, amount: purchaseTotal, cash_source: cashSource }
+        : { method: paymentMethod, amount: purchaseTotal };
       const idempotencyKey = crypto.randomUUID();
 
       await materialService.recordPurchase(purchaseData, payloadItems, payment, idempotencyKey, purchaseType);
@@ -970,9 +1014,11 @@ const PurchaseEntry = () => {
           selectedProvider={selectedProvider}
           invoiceRef={invoiceRef}
           paymentMethod={paymentMethod}
+          cashSource={cashSource}
           onProviderChange={handleProviderChange}
           onInvoiceRefChange={(value) => dispatch({ type: 'set_invoice_ref', value })}
           onPaymentMethodChange={(value) => dispatch({ type: 'set_payment_method', value })}
+          onCashSourceChange={(value) => dispatch({ type: 'set_cash_source', value })}
           canProcessPurchases={canProcessPurchases}
           purchaseType={purchaseType}
         />
@@ -1014,7 +1060,7 @@ const PurchaseEntry = () => {
           itemsList={itemsList}
           totalAmount={purchaseTotal}
           purchaseType={purchaseType}
-          paymentMethod={paymentMethod}
+          paymentMethod={cashSource ? `${paymentMethod} — ${CASH_SOURCE_LABELS[cashSource]}` : paymentMethod}
           isSubmitting={isSubmitting}
           onCancel={() => dispatch({ type: 'set_purchase_check_modal', value: false })}
           onConfirm={handleConfirmPurchaseCheck}

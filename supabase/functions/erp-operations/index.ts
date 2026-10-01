@@ -649,18 +649,30 @@ Deno.serve(async (req) => {
       }
 
       // Normalizar pago para el RPC (opcional — solo crea asientos si ledger activo)
-      let rpcPayment: { method: string; amount: number } | null = null
+      let rpcPayment: { method: string; amount: number; cash_source?: string } | null = null
       if (rawPayment && rawPayment.method) {
         const VALID_METHODS = new Set(['efectivo', 'tarjeta', 'transferencia'])
+        const VALID_CASH_SOURCES = new Set(['caja_operativa', 'caja_fuerte'])
         const method = String(rawPayment.method ?? '').trim()
         const amount = toNumber(rawPayment.amount, 0)
+        const cashSource = String(rawPayment.cash_source ?? '').trim().toLowerCase()
         if (!VALID_METHODS.has(method.toLowerCase())) {
           return json({ error: 'Método de pago no soportado.' }, 400)
         }
         if (amount <= 0) {
           return json({ error: 'El importe del pago debe ser mayor que cero.' }, 400)
         }
-        rpcPayment = { method, amount }
+        if (method.toLowerCase() === 'efectivo') {
+          if (!VALID_CASH_SOURCES.has(cashSource)) {
+            return json({ error: 'Selecciona el origen del efectivo (Caja operativa o Caja fuerte). Si no ves la opción, actualiza la aplicación.' }, 400)
+          }
+          rpcPayment = { method, amount, cash_source: cashSource }
+        } else {
+          if (cashSource) {
+            return json({ error: 'El origen del efectivo solo aplica a pagos en Efectivo.' }, 400)
+          }
+          rpcPayment = { method, amount }
+        }
       }
 
       const { data: purchase, error: purchaseRpcError } = await adminClient.rpc('create_purchase_with_ledger', {

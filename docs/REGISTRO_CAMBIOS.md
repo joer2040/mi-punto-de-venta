@@ -2,6 +2,54 @@
 
 Este archivo concentra el registro historico de cambios funcionales, tecnicos y operativos liberados en el proyecto.
 
+## 2026-10-01
+
+### Caja: origen del efectivo en compras y bloqueo durante el conteo (CAJA-03A, feat/cash-purchase-source)
+
+Estado:
+- DEV: migración aplicada (`rtkdrnfqihulqdhixxzf`, versión de entorno `20261001023905`) y `erp-operations` v15 desplegada (`verify_jwt=true`)
+- Frontend: no desplegado (validado con Vite local contra DEV)
+- **PRD no desplegado**
+
+Problema:
+- toda compra en Efectivo se forzaba a la cuenta 1101 (Caja operativa) y a la caja abierta, aunque el dinero saliera de Caja fuerte; el `cash_session_id` no reflejaba el origen físico real del efectivo
+
+Cambios:
+- `src/pages/PurchaseEntry.jsx`: con Método = Efectivo se muestra el campo obligatorio "Origen del efectivo" (Caja operativa / Caja fuerte), sin valor por defecto; se limpia al cambiar el método; el payload envía `cash_source` solo en Efectivo
+- `supabase/functions/erp-operations/index.ts` (`record_purchase`): valida `cash_source` contra allowlist (`caja_operativa`, `caja_fuerte`), lo normaliza y lo reenvía al RPC; rechaza Efectivo sin origen ("actualiza la aplicación") y origen en pagos no efectivo
+- `supabase/migrations/20260929100000_purchase_cash_source_and_count_guard.sql` (nuevo): redefine `create_purchase_with_ledger`, `record_transfer`, `record_owner_contribution` y `reverse_journal_entry`; reafirma permisos (solo `service_role`)
+- `sql/local/2026-09-29_test_cash_expected_local.sql` (nuevo): pruebas conductuales locales de Fase A (BEGIN/ROLLBACK)
+
+Semántica contable:
+- Efectivo / Caja operativa → 1101, `cash_session_id` = caja abierta (requerida)
+- Efectivo / Caja fuerte → 1102, `cash_session_id` NULL (no requiere caja abierta)
+- Tarjeta / Transferencia → 1103 (sin cambio)
+- la cuenta se resuelve en servidor; el cliente nunca envía `financial_account_id`
+
+Bloqueo durante el conteo (`first_counted_cash IS NOT NULL`):
+- se bloquean compra desde Caja operativa, traspasos que involucran 1101, aportaciones a 1101 y reversas de asientos 1101 ligados a la caja en conteo
+- siguen permitidos: compras con tarjeta, compras desde Caja fuerte y traspasos 1102 ↔ 1103
+- el bloqueo de ventas existente se mantiene
+
+Arquitectura:
+- sin tablas ni columnas nuevas; sin cambio de firma de RPC (`cash_source` viaja dentro de `p_payment`)
+- reutiliza `financial_payments.financial_account_id` y las cuentas existentes 1101 / 1102
+
+Validación:
+- local: replay de migraciones PASS, pruebas SQL T1/T2/T3/T11/T12 PASS, Edge runtime E1–E5 + 401 + idempotencia PASS, `test:pos` 36/36, `test:finance` 91/91, `test:materials` 16/16, build PASS
+- DEV: smoke D1–D5 PASS con transacciones etiquetadas `CAJA03A-*` (D1 → 1101 con sesión; D2 y D5-SAFE → 1102 sin sesión; D4 → 1103; D3 y D5-BLOCKED rechazadas sin filas persistidas); sesión de prueba cerrada con diferencia 0
+
+Límite de fase:
+- CAJA-03A no cambia `expected_cash_total`: el cierre sigue calculando apertura + ventas en efectivo
+- CAJA-03B usará este origen confiable del efectivo para corregir el cálculo del efectivo esperado
+
+Archivos:
+- `src/pages/PurchaseEntry.jsx`
+- `supabase/functions/erp-operations/index.ts`
+- `supabase/migrations/20260929100000_purchase_cash_source_and_count_guard.sql` (nuevo)
+- `sql/local/2026-09-29_test_cash_expected_local.sql` (nuevo)
+- `docs/REGISTRO_CAMBIOS.md`
+
 ## 2026-09-19
 
 ### Materiales: eliminación segura con lógica de bloqueo/desactivación/borrado (feat/material-safe-delete)

@@ -6,10 +6,11 @@ Este archivo concentra el registro historico de cambios funcionales, tecnicos y 
 
 ### Caja: origen del efectivo en compras y bloqueo durante el conteo (CAJA-03A, feat/cash-purchase-source)
 
-Estado:
-- DEV: migración aplicada (`rtkdrnfqihulqdhixxzf`, versión de entorno `20261001023905`), hotfix de idempotencia aplicado (versión de entorno `20261001164803`) y `erp-operations` v15 desplegada (`verify_jwt=true`)
-- Frontend: no desplegado (validado con Vite local contra DEV)
-- **PRD no desplegado**
+Estado: **COMPLETO — EN PRODUCCIÓN**
+- DEV (`rtkdrnfqihulqdhixxzf`): validado; migración en versión de entorno `20261001023905`, hotfix de idempotencia `20261001164803`, `erp-operations` v15 (`verify_jwt=true`)
+- PRD backend (`cxpouhmrpcpiohrueuwk`): desplegado y verificado; migración en versión de entorno `20261001184053`, hotfix de idempotencia `20261001184310` (46 migraciones), `erp-operations` v20 (`verify_jwt=true`, mismo bundle validado en DEV)
+- PRD frontend: PR #24 fusionado en `main` (merge commit `432b45458198e9ae1432816f6abbbc0a4a8ef1a2`); despliegue automático de Vercel a producción en https://lacarreta.mobi
+- orden de release: migración → hotfix → Edge → frontend; backup local de PRD verificado previo al release
 
 Problema:
 - toda compra en Efectivo se forzaba a la cuenta 1101 (Caja operativa) y a la caja abierta, aunque el dinero saliera de Caja fuerte; el `cash_session_id` no reflejaba el origen físico real del efectivo
@@ -18,7 +19,7 @@ Cambios:
 - `src/pages/PurchaseEntry.jsx`: con Método = Efectivo se muestra el campo obligatorio "Origen del efectivo" (Caja operativa / Caja fuerte), sin valor por defecto; se limpia al cambiar el método; el payload envía `cash_source` solo en Efectivo
 - `supabase/functions/erp-operations/index.ts` (`record_purchase`): valida `cash_source` contra allowlist (`caja_operativa`, `caja_fuerte`), lo normaliza y lo reenvía al RPC; rechaza Efectivo sin origen ("actualiza la aplicación") y origen en pagos no efectivo
 - `supabase/migrations/20260929100000_purchase_cash_source_and_count_guard.sql` (nuevo): redefine `create_purchase_with_ledger`, `record_transfer`, `record_owner_contribution` y `reverse_journal_entry`; reafirma permisos (solo `service_role`)
-- `supabase/migrations/20261001161313_purchase_idempotency_payment_hash.sql` (nuevo): redefine solo `create_purchase_with_ledger`; la idempotencia ahora incluye el pago normalizado (method / amount / cash_source), por lo que reutilizar una clave con otro origen o método se rechaza como carga distinta (aplicado en DEV, versión de entorno `20261001164803`; regresión DEV: replay exacto y cambio de origen PASS)
+- `supabase/migrations/20261001161313_purchase_idempotency_payment_hash.sql` (nuevo): redefine solo `create_purchase_with_ledger`; la idempotencia ahora incluye el pago normalizado (method / amount / cash_source), por lo que la misma clave con la misma carga semántica se responde como replay y con otro origen o método se rechaza como carga distinta; se implementó como migración incremental para no modificar la migración anterior ya aplicada en DEV
 - `sql/local/2026-09-29_test_cash_expected_local.sql` (nuevo): pruebas conductuales locales de Fase A (BEGIN/ROLLBACK), incluye T15 (replay exacto) y T16 (misma clave con otro origen/método)
 
 Semántica contable:
@@ -37,12 +38,16 @@ Arquitectura:
 - reutiliza `financial_payments.financial_account_id` y las cuentas existentes 1101 / 1102
 
 Validación:
-- local: replay de migraciones PASS, pruebas SQL T1/T2/T3/T11/T12 PASS, Edge runtime E1–E5 + 401 + idempotencia PASS, `test:pos` 36/36, `test:finance` 91/91, `test:materials` 16/16, build PASS
-- DEV: smoke D1–D5 PASS con transacciones etiquetadas `CAJA03A-*` (D1 → 1101 con sesión; D2 y D5-SAFE → 1102 sin sesión; D4 → 1103; D3 y D5-BLOCKED rechazadas sin filas persistidas); sesión de prueba cerrada con diferencia 0
+- local: replay de migraciones PASS, pruebas SQL T1/T2/T3/T11/T12 PASS, idempotencia T15/T16 PASS, Edge runtime E1–E5 + 401 + idempotencia PASS, `test:pos` 36/36, `test:finance` 91/91, `test:materials` 16/16, build PASS
+- DEV: smoke D1–D5 PASS con transacciones etiquetadas `CAJA03A-*` (D1 → 1101 con sesión; D2 y D5-SAFE → 1102 sin sesión; D4 → 1103; D3 y D5-BLOCKED rechazadas sin filas persistidas); sesión de prueba cerrada con diferencia 0; regresión de idempotencia: R1 replay exacto PASS (mismos IDs, sin duplicados), R2 misma clave con otro origen rechazada (409)
+- PRD: despliegue de backend PASS (definiciones idénticas a DEV, permisos solo `service_role`), despliegue de Vercel a producción PASS, https://lacarreta.mobi responde 200 sin errores fatales de consola, contadores de negocio sin cambio durante el release
+- PRD: no se creó ninguna compra sintética exitosa; los flujos positivos 1101 / 1102 se validaron en DEV y aún no se han ejercido con datos reales de PRD (la primera compra legítima en Efectivo será la primera validación con datos reales del origen seleccionado)
+- PRD: verificación visual autenticada no realizada; el campo "Origen del efectivo" (Caja operativa / Caja fuerte, sin valor por defecto) se verificó en el bundle servido por producción
 
 Límite de fase:
 - CAJA-03A no cambia `expected_cash_total`: el cierre sigue calculando apertura + ventas en efectivo
-- CAJA-03B usará este origen confiable del efectivo para corregir el cálculo del efectivo esperado
+- CAJA-03A establece la semántica confiable del origen del efectivo, requisito previo para corregir el efectivo esperado
+- CAJA-03B (corrección de `expected_cash_total`) queda pendiente, no iniciado
 
 Archivos:
 - `src/pages/PurchaseEntry.jsx`

@@ -7,7 +7,7 @@ Este archivo concentra el registro historico de cambios funcionales, tecnicos y 
 ### Caja: origen del efectivo en compras y bloqueo durante el conteo (CAJA-03A, feat/cash-purchase-source)
 
 Estado:
-- DEV: migración aplicada (`rtkdrnfqihulqdhixxzf`, versión de entorno `20261001023905`) y `erp-operations` v15 desplegada (`verify_jwt=true`)
+- DEV: migración aplicada (`rtkdrnfqihulqdhixxzf`, versión de entorno `20261001023905`), hotfix de idempotencia aplicado (versión de entorno `20261001164803`) y `erp-operations` v15 desplegada (`verify_jwt=true`)
 - Frontend: no desplegado (validado con Vite local contra DEV)
 - **PRD no desplegado**
 
@@ -18,7 +18,8 @@ Cambios:
 - `src/pages/PurchaseEntry.jsx`: con Método = Efectivo se muestra el campo obligatorio "Origen del efectivo" (Caja operativa / Caja fuerte), sin valor por defecto; se limpia al cambiar el método; el payload envía `cash_source` solo en Efectivo
 - `supabase/functions/erp-operations/index.ts` (`record_purchase`): valida `cash_source` contra allowlist (`caja_operativa`, `caja_fuerte`), lo normaliza y lo reenvía al RPC; rechaza Efectivo sin origen ("actualiza la aplicación") y origen en pagos no efectivo
 - `supabase/migrations/20260929100000_purchase_cash_source_and_count_guard.sql` (nuevo): redefine `create_purchase_with_ledger`, `record_transfer`, `record_owner_contribution` y `reverse_journal_entry`; reafirma permisos (solo `service_role`)
-- `sql/local/2026-09-29_test_cash_expected_local.sql` (nuevo): pruebas conductuales locales de Fase A (BEGIN/ROLLBACK)
+- `supabase/migrations/20261001161313_purchase_idempotency_payment_hash.sql` (nuevo): redefine solo `create_purchase_with_ledger`; la idempotencia ahora incluye el pago normalizado (method / amount / cash_source), por lo que reutilizar una clave con otro origen o método se rechaza como carga distinta (aplicado en DEV, versión de entorno `20261001164803`; regresión DEV: replay exacto y cambio de origen PASS)
+- `sql/local/2026-09-29_test_cash_expected_local.sql` (nuevo): pruebas conductuales locales de Fase A (BEGIN/ROLLBACK), incluye T15 (replay exacto) y T16 (misma clave con otro origen/método)
 
 Semántica contable:
 - Efectivo / Caja operativa → 1101, `cash_session_id` = caja abierta (requerida)
@@ -47,6 +48,7 @@ Archivos:
 - `src/pages/PurchaseEntry.jsx`
 - `supabase/functions/erp-operations/index.ts`
 - `supabase/migrations/20260929100000_purchase_cash_source_and_count_guard.sql` (nuevo)
+- `supabase/migrations/20261001161313_purchase_idempotency_payment_hash.sql` (nuevo)
 - `sql/local/2026-09-29_test_cash_expected_local.sql` (nuevo)
 - `docs/REGISTRO_CAMBIOS.md`
 

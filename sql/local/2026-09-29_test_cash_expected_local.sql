@@ -13,6 +13,10 @@
 -- T12 Tras primer conteo se permiten: compra tarjeta, compra caja_fuerte,
 --     traspaso 1102↔1103, reversa de asiento no-1101
 --
+-- T15 Replay exacto con misma idempotency_key (formato distinto, semántica igual) → misma respuesta, sin duplicados
+-- T16 Misma idempotency_key con otro cash_source (A) u otro método (B) → rechazo, sin filas
+--     (requiere 20261001161313_purchase_idempotency_payment_hash.sql)
+--
 -- CAJA-03B extenderá este archivo con T4–T10, T13–T14.
 --
 -- Ejecutar como:
@@ -141,6 +145,67 @@ begin
     end loop;
   end;
   raise notice 'T3 PASS — 4 combinaciones inválidas rechazadas';
+
+  -- ── T15: replay exacto con la misma idempotency_key (formato distinto, semántica igual) ──
+  declare
+    v_first  jsonb;
+    v_replay jsonb;
+    c_purch  integer; c_fo integer; c_je integer;
+  begin
+    v_first := public.create_purchase_with_ledger(v_provider, v_center_id, 'T15', v_items,
+      '{"method":"Efectivo","amount":100,"cash_source":"caja_operativa"}', v_user_a, 'caja03a-t15');
+    select count(*) into c_purch from public.purchases;
+    select count(*) into c_fo from public.financial_operations;
+    select count(*) into c_je from public.journal_entries;
+    v_replay := public.create_purchase_with_ledger(v_provider, v_center_id, 'T15', v_items,
+      '{"method":" EFECTIVO ","amount":"100.00","cash_source":"Caja_Operativa "}', v_user_a, 'caja03a-t15');
+    if v_replay->>'id' is distinct from v_first->>'id'
+       or v_replay->>'financial_operation_id' is distinct from v_first->>'financial_operation_id'
+       or v_replay->>'journal_entry_id' is distinct from v_first->>'journal_entry_id' then
+      raise exception 'T15 FAIL: replay devolvió otra respuesta';
+    end if;
+    if (select count(*) from public.purchases) <> c_purch
+       or (select count(*) from public.financial_operations) <> c_fo
+       or (select count(*) from public.journal_entries) <> c_je then
+      raise exception 'T15 FAIL: el replay creó filas';
+    end if;
+  end;
+  raise notice 'T15 PASS — replay exacto (formato normalizado) devuelve la respuesta original sin duplicados';
+
+  -- ── T16-A/B: misma idempotency_key con otro origen o método → rechazo, sin filas ──
+  declare
+    v_cases jsonb := jsonb_build_array(
+      jsonb_build_object('name', 'T16-A', 'key', 'caja03a-t16a',
+        'first',  '{"method":"Efectivo","amount":100,"cash_source":"caja_operativa"}'::jsonb,
+        'second', '{"method":"Efectivo","amount":100,"cash_source":"caja_fuerte"}'::jsonb),
+      jsonb_build_object('name', 'T16-B', 'key', 'caja03a-t16b',
+        'first',  '{"method":"Efectivo","amount":100,"cash_source":"caja_fuerte"}'::jsonb,
+        'second', '{"method":"Tarjeta","amount":100}'::jsonb)
+    );
+    v_case jsonb;
+    c_purch integer; c_fo integer; c_je integer;
+  begin
+    for v_case in select * from jsonb_array_elements(v_cases) loop
+      perform public.create_purchase_with_ledger(v_provider, v_center_id, v_case->>'name', v_items,
+        v_case->'first', v_user_a, v_case->>'key');
+      select count(*) into c_purch from public.purchases;
+      select count(*) into c_fo from public.financial_operations;
+      select count(*) into c_je from public.journal_entries;
+      v_ok := false; v_msg := null;
+      begin
+        perform public.create_purchase_with_ledger(v_provider, v_center_id, v_case->>'name', v_items,
+          v_case->'second', v_user_a, v_case->>'key');
+      exception when others then v_ok := sqlerrm like '%ya fue usada con una carga distinta%'; v_msg := sqlerrm;
+      end;
+      if not v_ok then raise exception '% FAIL: %', v_case->>'name', coalesce(v_msg, 'segunda llamada aceptada como replay'); end if;
+      if (select count(*) from public.purchases) <> c_purch
+         or (select count(*) from public.financial_operations) <> c_fo
+         or (select count(*) from public.journal_entries) <> c_je then
+        raise exception '% FAIL: la segunda llamada persistió filas', v_case->>'name';
+      end if;
+      raise notice '% PASS — misma clave con pago distinto rechazada, sin filas extra', v_case->>'name';
+    end loop;
+  end;
 
   -- ── Primer conteo (simulado dentro de la transacción) ──────────────────
   update public.cash_sessions set first_counted_cash = 900.00 where id = v_session_id;

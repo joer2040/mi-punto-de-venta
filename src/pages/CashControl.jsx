@@ -204,6 +204,20 @@ const buildCashClosurePdf = async ({ session, sales, openingInventory, closingIn
 
   cursorY += Math.ceil(summaryItems.length / 2) * (summaryBoxHeight + 4) + 4
 
+  const breakdownRows = getExpectedBreakdownRows(session)
+  if (breakdownRows.length > 0) {
+    drawSectionTitle('Desglose del efectivo esperado')
+    pdf.setFont('helvetica', 'normal')
+    pdf.setFontSize(8.5)
+    breakdownRows.forEach(([label, value]) => {
+      ensureSpace(salesRowHeight + 2)
+      pdf.text(label, margin + 2, cursorY + 4)
+      pdf.text(value, pageWidth - margin - 2, cursorY + 4, { align: 'right' })
+      cursorY += salesRowHeight
+    })
+    cursorY += 5
+  }
+
   drawSectionTitle('Ventas de la sesion')
   drawTableHeader([
     { label: 'Hora', x: margin + 2 },
@@ -232,6 +246,24 @@ const buildCashClosurePdf = async ({ session, sales, openingInventory, closingIn
   drawParallelInventoryTables(openingRows, closingRows)
 
   return pdf
+}
+
+// Desglose del efectivo esperado tal como lo entrega el servidor; sin cálculo local.
+// Sesiones históricas sin snapshot no traen desglose (o traen detalle en null) → solo se muestra lo disponible.
+const getExpectedBreakdownRows = (session) => {
+  const breakdown = session?.cash_expected_breakdown || session?.report_pdf_metadata?.cash_expected_breakdown
+  if (!breakdown) return []
+  const signed = (value) => `${Number(value) > 0 ? '+' : ''}${formatCurrency(value)}`
+  return [
+    ['Fondo inicial', breakdown.opening_amount, formatCurrency],
+    ['Ventas en efectivo', breakdown.sales_cash, signed],
+    ['Compras desde Caja operativa', breakdown.purchases_cash, (value) => `-${formatCurrency(value)}`],
+    ['Traspasos netos', breakdown.transfers_net, signed],
+    ['Aportaciones', breakdown.contributions, signed],
+    ['Otros movimientos', breakdown.other_net, signed],
+  ]
+    .filter(([, value], index) => index === 0 || (value != null && Number(value) !== 0))
+    .map(([label, value, format]) => [label, format(value)])
 }
 
 const getSuggestedPdfName = (session) =>
@@ -309,6 +341,7 @@ const CashControl = ({ onCashSessionChange = () => {} }) => {
     ],
     [session?.opening_amount, session?.profit_total, session?.sales_cash_total]
   )
+  const expectedBreakdownRows = getExpectedBreakdownRows(session)
 
   const handleOpenSession = async () => {
     if (!canManageCash) return
@@ -547,6 +580,17 @@ const CashControl = ({ onCashSessionChange = () => {} }) => {
                 <span style={expectedTotalLabelStyle}>Monto Esperado Total</span>
                 <strong style={expectedTotalValueStyle}>{formatCurrency(session?.expected_cash_total)}</strong>
               </div>
+
+              {expectedBreakdownRows.length > 0 && (
+                <div style={breakdownListStyle}>
+                  {expectedBreakdownRows.map(([label, value]) => (
+                    <div key={label} style={breakdownRowStyle}>
+                      <span>{label}</span>
+                      <strong>{value}</strong>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {activeSalesCount > 0 && (
                 <div style={closeBlockedNoteStyle}>{closeBlockedMessage}</div>
@@ -902,6 +946,23 @@ const expectedTotalValueStyle = {
   color: colors.gray900,
   fontWeight: type.black,
   fontSize: type['4xl'],
+}
+
+const breakdownListStyle = {
+  border: `1px solid ${colors.gray200}`,
+  borderRadius: radius.lg,
+  padding: space[4],
+  display: 'flex',
+  flexDirection: 'column',
+  gap: space[2],
+}
+
+const breakdownRowStyle = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: space[3],
+  color: colors.gray700,
+  fontSize: type.sm,
 }
 
 const sessionInfoListStyle = {

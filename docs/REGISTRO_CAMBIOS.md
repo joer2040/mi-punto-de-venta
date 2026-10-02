@@ -6,7 +6,9 @@ Este archivo concentra el registro historico de cambios funcionales, tecnicos y 
 
 ### Caja: efectivo esperado desde el ledger de Caja operativa 1101 (CAJA-03B, feat/caja03b-expected-cash)
 
-Estado: **IMPLEMENTADO LOCALMENTE — NO DESPLEGADO** (ni DEV ni PRD)
+Estado: **VALIDADO EN DEV — NO DESPLEGADO EN PRD**
+- DEV (`rtkdrnfqihulqdhixxzf`): migración `cash_expected_from_ledger` (versión de entorno `20261002051300`) y `cash-operations` v14 (`verify_jwt=true`); PR #26 abierto (commit `697aeb0`)
+- PRD: no desplegado
 
 Problema:
 - el efectivo esperado era `apertura + ventas cuyo método dominante = Efectivo`: ignoraba compras desde Caja operativa, traspasos y aportaciones de 1101, y en ventas mixtas contaba el total o nada según el pago mayor
@@ -39,7 +41,13 @@ Validación (local):
 - Edge local (`functions serve`) overview vivo → primer conteo → congelado → recuento → cerrado + 401 PASS; UI local con desglose y fallback PASS
 - replay completo de migraciones en base fresca PASS (con los bootstrap M14/M16 documentados); `lint`, `test:pos` 36/36, `test:finance` 91/91, `test:materials` 16/16, build PASS
 
-Release (pendiente, no ejecutado):
+Validación (DEV):
+- compra Caja operativa → 1101 vinculada a la sesión y resta del esperado; compra Caja fuerte → 1102 sin sesión y sin efecto
+- helper, congelamiento en primer conteo con desglose y recuento contra el esperado congelado PASS; sesión histórica devuelve el valor almacenado sin recalcular
+- integridad de prueba: asientos balanceados, sin operaciones huérfanas, sesión de prueba cerrada
+- no ejecutados en remoto (bloqueados por el conector, sin escrituras): venta mixta y rechazo post-conteo de movimiento 1101; cubiertos por las pruebas locales y el código desplegado
+
+Release PRD (pendiente, no ejecutado):
 - requiere ventana sin caja abierta ni en conteo y sin operaciones POS activas; orden DB → Edge → frontend
 
 Límites:

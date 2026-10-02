@@ -6,9 +6,10 @@ Este archivo concentra el registro historico de cambios funcionales, tecnicos y 
 
 ### Caja: efectivo esperado desde el ledger de Caja operativa 1101 (CAJA-03B, feat/caja03b-expected-cash)
 
-Estado: **VALIDADO EN DEV — NO DESPLEGADO EN PRD**
-- DEV (`rtkdrnfqihulqdhixxzf`): migración `cash_expected_from_ledger` (versión de entorno `20261002051300`) y `cash-operations` v14 (`verify_jwt=true`); PR #26 abierto (commit `697aeb0`)
-- PRD: no desplegado
+Estado: **DESPLEGADO Y VALIDADO EN PRD**
+- DEV (`rtkdrnfqihulqdhixxzf`): migración `cash_expected_from_ledger` (versión de entorno `20261002051300`) y `cash-operations` v14 (`verify_jwt=true`)
+- PRD (`cxpouhmrpcpiohrueuwk`): migración `cash_expected_from_ledger` (versión remota `20261002203312`, 47 migraciones) y `cash-operations` v8 (`verify_jwt=true`, bundle `cd5e246d8527170e7a784a305bce607ecc6890342cc66ea0b6449f49bbbfcdfa`)
+- frontend: desplegado en producción por el merge de PR #26 (`f7cbf49`, commits `697aeb0` + `c9c5c3c`)
 
 Problema:
 - el efectivo esperado era `apertura + ventas cuyo método dominante = Efectivo`: ignoraba compras desde Caja operativa, traspasos y aportaciones de 1101, y en ventas mixtas contaba el total o nada según el pago mayor
@@ -47,11 +48,27 @@ Validación (DEV):
 - integridad de prueba: asientos balanceados, sin operaciones huérfanas, sesión de prueba cerrada
 - no ejecutados en remoto (bloqueados por el conector, sin escrituras): venta mixta y rechazo post-conteo de movimiento 1101; cubiertos por las pruebas locales y el código desplegado
 
-Release PRD (pendiente, no ejecutado):
-- requiere ventana sin caja abierta ni en conteo y sin operaciones POS activas; orden DB → Edge → frontend
+Validación (PRD):
+- migración aplicada exactamente una vez; sin DML histórico ni backfill; conteos de negocio sin cambio durante la migración
+- funciones y ACL verificadas (helper SECURITY INVOKER, RPC SECURITY DEFINER, `search_path` fijo, ejecución solo `service_role`)
+- sesión histórica conserva el esperado congelado (detalle `null`, sin recálculo)
+- asientos confirmados desbalanceados: 0; referencias FO→JE rotas: 0; operaciones financieras sin JE: 0
+- caja/POS en 0/0/0 (sin caja abierta, sin conteo, sin operaciones activas) durante el release
+- validación de solo lectura: sin venta, compra ni conteo sintético en producción; smoke HTTP del frontend no repetido tras el release (verificado después del merge)
+
+Ruta de release PRD:
+- migración aplicada vía Supabase `apply_migration`, porque las versiones de migración en PRD (aplicadas antes por MCP) no coinciden con los nombres de archivo locales y `db push` aborta
+- no se usaron `db push`, `--include-all`, `migration repair` ni `db pull`
+- orden: migración → `cash-operations`; el frontend ya estaba desplegado y operó en modo compatible hasta el release del backend
 
 Límites:
 - `profit_total` y la lista de ventas del corte siguen usando el método dominante (fuera de alcance)
+
+Pendientes separados:
+- normalización del historial de migraciones PRD (7 versiones remotas sin archivo local equivalente)
+- revisión de provenance DEV/PRD de las RPC (huellas distintas en 4 RPC legacy; el helper coincide)
+- hardening RLS de tablas financieras/caja
+- `Ganancia actual` con pagos mixtos
 
 Archivos:
 - `supabase/migrations/20261001235354_cash_expected_from_ledger.sql` (nuevo)

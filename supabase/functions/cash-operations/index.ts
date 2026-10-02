@@ -209,7 +209,7 @@ const loadSalesSummary = async (adminClient: ReturnType<typeof createClient>, se
   }))
 
   if (normalizedSales.length === 0) {
-    return { sales: [], salesCashTotal: 0, profitTotal: 0 }
+    return { sales: [], profitTotal: 0 }
   }
 
   const saleIds = normalizedSales.map((s) => s.id)
@@ -252,13 +252,35 @@ const loadSalesSummary = async (adminClient: ReturnType<typeof createClient>, se
 
   return {
     sales: normalizedSales,
-    salesCashTotal: normalizedSales.reduce((acc, s) => acc + s.total_amount, 0),
     profitTotal,
   }
 }
 
-const computeExpectedCash = (openingAmount: number, salesCashTotal: number) =>
-  openingAmount + salesCashTotal
+// Efectivo esperado: única fuente = RPC get_cash_session_expected (ledger 1101).
+// Vivo para caja abierta sin conteo; snapshot congelado en cualquier otro caso.
+const nullableNumber = (value: unknown) => (value == null ? null : toNumber(value))
+
+const loadCashExpected = async (adminClient: ReturnType<typeof createClient>, sessionId: string) => {
+  const { data, error } = await adminClient.rpc('get_cash_session_expected', {
+    p_cash_session_id: sessionId,
+  })
+
+  if (error) throw error
+  const row = Array.isArray(data) ? data[0] : data
+  if (!row) return null
+
+  return {
+    opening_amount:      toNumber(row.opening_amount),
+    sales_cash:          toNumber(row.sales_cash),
+    purchases_cash:      nullableNumber(row.purchases_cash),
+    transfers_net:       nullableNumber(row.transfers_net),
+    contributions:       nullableNumber(row.contributions),
+    other_net:           toNumber(row.other_net),
+    net_movement:        toNumber(row.net_movement),
+    expected_cash_total: toNumber(row.expected_cash_total),
+    is_frozen:           Boolean(row.is_frozen),
+  }
+}
 
 const loadActivePosOperationCount = async (adminClient: ReturnType<typeof createClient>) => {
   const { data, error } = await adminClient.rpc('active_pos_operation_count')
@@ -270,27 +292,32 @@ const loadActivePosOperationCount = async (adminClient: ReturnType<typeof create
 const buildSessionOverview = async (adminClient: ReturnType<typeof createClient>) => {
   const openSession = await loadOpenSession(adminClient)
   if (openSession) {
-    const [salesSummary, activeSalesCount] = await Promise.all([
+    const [salesSummary, activeSalesCount, cashExpected] = await Promise.all([
       loadSalesSummary(adminClient, openSession.id),
       loadActivePosOperationCount(adminClient),
+      loadCashExpected(adminClient, String(openSession.id)),
     ])
-    const openingAmount = toNumber(openSession.opening_amount)
-    const expected      = computeExpectedCash(openingAmount, salesSummary.salesCashTotal)
     return {
-      session: serializeSession({
-        ...openSession,
-        sales_cash_total:    salesSummary.salesCashTotal,
-        expected_cash_total: expected,
-        closing_amount:      expected,
-        profit_total:        salesSummary.profitTotal,
-      }),
+      session: {
+        ...serializeSession({
+          ...openSession,
+          sales_cash_total:    cashExpected?.sales_cash ?? openSession.sales_cash_total,
+          expected_cash_total: cashExpected?.expected_cash_total ?? openSession.expected_cash_total,
+          closing_amount:      cashExpected?.expected_cash_total ?? openSession.closing_amount,
+          profit_total:        salesSummary.profitTotal,
+        }),
+        cash_expected_breakdown: cashExpected,
+      },
       active_sales_count: activeSalesCount,
     }
   }
 
   const latestSession = await loadLatestSession(adminClient)
+  const latestExpected = latestSession ? await loadCashExpected(adminClient, String(latestSession.id)) : null
   return {
-    session: serializeSession(latestSession),
+    session: latestSession
+      ? { ...serializeSession(latestSession), cash_expected_breakdown: latestExpected }
+      : null,
     active_sales_count: 0,
   }
 }

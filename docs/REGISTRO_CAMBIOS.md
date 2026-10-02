@@ -4,6 +4,54 @@ Este archivo concentra el registro historico de cambios funcionales, tecnicos y 
 
 ## 2026-10-01
 
+### Caja: efectivo esperado desde el ledger de Caja operativa 1101 (CAJA-03B, feat/caja03b-expected-cash)
+
+Estado: **IMPLEMENTADO LOCALMENTE — NO DESPLEGADO** (ni DEV ni PRD)
+
+Problema:
+- el efectivo esperado era `apertura + ventas cuyo método dominante = Efectivo`: ignoraba compras desde Caja operativa, traspasos y aportaciones de 1101, y en ventas mixtas contaba el total o nada según el pago mayor
+- la fórmula estaba duplicada en la Edge (`computeExpectedCash`) y en tres RPC; el recuento la recalculaba
+
+Cambios:
+- `supabase/migrations/20261001235354_cash_expected_from_ledger.sql` (nuevo):
+  - `get_cash_session_expected(uuid)` (nuevo, SECURITY INVOKER, solo `service_role`): `apertura + Σ(debe − haber)` de líneas 1101 en asientos `confirmed` vinculados por `financial_operations.cash_session_id` (nunca por `source_type/source_id`); sin allowlist para el total; `operation_type` solo clasifica el desglose (ventas, compras, traspasos, aportaciones, otros)
+  - cálculo vivo solo con caja abierta y sin primer conteo; sesiones contadas o cerradas devuelven el snapshot almacenado (sin recálculo histórico; sesiones previas sin desglose → detalle `null` y `otros = esperado − apertura − ventas`)
+  - `record_first_cash_count_atomic`: congela `expected_cash_total`, `sales_cash_total` y el desglose desde una sola evaluación del helper; desglose en `report_pdf_metadata.cash_expected_breakdown` con merge JSONB (se preservan keys existentes)
+  - `submit_cash_recount_atomic`: compara contra el esperado congelado; no recalcula
+  - `close_cash_session_atomic` (legacy, sin llamadores): usa el helper; ya no existe RPC ejecutable con la fórmula legacy
+  - `reverse_journal_entry`: bloquea FOR SHARE la sesión vinculada al asiento 1101 antes de revisar el conteo (serializa contra el FOR UPDATE del primer conteo) y rechaza revertir asientos de tipo `reversal`
+- `supabase/functions/cash-operations/index.ts`: el overview usa el helper y expone `cash_expected_breakdown`; se eliminó `computeExpectedCash`
+- `src/pages/CashControl.jsx`: muestra el desglose del servidor (sin cálculo local) en pantalla y PDF; sin desglose conserva la vista anterior
+- `sql/local/2026-10-01_test_cash_expected_ledger_local.sql` (nuevo): pruebas conductuales locales (BEGIN/ROLLBACK)
+
+Semántica:
+- 1101 es activo: debe = entra efectivo al cajón, haber = sale
+- venta mixta: solo el componente en efectivo; compra Caja operativa resta; compra Caja fuerte sin efecto; traspasos hacia/desde 1101 suman/restan; 1102↔1103 sin efecto; aportación a 1101 suma
+- reversa: el original pasa a `reversed` y deja de contar; el espejo no tiene `financial_operations` y nunca se vincula
+- resoluciones de diferencia y saldo inicial no tienen `financial_operations` → excluidos
+
+Arquitectura:
+- sin tablas ni columnas nuevas, sin DML de datos, sin backfill; firmas de RPC sin cambio
+
+Validación (local):
+- pruebas SQL B1–B17, S2–S4 PASS (base, venta efectivo, tarjeta, mixtas 60/40 y 40/60, compras cajón/caja fuerte, traspasos, aportación, idempotencia, reversa, reversa de reversa, congelamiento en primer conteo, guards, recuento congelado, RPC legacy, sesión histórica, merge de metadata); regresión CAJA-03A PASS
+- concurrencia reversa vs primer conteo con dos sesiones reales: solo resultados seguros (reversa espera y se rechaza, o el conteo espera e incluye la reversa)
+- Edge local (`functions serve`) overview vivo → primer conteo → congelado → recuento → cerrado + 401 PASS; UI local con desglose y fallback PASS
+- replay completo de migraciones en base fresca PASS (con los bootstrap M14/M16 documentados); `lint`, `test:pos` 36/36, `test:finance` 91/91, `test:materials` 16/16, build PASS
+
+Release (pendiente, no ejecutado):
+- requiere ventana sin caja abierta ni en conteo y sin operaciones POS activas; orden DB → Edge → frontend
+
+Límites:
+- `profit_total` y la lista de ventas del corte siguen usando el método dominante (fuera de alcance)
+
+Archivos:
+- `supabase/migrations/20261001235354_cash_expected_from_ledger.sql` (nuevo)
+- `supabase/functions/cash-operations/index.ts`
+- `src/pages/CashControl.jsx`
+- `sql/local/2026-10-01_test_cash_expected_ledger_local.sql` (nuevo)
+- `docs/REGISTRO_CAMBIOS.md`
+
 ### Caja: origen del efectivo en compras y bloqueo durante el conteo (CAJA-03A, feat/cash-purchase-source)
 
 Estado: **COMPLETO — EN PRODUCCIÓN**

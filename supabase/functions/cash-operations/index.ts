@@ -208,51 +208,16 @@ const loadSalesSummary = async (adminClient: ReturnType<typeof createClient>, se
     document_number: s.document_number,
   }))
 
-  if (normalizedSales.length === 0) {
-    return { sales: [], profitTotal: 0 }
-  }
-
-  const saleIds = normalizedSales.map((s) => s.id)
-  const { data: saleItems, error: saleItemsError } = await adminClient
-    .from('sale_items')
-    .select('sale_id, material_id, quantity, unit_price')
-    .in('sale_id', saleIds)
-
-  if (saleItemsError) throw saleItemsError
-
-  const centerBySaleId = new Map(normalizedSales.map((s) => [s.id, s.center_id]))
-  const materialIds = Array.from(new Set((saleItems || []).map((i) => i.material_id).filter(Boolean)))
-  const centerIds   = Array.from(new Set(normalizedSales.map((s) => s.center_id).filter(Boolean)))
-
-  let inventoryCosts: Array<{ material_id: string; center_id: string; costo_promedio: number }> = []
-  if (materialIds.length > 0 && centerIds.length > 0) {
-    const { data: invRows, error: invError } = await adminClient
-      .from('inventory')
-      .select('material_id, center_id, costo_promedio')
-      .in('material_id', materialIds)
-      .in('center_id', centerIds)
-
-    if (invError) throw invError
-    inventoryCosts = (invRows || []).map((r) => ({
-      material_id:   r.material_id,
-      center_id:     r.center_id,
-      costo_promedio: toNumber(r.costo_promedio),
-    }))
-  }
-
-  const costMap = new Map(
-    inventoryCosts.map((r) => [`${r.center_id}:${r.material_id}`, r.costo_promedio])
+  const { data: profitTotal, error: profitError } = await adminClient.rpc(
+    'get_cash_session_profit',
+    { p_session_id: sessionId }
   )
 
-  const profitTotal = (saleItems || []).reduce((acc, item) => {
-    const centerId   = centerBySaleId.get(item.sale_id)
-    const avgCost    = costMap.get(`${centerId}:${item.material_id}`) || 0
-    return acc + toNumber(item.quantity) * (toNumber(item.unit_price) - avgCost)
-  }, 0)
+  if (profitError) throw profitError
 
   return {
     sales: normalizedSales,
-    profitTotal,
+    profitTotal: toNumber(profitTotal),
   }
 }
 

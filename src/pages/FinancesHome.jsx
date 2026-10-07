@@ -168,8 +168,12 @@ const FinancesHome = ({ onNavigate }) => {
               <div style={alertWrapStyle}>
                 <FinanceAlert
                   type="info"
-                  title="Todas las operaciones disponibles"
-                  message="Traspaso, Aportación, Resolución de diferencia, Retiro y Reversa de póliza."
+                  title={isSuperadmin ? 'Todas las operaciones disponibles' : 'Operaciones disponibles'}
+                  message={
+                    isSuperadmin
+                      ? 'Traspaso, Aportación, Resolución de diferencia, Retiro y Reversa de póliza.'
+                      : 'Traspaso, Aportación y Resolución de diferencia.'
+                  }
                 />
               </div>
               <div style={getCardsGridStyle(isMobile)}>

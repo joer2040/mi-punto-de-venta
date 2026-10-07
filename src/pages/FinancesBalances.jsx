@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import ReportView from '../components/ReportView'
 import { financialService } from '../api/financialService'
-import { formatCurrency } from '../lib/reportUtils'
+import { formatCurrency, toEndOfDayUtc } from '../lib/reportUtils'
 import { useResponsive } from '../lib/useResponsive'
 import { colors, space, type, radius } from '../lib/designTokens'
 
@@ -33,7 +33,7 @@ const FinancesBalances = () => {
     setLoading(true)
     setError(null)
     try {
-      const result = await financialService.getAccountBalances(asOf || null)
+      const result = await financialService.getAccountBalances(toEndOfDayUtc(asOf))
       setBalances(result?.balances ?? [])
     } catch (err) {
       setError(err.message || 'Error al cargar saldos de cuentas.')

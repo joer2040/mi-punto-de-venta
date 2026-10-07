@@ -23,6 +23,9 @@ export const formatDateTime = (value) => {
   })
 }
 
+// Fecha de corte YYYY-MM-DD → último instante UTC de ese día; vacío → null (saldo actual).
+export const toEndOfDayUtc = (date) => (date ? `${date}T23:59:59.999Z` : null)
+
 export const formatCurrency = (value) =>
   new Intl.NumberFormat('es-MX', {
     style: 'currency',

@@ -65,10 +65,14 @@ const operationCards = [
 
 const FinancesHome = ({ onNavigate }) => {
   const { isMobile } = useResponsive()
-  const { canAccessPage, isSuperadmin } = useAuth()
+  const { canAccessPage, isManager, isSuperadmin } = useAuth()
   const [activeOperation, setActiveOperation] = useState(null)
   const [ledgerStatus, setLedgerStatus] = useState(null)
   const visibleReports = reportCards.filter((card) => canAccessPage(card.id))
+  const canUseFinancialOperations = isManager || isSuperadmin
+  const visibleOperations = operationCards.filter((card) =>
+    isSuperadmin || ['transfer', 'contribution', 'discrepancy'].includes(card.id)
+  )
 
   useEffect(() => {
     financialService
@@ -120,7 +124,7 @@ const FinancesHome = ({ onNavigate }) => {
         </div>
       </section>
 
-      {isSuperadmin && (
+      {canUseFinancialOperations && (
         <section style={cardsSectionStyle}>
           <div style={sectionLabelStyle}>Operaciones</div>
 
@@ -169,7 +173,7 @@ const FinancesHome = ({ onNavigate }) => {
                 />
               </div>
               <div style={getCardsGridStyle(isMobile)}>
-                {operationCards.map((card) =>
+                {visibleOperations.map((card) =>
                   card.id === 'transfer' ||
                   card.id === 'contribution' ||
                   card.id === 'discrepancy' ||

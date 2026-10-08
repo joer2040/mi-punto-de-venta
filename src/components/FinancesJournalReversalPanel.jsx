@@ -58,7 +58,7 @@ const validateReversal = ({ entryNumber, authorizedBy, justification }, currentU
   return errors
 }
 
-const FinancesJournalReversalPanel = ({ onClose, onNavigate }) => {
+const FinancesJournalReversalPanel = ({ onFundsChanged, onClose, onNavigate }) => {
   const { user } = useAuth()
   const [form, setForm] = useState(INITIAL_FORM)
   const [fieldErrors, setFieldErrors] = useState({})
@@ -117,6 +117,7 @@ const FinancesJournalReversalPanel = ({ onClose, onNavigate }) => {
       })
       setConfirmPending(false)
       idempotencyKeyRef.current = generateIdempotencyKey()
+      void onFundsChanged?.()
     } catch (err) {
       setResult({
         type: 'error',

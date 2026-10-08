@@ -72,7 +72,7 @@ const FinancesHome = (props) => {
 }
 
 const FinancesHomeWithFunds = (props) => {
-  const fundState = useFundBalances()
+  const fundState = useFundBalances({ autoRefresh: true, pollIntervalMs: 60 * 1000 })
   return <FinancesHomeView {...props} fundState={fundState} />
 }
 
@@ -147,6 +147,7 @@ const FinancesHomeView = ({ onNavigate, fundState }) => {
             <div style={panelWrapStyle}>
               <FinancesTransferPanel
                 fundState={fundState}
+                onFundsChanged={fundState?.refreshSilent}
                 onClose={() => setActiveOperation(null)}
                 onNavigate={onNavigate}
               />
@@ -155,6 +156,7 @@ const FinancesHomeView = ({ onNavigate, fundState }) => {
             <div style={panelWrapStyle}>
               <FinancesOwnerContributionPanel
                 fundState={fundState}
+                onFundsChanged={fundState?.refreshSilent}
                 onClose={() => setActiveOperation(null)}
                 onNavigate={onNavigate}
               />
@@ -162,6 +164,7 @@ const FinancesHomeView = ({ onNavigate, fundState }) => {
           ) : activeOperation === 'discrepancy' ? (
             <div style={panelWrapStyle}>
               <FinancesDiscrepancyPanel
+                onFundsChanged={fundState?.refreshSilent}
                 onClose={() => setActiveOperation(null)}
                 onNavigate={onNavigate}
               />
@@ -170,6 +173,7 @@ const FinancesHomeView = ({ onNavigate, fundState }) => {
             <div style={panelWrapStyle}>
               <FinancesOwnerWithdrawalPanel
                 fundState={fundState}
+                onFundsChanged={fundState?.refreshSilent}
                 onClose={() => setActiveOperation(null)}
                 onNavigate={onNavigate}
               />
@@ -177,6 +181,7 @@ const FinancesHomeView = ({ onNavigate, fundState }) => {
           ) : activeOperation === 'reversal' ? (
             <div style={panelWrapStyle}>
               <FinancesJournalReversalPanel
+                onFundsChanged={fundState?.refreshSilent}
                 onClose={() => setActiveOperation(null)}
                 onNavigate={onNavigate}
               />

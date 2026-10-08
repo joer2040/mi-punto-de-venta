@@ -33,7 +33,7 @@ const validateTransfer = ({ fromCode, toCode, amount }) => {
   return errors
 }
 
-const FinancesTransferPanel = ({ fundState, onClose, onNavigate }) => {
+const FinancesTransferPanel = ({ fundState, onFundsChanged, onClose, onNavigate }) => {
   const [form, setForm] = useState(INITIAL_FORM)
   const [fieldErrors, setFieldErrors] = useState({})
   const [confirmPending, setConfirmPending] = useState(false)
@@ -75,6 +75,7 @@ const FinancesTransferPanel = ({ fundState, onClose, onNavigate }) => {
       })
       setConfirmPending(false)
       idempotencyKeyRef.current = generateIdempotencyKey()
+      void onFundsChanged?.()
     } catch (err) {
       setResult({
         type: 'error',

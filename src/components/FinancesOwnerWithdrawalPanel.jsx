@@ -43,7 +43,7 @@ const validateWithdrawal = ({ sourceCode, amount, authorizedBy }, currentUserId)
   return errors
 }
 
-const FinancesOwnerWithdrawalPanel = ({ fundState, onClose, onNavigate }) => {
+const FinancesOwnerWithdrawalPanel = ({ fundState, onFundsChanged, onClose, onNavigate }) => {
   const { user } = useAuth()
   const [form, setForm] = useState(INITIAL_FORM)
   const [fieldErrors, setFieldErrors] = useState({})
@@ -104,6 +104,7 @@ const FinancesOwnerWithdrawalPanel = ({ fundState, onClose, onNavigate }) => {
       })
       setConfirmPending(false)
       idempotencyKeyRef.current = generateIdempotencyKey()
+      void onFundsChanged?.()
     } catch (err) {
       setResult({
         type: 'error',

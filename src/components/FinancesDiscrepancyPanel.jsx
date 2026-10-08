@@ -38,7 +38,7 @@ const validateDiscrepancy = ({ cashSessionId, resolutionType, amount, motive }) 
   return errors
 }
 
-const FinancesDiscrepancyPanel = ({ onClose, onNavigate }) => {
+const FinancesDiscrepancyPanel = ({ onFundsChanged, onClose, onNavigate }) => {
   const [form, setForm] = useState(INITIAL_FORM)
   const [fieldErrors, setFieldErrors] = useState({})
   const [confirmPending, setConfirmPending] = useState(false)
@@ -81,6 +81,7 @@ const FinancesDiscrepancyPanel = ({ onClose, onNavigate }) => {
       })
       setConfirmPending(false)
       idempotencyKeyRef.current = generateIdempotencyKey()
+      void onFundsChanged?.()
     } catch (err) {
       setResult({
         type: 'error',

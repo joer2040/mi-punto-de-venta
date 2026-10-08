@@ -28,7 +28,7 @@ const validateContribution = ({ destinationCode, amount }) => {
   return errors
 }
 
-const FinancesOwnerContributionPanel = ({ fundState, onClose, onNavigate }) => {
+const FinancesOwnerContributionPanel = ({ fundState, onFundsChanged, onClose, onNavigate }) => {
   const [form, setForm] = useState(INITIAL_FORM)
   const [fieldErrors, setFieldErrors] = useState({})
   const [confirmPending, setConfirmPending] = useState(false)
@@ -69,6 +69,7 @@ const FinancesOwnerContributionPanel = ({ fundState, onClose, onNavigate }) => {
       })
       setConfirmPending(false)
       idempotencyKeyRef.current = generateIdempotencyKey()
+      void onFundsChanged?.()
     } catch (err) {
       setResult({
         type: 'error',

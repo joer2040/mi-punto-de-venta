@@ -6,19 +6,18 @@ import { generateIdempotencyKey } from '../lib/financeIdempotency'
 import { formatCurrency } from '../lib/reportUtils'
 import FinanceAlert from './FinanceAlert'
 import FinanceConfirm from './FinanceConfirm'
+import FundBalanceContext from './FundBalanceContext'
+import { FUND_OPTIONS, getFundByCode } from '../lib/fundBalances'
 import { colors, space, type as typography, radius, shadow } from '../lib/designTokens'
 
-const FUND_OPTIONS = [
-  { code: '1101', name: 'Caja operativa' },
-  { code: '1102', name: 'Caja fuerte' },
-  { code: '1103', name: 'Banco' },
-]
+// record_owner_withdrawal prohíbe retiros desde Caja operativa (1101).
+const WITHDRAWAL_FUND_OPTIONS = FUND_OPTIONS.filter((f) => f.code !== '1101')
 const FUND_NAMES = Object.fromEntries(FUND_OPTIONS.map((f) => [f.code, f.name]))
 const DEFAULT_DESCRIPTION = 'Retiro del propietario'
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const INITIAL_FORM = {
-  sourceCode: '1101',
+  sourceCode: '1102',
   amount: '',
   authorizedBy: '',
   description: DEFAULT_DESCRIPTION,
@@ -44,7 +43,7 @@ const validateWithdrawal = ({ sourceCode, amount, authorizedBy }, currentUserId)
   return errors
 }
 
-const FinancesOwnerWithdrawalPanel = ({ onClose, onNavigate }) => {
+const FinancesOwnerWithdrawalPanel = ({ fundState, onClose, onNavigate }) => {
   const { user } = useAuth()
   const [form, setForm] = useState(INITIAL_FORM)
   const [fieldErrors, setFieldErrors] = useState({})
@@ -193,12 +192,18 @@ const FinancesOwnerWithdrawalPanel = ({ onClose, onNavigate }) => {
               onChange={handleField('sourceCode')}
               style={{ ...selectStyle, ...(fieldErrors.sourceCode ? errorBorderStyle : null) }}
             >
-              {FUND_OPTIONS.map((opt) => (
+              {WITHDRAWAL_FUND_OPTIONS.map((opt) => (
                 <option key={opt.code} value={opt.code}>
                   {opt.code} - {opt.name}
                 </option>
               ))}
             </select>
+            <FundBalanceContext
+              fund={getFundByCode(fundState?.funds, form.sourceCode)}
+              loading={fundState?.loading}
+              cashError={fundState?.cashError}
+              ledgerError={fundState?.ledgerError}
+            />
             {fieldErrors.sourceCode && <div style={fieldErrorStyle}>{fieldErrors.sourceCode}</div>}
           </div>
 

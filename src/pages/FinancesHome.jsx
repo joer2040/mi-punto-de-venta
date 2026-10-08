@@ -10,6 +10,7 @@ import FinancesDiscrepancyPanel from '../components/FinancesDiscrepancyPanel'
 import FinancesOwnerWithdrawalPanel from '../components/FinancesOwnerWithdrawalPanel'
 import FinancesJournalReversalPanel from '../components/FinancesJournalReversalPanel'
 import FinancialFundsSummary from '../components/FinancialFundsSummary'
+import { useFundBalances } from '../lib/useFundBalances'
 
 const ACCENT = colors.violet700
 
@@ -64,7 +65,18 @@ const operationCards = [
   },
 ]
 
-const FinancesHome = ({ onNavigate }) => {
+// Una sola instancia de useFundBalances, montada solo para Manager/Superadmin (sin 403 deliberados).
+const FinancesHome = (props) => {
+  const { isManager, isSuperadmin } = useAuth()
+  return isManager || isSuperadmin ? <FinancesHomeWithFunds {...props} /> : <FinancesHomeView {...props} fundState={null} />
+}
+
+const FinancesHomeWithFunds = (props) => {
+  const fundState = useFundBalances()
+  return <FinancesHomeView {...props} fundState={fundState} />
+}
+
+const FinancesHomeView = ({ onNavigate, fundState }) => {
   const { isMobile } = useResponsive()
   const { canAccessPage, isManager, isSuperadmin } = useAuth()
   const [activeOperation, setActiveOperation] = useState(null)
@@ -103,7 +115,7 @@ const FinancesHome = ({ onNavigate }) => {
         )}
       </section>
 
-      {canUseFinancialOperations && <FinancialFundsSummary />}
+      {canUseFinancialOperations && <FinancialFundsSummary fundState={fundState} />}
 
       <section style={cardsSectionStyle}>
         <div style={sectionLabelStyle}>Reportes</div>
@@ -134,6 +146,7 @@ const FinancesHome = ({ onNavigate }) => {
           {activeOperation === 'transfer' ? (
             <div style={panelWrapStyle}>
               <FinancesTransferPanel
+                fundState={fundState}
                 onClose={() => setActiveOperation(null)}
                 onNavigate={onNavigate}
               />
@@ -141,6 +154,7 @@ const FinancesHome = ({ onNavigate }) => {
           ) : activeOperation === 'contribution' ? (
             <div style={panelWrapStyle}>
               <FinancesOwnerContributionPanel
+                fundState={fundState}
                 onClose={() => setActiveOperation(null)}
                 onNavigate={onNavigate}
               />
@@ -155,6 +169,7 @@ const FinancesHome = ({ onNavigate }) => {
           ) : activeOperation === 'withdrawal' ? (
             <div style={panelWrapStyle}>
               <FinancesOwnerWithdrawalPanel
+                fundState={fundState}
                 onClose={() => setActiveOperation(null)}
                 onNavigate={onNavigate}
               />

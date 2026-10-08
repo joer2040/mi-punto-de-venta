@@ -4,13 +4,10 @@ import { generateIdempotencyKey } from '../lib/financeIdempotency'
 import { formatCurrency } from '../lib/reportUtils'
 import FinanceAlert from './FinanceAlert'
 import FinanceConfirm from './FinanceConfirm'
+import FundBalanceContext from './FundBalanceContext'
+import { FUND_OPTIONS, getFundByCode } from '../lib/fundBalances'
 import { colors, space, type as typography, radius, shadow } from '../lib/designTokens'
 
-const FUND_OPTIONS = [
-  { code: '1101', name: 'Caja operativa' },
-  { code: '1102', name: 'Caja fuerte' },
-  { code: '1103', name: 'Banco' },
-]
 const FUND_NAMES = Object.fromEntries(FUND_OPTIONS.map((f) => [f.code, f.name]))
 
 const INITIAL_FORM = {
@@ -36,7 +33,7 @@ const validateTransfer = ({ fromCode, toCode, amount }) => {
   return errors
 }
 
-const FinancesTransferPanel = ({ onClose, onNavigate }) => {
+const FinancesTransferPanel = ({ fundState, onClose, onNavigate }) => {
   const [form, setForm] = useState(INITIAL_FORM)
   const [fieldErrors, setFieldErrors] = useState({})
   const [confirmPending, setConfirmPending] = useState(false)
@@ -167,6 +164,12 @@ const FinancesTransferPanel = ({ onClose, onNavigate }) => {
                 </option>
               ))}
             </select>
+            <FundBalanceContext
+              fund={getFundByCode(fundState?.funds, form.fromCode)}
+              loading={fundState?.loading}
+              cashError={fundState?.cashError}
+              ledgerError={fundState?.ledgerError}
+            />
             {fieldErrors.fromCode && <div style={fieldErrorStyle}>{fieldErrors.fromCode}</div>}
           </div>
 
@@ -186,6 +189,12 @@ const FinancesTransferPanel = ({ onClose, onNavigate }) => {
                 </option>
               ))}
             </select>
+            <FundBalanceContext
+              fund={getFundByCode(fundState?.funds, form.toCode)}
+              loading={fundState?.loading}
+              cashError={fundState?.cashError}
+              ledgerError={fundState?.ledgerError}
+            />
             {fieldErrors.toCode && <div style={fieldErrorStyle}>{fieldErrors.toCode}</div>}
           </div>
 

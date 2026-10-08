@@ -9,6 +9,7 @@ import FinancesOwnerContributionPanel from '../components/FinancesOwnerContribut
 import FinancesDiscrepancyPanel from '../components/FinancesDiscrepancyPanel'
 import FinancesOwnerWithdrawalPanel from '../components/FinancesOwnerWithdrawalPanel'
 import FinancesJournalReversalPanel from '../components/FinancesJournalReversalPanel'
+import FinancialFundsSummary from '../components/FinancialFundsSummary'
 
 const ACCENT = colors.violet700
 
@@ -101,6 +102,8 @@ const FinancesHome = ({ onNavigate }) => {
           </div>
         )}
       </section>
+
+      {canUseFinancialOperations && <FinancialFundsSummary />}
 
       <section style={cardsSectionStyle}>
         <div style={sectionLabelStyle}>Reportes</div>

@@ -4,6 +4,9 @@ import { providerService } from '../api/providerService';
 import { useAuth } from '../contexts/AuthContext';
 import { ACTION_KEYS, PAGE_PERMISSION_MAP } from '../lib/permissionConfig';
 import { useResponsive } from '../lib/useResponsive';
+import { useFundBalances } from '../lib/useFundBalances';
+import { getFundByCode, purchaseFundCode } from '../lib/fundBalances';
+import FundBalanceContext from '../components/FundBalanceContext';
 import { colors, space, type, radius, shadow } from '../lib/designTokens';
 
 const DEFAULT_FREEFORM_UNIT_LABEL = 'pz';
@@ -256,6 +259,19 @@ const PurchaseHeader = ({ canProcessPurchases }) => (
   </div>
 );
 
+// FUNDS-01D: solo se monta para Manager/Superadmin con cuenta resuelta; el hook no corre en otros casos.
+const PurchaseFundBalanceContext = ({ code }) => {
+  const { funds, loading, cashError, ledgerError } = useFundBalances();
+  return (
+    <FundBalanceContext
+      fund={getFundByCode(funds, code)}
+      loading={loading}
+      cashError={cashError}
+      ledgerError={ledgerError}
+    />
+  );
+};
+
 const PurchaseInvoiceSection = ({
   providers,
   selectedProvider,
@@ -268,6 +284,7 @@ const PurchaseInvoiceSection = ({
   onCashSourceChange,
   canProcessPurchases,
   purchaseType,
+  fundCode,
 }) => (
   <section style={sectionStyle}>
     <h3>Datos de la Factura / Remision</h3>
@@ -341,6 +358,8 @@ const PurchaseInvoiceSection = ({
         </select>
       </div>
     )}
+
+    {fundCode && <PurchaseFundBalanceContext code={fundCode} />}
   </section>
 );
 
@@ -707,8 +726,10 @@ const TypeChangeModal = ({ onCancel, onConfirm }) => (
 const PurchaseEntry = () => {
   const [state, dispatch] = useReducer(purchaseEntryReducer, undefined, createInitialPurchaseEntryState);
   const { isMobile } = useResponsive();
-  const { can } = useAuth();
+  const { can, isManager, isSuperadmin } = useAuth();
   const canProcessPurchases = can(PAGE_PERMISSION_MAP.purchases, ACTION_KEYS.CREATE);
+  // erp-operations y financial-operations exigen Manager/Superadmin.
+  const showFundBalance = (isManager || isSuperadmin) && canProcessPurchases;
 
   const {
     materials,
@@ -728,6 +749,7 @@ const PurchaseEntry = () => {
     paymentMethod,
     cashSource,
   } = state;
+  const fundCode = showFundBalance ? purchaseFundCode(paymentMethod, cashSource) : null;
 
   const selectedProviderRecord = useMemo(
     () => providers.find((provider) => provider.id === selectedProvider) || null,
@@ -1021,6 +1043,7 @@ const PurchaseEntry = () => {
           onCashSourceChange={(value) => dispatch({ type: 'set_cash_source', value })}
           canProcessPurchases={canProcessPurchases}
           purchaseType={purchaseType}
+          fundCode={fundCode}
         />
 
         <PurchaseItemSection

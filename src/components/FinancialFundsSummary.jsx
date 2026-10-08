@@ -1,4 +1,3 @@
-import { useFundBalances } from '../lib/useFundBalances'
 import { formatCurrency } from '../lib/reportUtils'
 import { useResponsive } from '../lib/useResponsive'
 import { colors, space, type, radius, shadow } from '../lib/designTokens'
@@ -26,9 +25,9 @@ const ledgerCard = (fund, ledgerError) =>
     ? { message: 'No disponible' }
     : { value: fund.value, caption: 'Saldo contable' }
 
-const FinancialFundsSummary = () => {
+const FinancialFundsSummary = ({ fundState }) => {
   const { isMobile } = useResponsive()
-  const { funds, loading, cashError, ledgerError, refresh } = useFundBalances()
+  const { funds, loading, cashError, ledgerError, refresh } = fundState
   const cash = funds?.operatingCash
 
   return (

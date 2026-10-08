@@ -4,13 +4,10 @@ import { generateIdempotencyKey } from '../lib/financeIdempotency'
 import { formatCurrency } from '../lib/reportUtils'
 import FinanceAlert from './FinanceAlert'
 import FinanceConfirm from './FinanceConfirm'
+import FundBalanceContext from './FundBalanceContext'
+import { FUND_OPTIONS, getFundByCode } from '../lib/fundBalances'
 import { colors, space, type as typography, radius, shadow } from '../lib/designTokens'
 
-const FUND_OPTIONS = [
-  { code: '1101', name: 'Caja operativa' },
-  { code: '1102', name: 'Caja fuerte' },
-  { code: '1103', name: 'Banco' },
-]
 const FUND_NAMES = Object.fromEntries(FUND_OPTIONS.map((f) => [f.code, f.name]))
 
 const INITIAL_FORM = {
@@ -31,7 +28,7 @@ const validateContribution = ({ destinationCode, amount }) => {
   return errors
 }
 
-const FinancesOwnerContributionPanel = ({ onClose, onNavigate }) => {
+const FinancesOwnerContributionPanel = ({ fundState, onClose, onNavigate }) => {
   const [form, setForm] = useState(INITIAL_FORM)
   const [fieldErrors, setFieldErrors] = useState({})
   const [confirmPending, setConfirmPending] = useState(false)
@@ -160,6 +157,12 @@ const FinancesOwnerContributionPanel = ({ onClose, onNavigate }) => {
                 </option>
               ))}
             </select>
+            <FundBalanceContext
+              fund={getFundByCode(fundState?.funds, form.destinationCode)}
+              loading={fundState?.loading}
+              cashError={fundState?.cashError}
+              ledgerError={fundState?.ledgerError}
+            />
             {fieldErrors.destinationCode && (
               <div style={fieldErrorStyle}>{fieldErrors.destinationCode}</div>
             )}

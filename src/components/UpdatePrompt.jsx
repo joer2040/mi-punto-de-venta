@@ -25,8 +25,13 @@ const UpdatePrompt = () => {
   const [otherTabs, setOtherTabs] = useState(null)
   const updateInFlightRef = useRef(false)
   const reloadStartedRef = useRef(false)
+  const clientLockRef = useRef(null)
 
-  useEffect(() => joinClientLock(), [])
+  useEffect(() => {
+    const clientLock = joinClientLock()
+    clientLockRef.current = clientLock
+    return () => clientLock.release()
+  }, [])
 
   // Safety net: any old tab reloads when the controller changes, even if it never
   // showed the banner, so no tab keeps running old JS under the new worker.
@@ -58,7 +63,8 @@ const UpdatePrompt = () => {
     setStatus('checking')
     let result = { supported: false, otherTabs: null }
     try {
-      result = await countOtherClients()
+      // Subtracting this tab from the count is only valid once its own lock is granted.
+      if ((await clientLockRef.current?.ready) === true) result = await countOtherClients()
     } catch {
       // Conservative: an unknown tab count blocks like an unsupported API.
     }

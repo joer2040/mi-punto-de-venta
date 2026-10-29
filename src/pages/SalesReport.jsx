@@ -4,6 +4,10 @@ import { materialService } from '../api/materialService'
 import { formatCurrency, formatDateTime, formatNumericFolio } from '../lib/reportUtils'
 import { useResponsive } from '../lib/useResponsive'
 import { colors, space, type, radius } from '../lib/designTokens'
+import { ticketService } from '../api/ticketService'
+import { printPos58Ticket } from '../lib/printPos58Ticket'
+import { useAuth } from '../contexts/AuthContext'
+import { SCREEN_KEYS, ACTION_KEYS } from '../lib/permissionConfig'
 
 const SalesReport = () => {
   const [sales, setSales] = useState([])
@@ -13,6 +17,23 @@ const SalesReport = () => {
   const [dateTo, setDateTo] = useState('')
   const [timeTo, setTimeTo] = useState('')
   const { isMobile } = useResponsive()
+  const { can } = useAuth()
+  const canReprint = can(SCREEN_KEYS.REPORT_SALES, ACTION_KEYS.VIEW)
+  const [printingSaleId, setPrintingSaleId] = useState(null)
+  const [ticketError, setTicketError] = useState('')
+
+  const handleReprint = async (saleId) => {
+    setPrintingSaleId(saleId)
+    setTicketError('')
+    try {
+      const ticket = await ticketService.get(saleId)
+      printPos58Ticket(ticket)
+    } catch (error) {
+      setTicketError(error.message || 'No se pudo recuperar el comprobante.')
+    } finally {
+      setPrintingSaleId(null)
+    }
+  }
 
   useEffect(() => {
     const loadReport = async () => {
@@ -49,6 +70,8 @@ const SalesReport = () => {
       title="Reporte de Ventas"
       isMobile={isMobile}
       filters={
+        <div>
+        {ticketError && <p role="alert" style={{ color: '#b91c1c' }}>{ticketError}</p>}
         <div style={getFilterGridStyle(isMobile)}>
           <div>
             <label htmlFor="sales-report-date-from" style={filterLabelStyle}>Fecha desde</label>
@@ -81,12 +104,14 @@ const SalesReport = () => {
             />
           </div>
         </div>
+        </div>
       }
       rows={filteredSales}
       columns={[
         { key: 'fecha', label: 'Fecha' },
         { key: 'folio_venta', label: 'Folio de Venta' },
         { key: 'monto', label: 'Monto' },
+        ...(canReprint ? [{ key: 'ticket', label: 'Ticket' }] : []),
       ]}
       renderRow={(sale) => (
         <tr key={sale.id} style={rowStyle}>
@@ -95,6 +120,15 @@ const SalesReport = () => {
           <td style={{ ...tdStyle, fontWeight: 'bold', color: '#0f766e' }}>
             {formatCurrency(sale.total_amount)}
           </td>
+          {canReprint && <td style={tdStyle}>
+            {Date.now() < new Date(sale.created_at).getTime() + 15 * 86400000 ? (
+              <button type="button" disabled={printingSaleId !== null}
+                onClick={() => handleReprint(sale.id)}
+                style={{ padding: '8px 12px', cursor: printingSaleId ? 'wait' : 'pointer' }}>
+                {printingSaleId === sale.id ? 'Cargando...' : 'Reimprimir ticket'}
+              </button>
+            ) : <span>Vencido</span>}
+          </td>}
         </tr>
       )}
       exportColumns={[

@@ -9,7 +9,7 @@ const money = (value) => {
   return Number.isFinite(n) ? n.toFixed(2) : '0.00'
 }
 
-export const printPos58Ticket = (ticket) => {
+export const printPos58Ticket = (ticket, existingWindow = null) => {
   if (!ticket?.chargedAt || !Array.isArray(ticket?.items) || !ticket.items.length ||
     ticket.total == null || !Number.isFinite(Number(ticket.total))) {
     throw new Error('No hay datos completos de una venta confirmada para imprimir.')
@@ -38,7 +38,7 @@ export const printPos58Ticket = (ticket) => {
       escapeHtml(item.name) + '</div><div class="amount"><span>$' + money(unit) +
       ' c/u</span><strong>$' + money(total) + '</strong></div></section>'
   }).join('')
-  const win = window.open('', '_blank', 'width=420,height=720')
+  const win = existingWindow || window.open('', '_blank', 'width=420,height=720')
   if (!win) throw new Error('Permite las ventanas emergentes para imprimir.')
   win.document.write('<!doctype html><html lang="es"><head><meta charset="UTF-8"><title>Ticket POS-58</title><style>' +
     '@page{size:58mm auto;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0;width:58mm;' +

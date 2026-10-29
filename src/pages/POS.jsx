@@ -13,6 +13,8 @@ import { sortProductsForPos } from '../lib/sortProductsForPos'
 import { isDirectSaleStation, partitionStations } from '../lib/stations'
 import { createInitialPosState, posReducer } from './posReducer'
 import PosCartSheet from '../components/PosCartSheet'
+import { ticketService } from '../api/ticketService'
+import { printPos58Ticket } from '../lib/printPos58Ticket'
 
 const TICKET_WIDTH_MM = 80
 const CUBETA_ALLOWED_SKUS = [
@@ -1700,9 +1702,16 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
             base_unit_price: Number(item.base_unit_price || item.unit_price || 0),
           }))
         : normalizedCart
+      // Receipt capture is print-only: a failure cannot retry, reverse or alter the completed sale.
+      let confirmedTicket = null
+      try {
+        confirmedTicket = await ticketService.capture(sale.id, idempotencyKey)
+      } catch (receiptError) {
+        console.warn('No se pudo guardar el comprobante de impresión:', receiptError)
+      }
       dispatch({
         type: 'set_ticket_data',
-        ticketData: buildTicketData(sale, canonicalTicketItems, finalizingTable, documentNumber, paymentMethod),
+        ticketData: confirmedTicket || buildTicketData(sale, canonicalTicketItems, finalizingTable, documentNumber, paymentMethod),
       })
       showNotice('Venta realizada con exito', 'success')
       finalizeSaleIdempotencyKeyRef.current = null
@@ -2368,17 +2377,11 @@ const useTicketModalController = ({ ticket }) => {
   }
 
   const handlePrintTicket = () => {
-    const printWindow = window.open('', '_blank', 'width=760,height=900')
-
-    if (!printWindow) {
-      alert('No se pudo abrir la ventana de impresion. Revisa si el navegador bloqueo la ventana emergente.')
-      return
+    try {
+      printPos58Ticket(ticket)
+    } catch (error) {
+      alert(error.message || 'No fue posible imprimir el ticket.')
     }
-
-    printWindow.document.write(buildTicketPrintHtml({ ticket, dateLabel, timeLabel, ticketReference }))
-    printWindow.document.close()
-    printWindow.focus()
-    printWindow.print()
   }
 
   return {

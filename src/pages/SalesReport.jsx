@@ -23,12 +23,18 @@ const SalesReport = () => {
   const [ticketError, setTicketError] = useState('')
 
   const handleReprint = async (saleId) => {
+    const printWindow = window.open('', '_blank', 'width=420,height=720')
+    if (!printWindow) {
+      setTicketError('Permite las ventanas emergentes para reimprimir.')
+      return
+    }
     setPrintingSaleId(saleId)
     setTicketError('')
     try {
       const ticket = await ticketService.get(saleId)
-      printPos58Ticket(ticket)
+      printPos58Ticket(ticket, printWindow)
     } catch (error) {
+      printWindow.close()
       setTicketError(error.message || 'No se pudo recuperar el comprobante.')
     } finally {
       setPrintingSaleId(null)

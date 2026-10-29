@@ -1713,7 +1713,7 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
         type: 'set_ticket_data',
         ticketData: confirmedTicket || buildTicketData(sale, canonicalTicketItems, finalizingTable, documentNumber, paymentMethod),
       })
-      showNotice('Venta realizada con exito', 'success')
+      showNotice(confirmedTicket ? 'Venta realizada con exito' : 'Venta confirmada. Puedes imprimir ahora, pero no se pudo guardar el ticket para reimpresión.', confirmedTicket ? 'success' : 'warning')
       finalizeSaleIdempotencyKeyRef.current = null
       latestTableRef.current = null
       latestCartRef.current = []

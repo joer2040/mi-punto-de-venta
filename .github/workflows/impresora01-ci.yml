@@ -1,0 +1,33 @@
+name: CI
+
+# Validation only: no secrets, no Supabase access, no migrations, no deploys.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      # puppeteer is a dependency but no check uses it; skip its browser download.
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # vite 7 needs ^20.19 || >=22.12; ticket-operations tests load index.ts (type stripping) and
+      # use module.registerHooks, so use the same major as local development.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - run: npm ci
+      - run: npm run test:pos
+      - run: npm run test:impresora
+      - run: npm run lint
+      - run: npm run build

@@ -4,6 +4,8 @@ import { materialService } from '../api/materialService'
 import { formatCurrency, formatDateTime, formatNumericFolio } from '../lib/reportUtils'
 import { useResponsive } from '../lib/useResponsive'
 import { colors, space, type, radius } from '../lib/designTokens'
+import { printTicket58, saleTicketErrorMessage, ticket58FromStoredTicket } from '../lib/ticket58'
+import logoCarreta from '../assets/la_carreta_sin_fondo.png'
 
 const SalesReport = () => {
   const [sales, setSales] = useState([])
@@ -12,6 +14,7 @@ const SalesReport = () => {
   const [timeFrom, setTimeFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [timeTo, setTimeTo] = useState('')
+  const [reprintingSaleId, setReprintingSaleId] = useState(null)
   const { isMobile } = useResponsive()
 
   useEffect(() => {
@@ -28,6 +31,26 @@ const SalesReport = () => {
 
     loadReport()
   }, [])
+
+  // Read-only reprint of the ticket the server stored at confirmation. Never charges or recalculates.
+  const handleReprintTicket = async (sale) => {
+    if (reprintingSaleId) return
+    setReprintingSaleId(sale.id)
+    try {
+      const stored = await materialService.getSaleTicketSnapshot(sale.id)
+      const { ticket, problem } = ticket58FromStoredTicket(stored, sale.id)
+      const printError = problem || printTicket58({
+        ticket,
+        logoUrl: new URL(logoCarreta, window.location.href).href,
+      })
+      if (printError) alert(printError)
+    } catch (error) {
+      console.error('Error al recuperar ticket:', error)
+      alert(saleTicketErrorMessage(error))
+    } finally {
+      setReprintingSaleId(null)
+    }
+  }
 
   const filteredSales = sales.filter((sale) => isWithinDateRange(sale.created_at, dateFrom, timeFrom, dateTo, timeTo))
 
@@ -87,6 +110,7 @@ const SalesReport = () => {
         { key: 'fecha', label: 'Fecha' },
         { key: 'folio_venta', label: 'Folio de Venta' },
         { key: 'monto', label: 'Monto' },
+        { key: 'ticket', label: 'Ticket' },
       ]}
       renderRow={(sale) => (
         <tr key={sale.id} style={rowStyle}>
@@ -94,6 +118,16 @@ const SalesReport = () => {
           <td style={{ ...tdStyle, fontWeight: 'bold' }}>{formatNumericFolio(sale.document_number)}</td>
           <td style={{ ...tdStyle, fontWeight: 'bold', color: '#0f766e' }}>
             {formatCurrency(sale.total_amount)}
+          </td>
+          <td style={tdStyle}>
+            <button
+              type="button"
+              onClick={() => handleReprintTicket(sale)}
+              disabled={Boolean(reprintingSaleId)}
+              style={reprintButtonStyle}
+            >
+              {reprintingSaleId === sale.id ? 'Recuperando...' : 'Reimprimir ticket'}
+            </button>
           </td>
         </tr>
       )}
@@ -153,5 +187,16 @@ const filterInputStyle = {
 const loadingStyle = { padding: '50px', textAlign: 'center' }
 const tdStyle = { padding: '8px 12px', fontSize: type.md, color: colors.gray600 }
 const rowStyle = { borderBottom: '1px solid #e2e8f0' }
+const reprintButtonStyle = {
+  padding: `${space[2]} ${space[4]}`,
+  borderRadius: radius.md,
+  border: `1px solid ${colors.gray300}`,
+  backgroundColor: colors.white,
+  color: colors.gray900,
+  fontSize: type.sm,
+  fontWeight: type.bold,
+  cursor: 'pointer',
+  whiteSpace: 'nowrap',
+}
 
 export default SalesReport

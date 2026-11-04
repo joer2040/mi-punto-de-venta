@@ -1,15 +1,20 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import {
   TICKET58_PRINT_FRAME_CLEANUP_MS,
   TICKET_CAPTURE_NOTICES,
+  buildOpenAccountTicket58Html,
   buildTicket58Html,
+  canPrintOpenAccountTicket58,
   captureTicketAfterConfirmedSale,
   classifyTicketCapture,
   formatTicket58DateTime,
+  getOpenAccountTicket58Problem,
   getTicket58Problem,
   isTicket58Expired,
+  printOpenAccountTicket58,
   printTicket58,
   saleTicketErrorMessage,
   ticket58FromStoredTicket,
@@ -467,4 +472,186 @@ test('printTicket58 contains print and setup errors without retrying', async (t)
   assert.equal(result, 'No se pudo preparar la impresion del ticket.')
   assert.equal(broken.frames[0].removed, 1)
   assert.equal(consoleError.mock.callCount(), 2)
+})
+
+// --- Open account ticket (Paso 4M): visible cart before any sale, fictitious data, fake DOM ---
+
+// 3-nov-2026 09:30 in America/Monterrey: the print time, never a sale date.
+const printedAt = '2026-11-03T15:30:00.000Z'
+
+// Same shape POS builds with buildTicketDisplayItems(cart, { includeBundleDetails: false }).
+const beer = (quantity = 3) => ({
+  kind: 'material', bundleId: null, bundleType: null, bundleLabel: null,
+  name: 'Cerveza Modelo Especial 355 ml', quantity, unitPrice: 35, subtotal: quantity * 35, details: [],
+})
+const openAccount = (items = [beer()]) => ({
+  items,
+  total: items.reduce((acc, item) => acc + item.subtotal, 0),
+  printedAt,
+  logoUrl: 'logo.png',
+})
+
+const deepFreeze = (value) => {
+  if (value && typeof value === 'object') Object.values(Object.freeze(value)).forEach(deepFreeze)
+  return value
+}
+
+// Fails the test on any network request made while printing.
+const withNoNetwork = async (t, run) => {
+  const fetchMock = t.mock.method(globalThis, 'fetch', async () => { throw new Error('network not allowed') })
+  const result = await run()
+  assert.equal(fetchMock.mock.callCount(), 0)
+  return result
+}
+
+test('K: confirmed ticket HTML is byte-identical to the validated a1429d6 template', () => {
+  const html = buildTicket58Html({ ticket: confirmedTicket(), logoUrl: 'logo.png' })
+  // sha256 of the same fixture rendered by src/lib/ticket58.js at a1429d6, before the refactor.
+  assert.equal(createHash('sha256').update(html).digest('hex'), 'e1472e2bafdbae8d0f31ad7ec1a3bab5b90121c460054c0d66f622cd37260a15')
+})
+
+test('K: open account and confirmed sale share one template, only the date source differs', () => {
+  const ticket = confirmedTicket()
+  const confirmedHtml = buildTicket58Html({ ticket, logoUrl: 'logo.png' })
+  const openHtml = buildOpenAccountTicket58Html({ items: ticket.items, total: 250, printedAt: chargedAt, logoUrl: 'logo.png' })
+  assert.equal(openHtml, confirmedHtml)
+})
+
+test('A: open account prints quantities, prices, total, logo and thanks', async (t) => {
+  const dom = createFakeDom()
+  const account = openAccount([beer(3), { ...beer(1), name: 'Papas fritas', unitPrice: 45.5, subtotal: 45.5 }])
+  const result = await withNoNetwork(t, () => withDom(dom, () => printOpenAccountTicket58(account)))
+
+  assert.equal(result, null)
+  const html = dom.frames[0].srcdoc
+  assert.match(html, /src="logo\.png"/)
+  assert.match(html, /3 Cerveza Modelo Especial 355 ml[\s\S]*\$35\.00[\s\S]*\$105\.00/)
+  assert.match(html, /1 Papas fritas[\s\S]*\$45\.50[\s\S]*\$45\.50/)
+  assert.match(html, /TOTAL A PAGAR[\s\S]*\$150\.50/)
+  assert.match(html, /¡Gracias por su visita!/)
+  assert.equal(html.match(/class="item"/g).length, 2)
+})
+
+test('B/C: every print uses the items it receives (new product, changed quantity), nothing cached', async () => {
+  const dom = createFakeDom()
+  await withDom(dom, () => printOpenAccountTicket58(openAccount([beer(2)])))
+  await withDom(dom, () => printOpenAccountTicket58(openAccount([beer(5), { ...beer(1), name: 'Refresco', unitPrice: 20, subtotal: 20 }])))
+
+  const [before, after] = dom.frames.map((frame) => frame.srcdoc)
+  assert.match(before, /2 Cerveza[\s\S]*\$70\.00/)
+  assert.doesNotMatch(before, /Refresco/)
+  assert.match(after, /5 Cerveza[\s\S]*\$175\.00/)
+  assert.match(after, /1 Refresco/)
+  assert.match(after, /TOTAL A PAGAR[\s\S]*\$195\.00/)
+})
+
+test('C: a float total from the visible cart (3 x $10.10) still matches in cents', () => {
+  const item = { ...beer(3), unitPrice: 10.1, subtotal: 3 * 10.1 }
+  assert.equal(getOpenAccountTicket58Problem({ items: [item], total: 3 * 10.1, printedAt }), null)
+})
+
+test('D/J: repeated prints make no requests, never mutate the cart lines and print once per frame', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const dom = createFakeDom()
+  const account = deepFreeze(openAccount())
+  await withNoNetwork(t, () => withDom(dom, () => {
+    assert.equal(printOpenAccountTicket58(account), null)
+    assert.equal(printOpenAccountTicket58(account), null)
+  }))
+
+  assert.equal(dom.frames.length, 2)
+  dom.frames.forEach((frame) => dom.fire(frame, 'load'))
+  dom.frames.forEach((frame) => dom.fire(frame, 'load'))
+  assert.equal(dom.printWindow.printCalls, 2)
+  assert.equal(dom.frames[0].srcdoc, dom.frames[1].srcdoc)
+})
+
+test('D: POS open-account handler never saves, waits for autosave, dispatches or charges', () => {
+  // Complements the functional tests above: the React handler itself cannot run under node --test.
+  const pos = readFileSync(new URL('../pages/POS.jsx', import.meta.url), 'utf8')
+  const start = pos.indexOf('const handlePrintOpenAccount = () => {')
+  const end = pos.indexOf('const handleOpenCubetaBuilder', start)
+  const handler = pos.slice(start, end)
+
+  assert.ok(start > 0 && end > start)
+  assert.match(handler, /buildTicketDisplayItems\(cart, \{ includeBundleDetails: false \}\)/)
+  assert.match(handler, /printedAt: new Date\(\)\.toISOString\(\)/)
+  assert.match(handler, /\btotal,/)
+  assert.doesNotMatch(handler, /await|dispatch\(|queueTableOrderSave|persistTableOrder|tableOrderSaveQueueRef|posService|materialService|supabase|captureSaleTicket|captureTicketAfterConfirmedSale|finalizeSale\(|idempotency/)
+})
+
+test('E: an empty account cannot be printed', async () => {
+  const dom = createFakeDom()
+  const result = await withDom(dom, () => printOpenAccountTicket58(openAccount([])))
+  assert.match(result, /^No se puede imprimir un ticket confiable: la cuenta no tiene productos\.$/)
+  assert.equal(dom.frames.length, 0)
+  assert.equal(canPrintOpenAccountTicket58({ itemCount: 0, isHydrating: false, isFinalizing: false }), false)
+})
+
+test('F: each bundle prints as one line with its amount counted once', async () => {
+  const dom = createFakeDom()
+  const account = openAccount([cubeta({ unitPrice: 320, subtotal: 320 }), beer(2)])
+  assert.equal(await withDom(dom, () => printOpenAccountTicket58(account)), null)
+
+  const html = dom.frames[0].srcdoc
+  assert.equal(html.match(/Cubeta Mixta/g).length, 1)
+  assert.match(html, /1 Cubeta Mixta[\s\S]*\$320\.00[\s\S]*\$320\.00/)
+  assert.match(html, /TOTAL A PAGAR[\s\S]*\$390\.00/)
+
+  const loose = openAccount([{ ...beer(1), bundleId: 'cubeta-9' }])
+  assert.match(getOpenAccountTicket58Problem(loose), /un solo concepto/)
+  const unnamed = openAccount([cubeta({ bundleType: 'promo_x', bundleLabel: null })])
+  assert.match(getOpenAccountTicket58Problem(unnamed), /sin nombre/)
+})
+
+test('G: the printed date is printedAt; no confirmed sale data is needed or invented', async () => {
+  const dom = createFakeDom()
+  const account = openAccount()
+  await withDom(dom, () => printOpenAccountTicket58(account))
+
+  const html = dom.frames[0].srcdoc
+  assert.match(html, /noviembre 3, 2026 09:30 a\.m\./)
+  assert.doesNotMatch(html, /octubre 27/)
+  assert.equal('confirmed' in account, false)
+  assert.doesNotMatch(html, /Folio|Efectivo|Tarjeta|venta/i)
+
+  for (const bad of [null, 'not-a-date']) {
+    assert.match(getOpenAccountTicket58Problem({ ...account, printedAt: bad }), /fecha de impresión/)
+  }
+})
+
+test('H: inconsistent amounts are refused without printing', async () => {
+  const dom = createFakeDom()
+  const mismatch = { ...openAccount(), total: 104.99 }
+  const result = await withDom(dom, () => printOpenAccountTicket58(mismatch))
+  assert.match(result, /no coinciden con el total de la cuenta/)
+  assert.equal(dom.frames.length, 0)
+
+  assert.match(getOpenAccountTicket58Problem({ ...openAccount(), total: Number.NaN }), /total de la cuenta/)
+  assert.match(getOpenAccountTicket58Problem({ ...openAccount([{ ...beer(1), subtotal: Number.NaN }]), total: 35 }), /importe/)
+  assert.match(getOpenAccountTicket58Problem(openAccount([{ ...beer(1), quantity: 0, subtotal: 0 }])), /cantidad/)
+})
+
+test('I: no new open-account print while the table loads or a checkout is in progress', () => {
+  assert.equal(canPrintOpenAccountTicket58({ itemCount: 2, isHydrating: false, isFinalizing: false }), true)
+  assert.equal(canPrintOpenAccountTicket58({ itemCount: 2, isHydrating: false, isFinalizing: true }), false)
+  assert.equal(canPrintOpenAccountTicket58({ itemCount: 2, isHydrating: true, isFinalizing: false }), false)
+})
+
+test('open account reuses the same iframe mechanism: logo wait, one print, afterprint cleanup', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const dom = createFakeDom({ logoComplete: false })
+  await withDom(dom, () => printOpenAccountTicket58(openAccount()))
+  const [frame] = dom.frames
+
+  assert.match(frame.style.cssText, /left:-10000px/)
+  dom.fire(frame, 'load')
+  assert.equal(dom.printWindow.printCalls, 0)
+  const logoHandlers = { ...dom.logo.handlers }
+  logoHandlers.load.forEach((handler) => handler())
+  logoHandlers.error.forEach((handler) => handler())
+  assert.equal(dom.printWindow.printCalls, 1)
+  dom.fire(dom.printWindow, 'afterprint')
+  t.mock.timers.tick(1000)
+  assert.equal(frame.removed, 1)
 })

@@ -11,7 +11,12 @@ import logoCarreta from '../assets/la_carreta_sin_fondo.png'
 import { colors, space, type, radius, shadow } from '../lib/designTokens'
 import { sortProductsForPos } from '../lib/sortProductsForPos'
 import { isDirectSaleStation, partitionStations } from '../lib/stations'
-import { captureTicketAfterConfirmedSale, printTicket58 } from '../lib/ticket58'
+import {
+  canPrintOpenAccountTicket58,
+  captureTicketAfterConfirmedSale,
+  printOpenAccountTicket58,
+  printTicket58,
+} from '../lib/ticket58'
 import { createInitialPosState, posReducer } from './posReducer'
 import PosCartSheet from '../components/PosCartSheet'
 
@@ -777,6 +782,8 @@ const CartPanel = ({
   onChangeQuantity,
   onRemoveFromCart,
   onRequestFinalizeSale,
+  canPrintOpenAccount,
+  onPrintOpenAccount,
   outerRef,
   checkoutHeight,
 }) => (
@@ -857,6 +864,14 @@ const CartPanel = ({
       <button onClick={onRequestFinalizeSale} disabled={cart.length === 0 || !canOperatePOS} style={cart.length === 0 || !canOperatePOS ? disabledCheckoutBtnStyle : checkoutBtnStyle}>
         Finalizar Venta
       </button>
+      <button
+        type="button"
+        onClick={onPrintOpenAccount}
+        disabled={!canPrintOpenAccount}
+        style={{ ...(canPrintOpenAccount ? btnSecondaryStyle : disabledSecondaryBtnStyle), width: '100%', marginTop: space[4] }}
+      >
+        Imprimir ticket
+      </button>
     </div>
   </section>
 )
@@ -890,6 +905,8 @@ const ActiveOrderView = ({
   onChangeQuantity,
   onRemoveFromCart,
   onRequestFinalizeSale,
+  canPrintOpenAccount,
+  onPrintOpenAccount,
   onCloseTicket,
   onCloseFinalizeConfirm,
   onConfirmFinalizeSale,
@@ -987,28 +1004,35 @@ const ActiveOrderView = ({
         </section>
 
         <div style={getCheckoutPanelStyle(true)}>
-          <div style={mobileBottomBarRowStyle}>
-            <span style={mobileBottomBarSummaryStyle}>
-              {totalItems} {totalItems === 1 ? 'artículo' : 'artículos'} · ${total.toFixed(2)}
-            </span>
-            <div style={{ display: 'flex', gap: space[3], flexShrink: 0 }}>
-              <button
-                type="button"
-                onClick={() => setSheetOpen(true)}
-                disabled={cart.length === 0}
-                style={cart.length === 0 ? mobileVerCuentaDisabledStyle : mobileVerCuentaStyle}
-              >
-                Ver cuenta
-              </button>
-              <button
-                type="button"
-                onClick={onRequestFinalizeSale}
-                disabled={cart.length === 0 || !canOperatePOS}
-                style={cart.length === 0 || !canOperatePOS ? mobileDisabledCheckoutBtnStyle : mobileCheckoutBtnStyle}
-              >
-                Cobrar
-              </button>
-            </div>
+          <div style={mobileBottomBarSummaryStyle}>
+            <span>{totalItems} {totalItems === 1 ? 'artículo' : 'artículos'}</span>
+            <span style={mobileBottomBarTotalStyle}>${total.toFixed(2)}</span>
+          </div>
+          <div style={mobileBottomBarActionsStyle}>
+            <button
+              type="button"
+              onClick={() => setSheetOpen(true)}
+              disabled={cart.length === 0}
+              style={cart.length === 0 ? mobileVerCuentaDisabledStyle : mobileVerCuentaStyle}
+            >
+              Ver cuenta
+            </button>
+            <button
+              type="button"
+              onClick={onPrintOpenAccount}
+              disabled={!canPrintOpenAccount}
+              style={canPrintOpenAccount ? mobileVerCuentaStyle : mobileVerCuentaDisabledStyle}
+            >
+              Imprimir ticket
+            </button>
+            <button
+              type="button"
+              onClick={onRequestFinalizeSale}
+              disabled={cart.length === 0 || !canOperatePOS}
+              style={cart.length === 0 || !canOperatePOS ? mobileDisabledCheckoutBtnStyle : mobileCheckoutBtnStyle}
+            >
+              Cobrar
+            </button>
           </div>
         </div>
 
@@ -1072,6 +1096,8 @@ const ActiveOrderView = ({
           onChangeQuantity={onChangeQuantity}
           onRemoveFromCart={onRemoveFromCart}
           onRequestFinalizeSale={onRequestFinalizeSale}
+          canPrintOpenAccount={canPrintOpenAccount}
+          onPrintOpenAccount={onPrintOpenAccount}
           outerRef={cartRef}
           checkoutHeight={cartPanelHeight}
         />
@@ -1536,6 +1562,30 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
     }
   }
 
+  const canPrintOpenAccount = canPrintOpenAccountTicket58({
+    itemCount: cart.length,
+    isHydrating: isHydratingTable,
+    isFinalizing: isFinalizingSale,
+  })
+
+  // IMPRESORA-01: informative ticket of the account exactly as shown (unsaved changes included).
+  // Reads the rendered cart and total only: no autosave wait, no save, no dispatch, no sale.
+  const handlePrintOpenAccount = () => {
+    if (!selectedTable || !canPrintOpenAccountTicket58({
+      itemCount: cart.length,
+      isHydrating: isHydratingTable,
+      isFinalizing: isFinalizingSale || finalizeSaleInFlightRef.current,
+    })) return
+
+    const printError = printOpenAccountTicket58({
+      items: buildTicketDisplayItems(cart, { includeBundleDetails: false }),
+      total,
+      printedAt: new Date().toISOString(),
+      logoUrl: new URL(logoCarreta, window.location.href).href,
+    })
+    if (printError) alert(printError)
+  }
+
   const handleOpenCubetaBuilder = async (bundleKind = 'cubeta') => {
     if (!canOperatePOS || finalizeSaleInFlightRef.current) return
     if (!(await refreshCashSessionStatus({ notify: true }))) return
@@ -1788,6 +1838,8 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
     removeFromCart,
     handleRequestFinalizeSale,
     handleFinalizeSale,
+    canPrintOpenAccount,
+    handlePrintOpenAccount,
     handleConfirmCubetaBuilder,
     setShowCubetaBuilder,
     handleSetPaymentMethod: (value) => dispatch({ type: 'set_payment_method', value }),
@@ -1837,6 +1889,8 @@ const POS = ({ onEditingStateChange = () => {} }) => {
     removeFromCart,
     handleRequestFinalizeSale,
     handleFinalizeSale,
+    canPrintOpenAccount,
+    handlePrintOpenAccount,
     handleConfirmCubetaBuilder,
     setShowCubetaBuilder,
     handleSetPaymentMethod,
@@ -1908,6 +1962,8 @@ const POS = ({ onEditingStateChange = () => {} }) => {
       onChangeQuantity={changeQuantity}
       onRemoveFromCart={removeFromCart}
       onRequestFinalizeSale={handleRequestFinalizeSale}
+      canPrintOpenAccount={canPrintOpenAccount}
+      onPrintOpenAccount={handlePrintOpenAccount}
       onCloseTicket={() => dispatch({ type: 'set_ticket_data', ticketData: null })}
       onCloseFinalizeConfirm={() => dispatch({ type: 'set_show_finalize_confirm', value: false })}
       onConfirmFinalizeSale={handleFinalizeSale}
@@ -3037,38 +3093,47 @@ const mobileProductsSectionStyle = {
   paddingTop: '60px',
   paddingLeft: space[4],
   paddingRight: space[4],
-  paddingBottom: '80px',
+  // Clears the two-row bottom bar (summary + 44 px actions) plus the device safe area.
+  paddingBottom: 'calc(120px + env(safe-area-inset-bottom, 0px))',
   backgroundColor: colors.gray100,
   minHeight: '100vh',
 }
 
-const mobileBottomBarRowStyle = {
+const mobileBottomBarSummaryStyle = {
   display: 'flex',
   justifyContent: 'space-between',
-  alignItems: 'center',
+  alignItems: 'baseline',
   gap: space[4],
-}
-
-const mobileBottomBarSummaryStyle = {
+  marginBottom: space[4],
   fontSize: type.sm,
   fontWeight: type.bold,
   color: colors.gray900,
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
-  flex: 1,
+}
+
+const mobileBottomBarTotalStyle = {
+  fontSize: type.base,
+  fontWeight: type.black,
+}
+
+const mobileBottomBarActionsStyle = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+  gap: space[3],
 }
 
 const mobileVerCuentaStyle = {
-  padding: `${space[3]} ${space[7]}`,
+  width: '100%',
+  minHeight: '44px',
+  padding: `${space[2]} ${space[3]}`,
   backgroundColor: colors.blue100,
   color: colors.blue700,
   border: `1px solid ${colors.blue100}`,
   borderRadius: radius.md,
   fontWeight: type.bold,
   fontSize: type.sm,
+  lineHeight: 1.15,
   cursor: 'pointer',
-  whiteSpace: 'nowrap',
 }
 
 const mobileVerCuentaDisabledStyle = {
@@ -3078,15 +3143,17 @@ const mobileVerCuentaDisabledStyle = {
 }
 
 const mobileCheckoutBtnStyle = {
-  padding: `${space[3]} ${space[7]}`,
+  width: '100%',
+  minHeight: '44px',
+  padding: `${space[2]} ${space[3]}`,
   backgroundColor: colors.green500,
   color: colors.white,
   border: 'none',
   borderRadius: radius.md,
   fontWeight: type.black,
   fontSize: type.sm,
+  lineHeight: 1.15,
   cursor: 'pointer',
-  whiteSpace: 'nowrap',
 }
 
 const mobileDisabledCheckoutBtnStyle = {

@@ -1,4 +1,5 @@
-// IMPRESORA-01: POS-58 thermal ticket (58 mm paper). Built only from server-confirmed sale data.
+// IMPRESORA-01: POS-58 thermal ticket (58 mm paper). Built from server-confirmed sale data, or from
+// the visible open account (informative, before any sale).
 
 // Printable width of common POS-58 printers (58 mm roll). Tune here if a printer clips the edges.
 export const TICKET58_CONTENT_MM = 48
@@ -54,6 +55,35 @@ export const getTicket58ItemName = (item) => {
   return BUNDLE_LABELS_BY_TYPE[String(item.bundleType ?? '').trim().toLowerCase()] ?? null
 }
 
+// Line checks shared by confirmed and open-account tickets: one line per bundle, complete amounts,
+// lines adding up to the total in cents (no discount lines exist yet). totalLabel names the total.
+const getTicket58ItemsProblem = (items, total, totalLabel) => {
+  // A bundle must print as one line; loose rows of a bundle mean it was not recognized.
+  if (items.some((item) => item?.bundleId && item.kind !== 'bundle')) {
+    return 'hay un paquete (cubeta) que no se pudo agrupar como un solo concepto.'
+  }
+  if (items.some((item) => item?.kind === 'bundle' && !getTicket58ItemName(item))) {
+    return 'hay un paquete (cubeta) sin nombre confirmado.'
+  }
+
+  const itemsAreComplete = items.every((item) =>
+    getTicket58ItemName(item) &&
+    Number(item.quantity) > 0 &&
+    Number.isFinite(item.unitPrice) &&
+    Number.isFinite(item.subtotal)
+  )
+  if (!itemsAreComplete) {
+    return 'hay artículos sin nombre, cantidad o importe.'
+  }
+
+  const itemsCents = items.reduce((acc, item) => acc + toCents(item.subtotal), 0)
+  if (itemsCents !== toCents(total)) {
+    return `los importes de los artículos no coinciden con el total ${totalLabel}.`
+  }
+
+  return null
+}
+
 // Returns a user-facing reason when the ticket cannot be printed reliably, or null when it can.
 export const getTicket58Problem = (ticket) => {
   const confirmed = ticket?.confirmed
@@ -68,35 +98,27 @@ export const getTicket58Problem = (ticket) => {
     return 'faltan los artículos confirmados por el servidor.'
   }
 
-  // A bundle must print as one line; loose rows of a bundle mean it was not recognized.
-  if (ticket.items.some((item) => item?.bundleId && item.kind !== 'bundle')) {
-    return 'hay un paquete (cubeta) que no se pudo agrupar como un solo concepto.'
-  }
-  if (ticket.items.some((item) => item?.kind === 'bundle' && !getTicket58ItemName(item))) {
-    return 'hay un paquete (cubeta) sin nombre confirmado.'
-  }
-
-  const itemsAreComplete = ticket.items.every((item) =>
-    getTicket58ItemName(item) &&
-    Number(item.quantity) > 0 &&
-    Number.isFinite(item.unitPrice) &&
-    Number.isFinite(item.subtotal)
-  )
-  if (!itemsAreComplete) {
-    return 'hay artículos sin nombre, cantidad o importe.'
-  }
-
-  // Lines must add up to the confirmed total; no discount lines exist yet.
-  const itemsCents = ticket.items.reduce((acc, item) => acc + toCents(item.subtotal), 0)
-  if (itemsCents !== toCents(confirmed.total)) {
-    return 'los importes de los artículos no coinciden con el total confirmado.'
-  }
-
-  return null
+  return getTicket58ItemsProblem(ticket.items, confirmed.total, 'confirmado')
 }
 
-export const buildTicket58Html = ({ ticket, logoUrl }) => {
-  const itemsMarkup = ticket.items
+// Same rules for the visible open account (no sale yet): printedAt is the print time, not a sale date.
+export const getOpenAccountTicket58Problem = ({ items, total, printedAt }) => {
+  if (!formatTicket58DateTime(printedAt)) {
+    return 'falta la fecha de impresión o no es válida.'
+  }
+  if (!Number.isFinite(total)) {
+    return 'falta el total de la cuenta.'
+  }
+  if (!Array.isArray(items) || items.length === 0) {
+    return 'la cuenta no tiene productos.'
+  }
+
+  return getTicket58ItemsProblem(items, total, 'de la cuenta')
+}
+
+// The single POS-58 template; dateIso is the sale confirmation (sold) or the print time (open account).
+const renderTicket58Html = ({ items, total, dateIso, logoUrl }) => {
+  const itemsMarkup = items
     .map(
       (item) => `
         <div class="item">
@@ -142,11 +164,11 @@ export const buildTicket58Html = ({ ticket, logoUrl }) => {
   <body>
     <div class="sheet">
       <img src="${escapeHtml(logoUrl)}" alt="La Carreta" class="logo" />
-      <div class="date">${escapeHtml(formatTicket58DateTime(ticket.confirmed.chargedAt))}</div>
+      <div class="date">${escapeHtml(formatTicket58DateTime(dateIso))}</div>
       <div class="items">${itemsMarkup}</div>
       <div class="total">
         <span>TOTAL A PAGAR</span>
-        <span>${formatMoney(ticket.confirmed.total)}</span>
+        <span>${formatMoney(total)}</span>
       </div>
       <div class="footer">¡Gracias por su visita!</div>
     </div>
@@ -154,16 +176,24 @@ export const buildTicket58Html = ({ ticket, logoUrl }) => {
 </html>`
 }
 
+export const buildTicket58Html = ({ ticket, logoUrl }) =>
+  renderTicket58Html({
+    items: ticket.items,
+    total: ticket.confirmed.total,
+    dateIso: ticket.confirmed.chargedAt,
+    logoUrl,
+  })
+
+export const buildOpenAccountTicket58Html = ({ items, total, printedAt, logoUrl }) =>
+  renderTicket58Html({ items, total, dateIso: printedAt, logoUrl })
+
 // Backup removal when the browser never fires afterprint.
 export const TICKET58_PRINT_FRAME_CLEANUP_MS = 60 * 1000
 
-// Prints a confirmed ticket from an off-screen iframe in the current page (no popup). With Chrome
-// --kiosk-printing it goes straight to the default printer; otherwise the usual print dialog opens.
+// Prints already validated ticket HTML from an off-screen iframe in the current page (no popup). With
+// Chrome --kiosk-printing it goes straight to the default printer; otherwise the print dialog opens.
 // Returns an error message, or null when printing was requested (not a physical confirmation).
-export const printTicket58 = ({ ticket, logoUrl }) => {
-  const problem = getTicket58Problem(ticket)
-  if (problem) return `No se puede imprimir un ticket confiable: ${problem}`
-
+const printTicket58Frame = (buildHtml) => {
   let frame = null
   try {
     frame = document.createElement('iframe')
@@ -207,7 +237,7 @@ export const printTicket58 = ({ ticket, logoUrl }) => {
       }
     }, { once: true })
 
-    frame.srcdoc = buildTicket58Html({ ticket, logoUrl })
+    frame.srcdoc = buildHtml()
     document.body.appendChild(frame)
   } catch (error) {
     console.error('No se pudo preparar la impresion del ticket:', error)
@@ -216,6 +246,25 @@ export const printTicket58 = ({ ticket, logoUrl }) => {
   }
   return null
 }
+
+// Confirmed sale ticket (after the sale; also used by the sales report reprint).
+export const printTicket58 = ({ ticket, logoUrl }) => {
+  const problem = getTicket58Problem(ticket)
+  if (problem) return `No se puede imprimir un ticket confiable: ${problem}`
+  return printTicket58Frame(() => buildTicket58Html({ ticket, logoUrl }))
+}
+
+// Open account ticket from the visible cart, before any sale. Informative only: it reads what it is
+// given and never saves, charges or calls the server.
+export const printOpenAccountTicket58 = ({ items, total, printedAt, logoUrl }) => {
+  const problem = getOpenAccountTicket58Problem({ items, total, printedAt })
+  if (problem) return `No se puede imprimir un ticket confiable: ${problem}`
+  return printTicket58Frame(() => buildOpenAccountTicket58Html({ items, total, printedAt, logoUrl }))
+}
+
+// Open account print is offered only with products on screen, outside table loading and checkout.
+export const canPrintOpenAccountTicket58 = ({ itemCount, isHydrating, isFinalizing }) =>
+  itemCount > 0 && !isHydrating && !isFinalizing
 
 
 // --- Reprint (IMPRESORA-01 Paso 2H): ticket stored by the ticket-operations Edge Function ---

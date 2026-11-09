@@ -1,6 +1,25 @@
 ﻿import { supabase } from '../lib/supabase'
 import { erpService } from './erpService'
 
+// IMPRESORA-01: receipt-only Edge Function. Errors carry the HTTP status (null without a response).
+const invokeTicketOperation = async (action, payload) => {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
+
+  const { data, error } = await supabase.functions.invoke('ticket-operations', {
+    body: { action, ...payload },
+    headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : undefined,
+  })
+
+  if (error) {
+    const status = Number.isInteger(error.context?.status) ? error.context.status : null
+    throw Object.assign(new Error(error.message || 'ticket-operations failed'), { status })
+  }
+
+  return data
+}
+
 const getPurchaseItemsSummary = async () => {
   const { data, error } = await supabase
     .from('purchase_items')
@@ -146,6 +165,18 @@ export const materialService = {
       total_amount: parseFloat(sale.total_amount || 0),
       document_number: sale.document_number || sale.id,
     }))
+  },
+
+  // IMPRESORA-01: ticket-operations/get. Server checks report_sales:view and the 360 h window.
+  async getSaleTicketSnapshot(saleId) {
+    const data = await invokeTicketOperation('get', { sale_id: saleId })
+
+    return data?.ticket ?? null
+  },
+
+  // IMPRESORA-01: ticket-operations/capture, only after the sale was confirmed. No economic effects.
+  async captureSaleTicket({ sale_id, idempotency_key }) {
+    return invokeTicketOperation('capture', { sale_id, idempotency_key })
   },
 
   async getPurchasesReport() {

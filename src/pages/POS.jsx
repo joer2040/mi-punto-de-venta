@@ -11,6 +11,12 @@ import logoCarreta from '../assets/la_carreta_sin_fondo.png'
 import { colors, space, type, radius, shadow } from '../lib/designTokens'
 import { sortProductsForPos } from '../lib/sortProductsForPos'
 import { isDirectSaleStation, partitionStations } from '../lib/stations'
+import {
+  canPrintOpenAccountTicket58,
+  captureTicketAfterConfirmedSale,
+  printOpenAccountTicket58,
+  printTicket58,
+} from '../lib/ticket58'
 import { createInitialPosState, posReducer } from './posReducer'
 import PosCartSheet from '../components/PosCartSheet'
 
@@ -125,6 +131,7 @@ const buildDisplayCartItems = (cart = []) => {
       id: `material:${item.material_id}`,
       kind: 'material',
       material_id: item.material_id,
+      bundle_id: item.bundle_id || null,
       name: item.name,
       quantity: item.quantity,
       unit_price: item.unit_price,
@@ -141,6 +148,8 @@ const buildDisplayCartItems = (cart = []) => {
       id: `bundle:${bundleId}`,
       kind: 'bundle',
       bundle_id: bundleId,
+      bundle_type: rows[0]?.bundle_type ?? null,
+      bundle_label: rows[0]?.bundle_label ?? null,
       name: rows[0]?.bundle_label || CUBETA_BUNDLE_LABEL,
       quantity: 1,
       unit_price: bundleTotal,
@@ -155,6 +164,10 @@ const buildDisplayCartItems = (cart = []) => {
 
 const buildTicketDisplayItems = (cart = [], { includeBundleDetails = true } = {}) =>
   buildDisplayCartItems(cart).map((item) => ({
+    kind: item.kind,
+    bundleId: item.bundle_id ?? null,
+    bundleType: item.bundle_type ?? null,
+    bundleLabel: item.bundle_label ?? null,
     name: item.name,
     quantity: item.quantity,
     unitPrice: Number(item.unit_price),
@@ -769,6 +782,8 @@ const CartPanel = ({
   onChangeQuantity,
   onRemoveFromCart,
   onRequestFinalizeSale,
+  canPrintOpenAccount,
+  onPrintOpenAccount,
   outerRef,
   checkoutHeight,
 }) => (
@@ -849,6 +864,14 @@ const CartPanel = ({
       <button onClick={onRequestFinalizeSale} disabled={cart.length === 0 || !canOperatePOS} style={cart.length === 0 || !canOperatePOS ? disabledCheckoutBtnStyle : checkoutBtnStyle}>
         Finalizar Venta
       </button>
+      <button
+        type="button"
+        onClick={onPrintOpenAccount}
+        disabled={!canPrintOpenAccount}
+        style={{ ...(canPrintOpenAccount ? btnSecondaryStyle : disabledSecondaryBtnStyle), width: '100%', marginTop: space[4] }}
+      >
+        Imprimir ticket
+      </button>
     </div>
   </section>
 )
@@ -882,6 +905,8 @@ const ActiveOrderView = ({
   onChangeQuantity,
   onRemoveFromCart,
   onRequestFinalizeSale,
+  canPrintOpenAccount,
+  onPrintOpenAccount,
   onCloseTicket,
   onCloseFinalizeConfirm,
   onConfirmFinalizeSale,
@@ -979,28 +1004,35 @@ const ActiveOrderView = ({
         </section>
 
         <div style={getCheckoutPanelStyle(true)}>
-          <div style={mobileBottomBarRowStyle}>
-            <span style={mobileBottomBarSummaryStyle}>
-              {totalItems} {totalItems === 1 ? 'artículo' : 'artículos'} · ${total.toFixed(2)}
-            </span>
-            <div style={{ display: 'flex', gap: space[3], flexShrink: 0 }}>
-              <button
-                type="button"
-                onClick={() => setSheetOpen(true)}
-                disabled={cart.length === 0}
-                style={cart.length === 0 ? mobileVerCuentaDisabledStyle : mobileVerCuentaStyle}
-              >
-                Ver cuenta
-              </button>
-              <button
-                type="button"
-                onClick={onRequestFinalizeSale}
-                disabled={cart.length === 0 || !canOperatePOS}
-                style={cart.length === 0 || !canOperatePOS ? mobileDisabledCheckoutBtnStyle : mobileCheckoutBtnStyle}
-              >
-                Cobrar
-              </button>
-            </div>
+          <div style={mobileBottomBarSummaryStyle}>
+            <span>{totalItems} {totalItems === 1 ? 'artículo' : 'artículos'}</span>
+            <span style={mobileBottomBarTotalStyle}>${total.toFixed(2)}</span>
+          </div>
+          <div style={mobileBottomBarActionsStyle}>
+            <button
+              type="button"
+              onClick={() => setSheetOpen(true)}
+              disabled={cart.length === 0}
+              style={cart.length === 0 ? mobileVerCuentaDisabledStyle : mobileVerCuentaStyle}
+            >
+              Ver cuenta
+            </button>
+            <button
+              type="button"
+              onClick={onPrintOpenAccount}
+              disabled={!canPrintOpenAccount}
+              style={canPrintOpenAccount ? mobileVerCuentaStyle : mobileVerCuentaDisabledStyle}
+            >
+              Imprimir ticket
+            </button>
+            <button
+              type="button"
+              onClick={onRequestFinalizeSale}
+              disabled={cart.length === 0 || !canOperatePOS}
+              style={cart.length === 0 || !canOperatePOS ? mobileDisabledCheckoutBtnStyle : mobileCheckoutBtnStyle}
+            >
+              Cobrar
+            </button>
           </div>
         </div>
 
@@ -1064,6 +1096,8 @@ const ActiveOrderView = ({
           onChangeQuantity={onChangeQuantity}
           onRemoveFromCart={onRemoveFromCart}
           onRequestFinalizeSale={onRequestFinalizeSale}
+          canPrintOpenAccount={canPrintOpenAccount}
+          onPrintOpenAccount={onPrintOpenAccount}
           outerRef={cartRef}
           checkoutHeight={cartPanelHeight}
         />
@@ -1519,7 +1553,37 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
         ? authoritativeTotal
         : items.reduce((acc, item) => acc + parseFloat(item.unit_price) * parseFloat(item.quantity), 0),
       paymentMethod: sale?.payment_method || usedPaymentMethod || 'Efectivo',
+      // Server-confirmed values only (no local fallbacks), required by the 58 mm print.
+      confirmed: {
+        chargedAt: sale?.created_at || null,
+        total: sale?.total_amount != null && Number.isFinite(authoritativeTotal) ? authoritativeTotal : null,
+        hasItems: Array.isArray(sale?.items) && sale.items.length > 0,
+      },
     }
+  }
+
+  const canPrintOpenAccount = canPrintOpenAccountTicket58({
+    itemCount: cart.length,
+    isHydrating: isHydratingTable,
+    isFinalizing: isFinalizingSale,
+  })
+
+  // IMPRESORA-01: informative ticket of the account exactly as shown (unsaved changes included).
+  // Reads the rendered cart and total only: no autosave wait, no save, no dispatch, no sale.
+  const handlePrintOpenAccount = () => {
+    if (!selectedTable || !canPrintOpenAccountTicket58({
+      itemCount: cart.length,
+      isHydrating: isHydratingTable,
+      isFinalizing: isFinalizingSale || finalizeSaleInFlightRef.current,
+    })) return
+
+    const printError = printOpenAccountTicket58({
+      items: buildTicketDisplayItems(cart, { includeBundleDetails: false }),
+      total,
+      printedAt: new Date().toISOString(),
+      logoUrl: new URL(logoCarreta, window.location.href).href,
+    })
+    if (printError) alert(printError)
   }
 
   const handleOpenCubetaBuilder = async (bundleKind = 'cubeta') => {
@@ -1705,6 +1769,14 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
         ticketData: buildTicketData(sale, canonicalTicketItems, finalizingTable, documentNumber, paymentMethod),
       })
       showNotice('Venta realizada con exito', 'success')
+      // IMPRESORA-01: keep the receipt for reprint with the sale's own key. Not awaited: it never
+      // blocks or changes the confirmed sale; a failure only shows a notice.
+      void captureTicketAfterConfirmedSale({
+        saleId: sale?.id,
+        idempotencyKey,
+        capture: materialService.captureSaleTicket,
+        notify: (message) => showNotice(message, 'warning'),
+      })
       finalizeSaleIdempotencyKeyRef.current = null
       latestTableRef.current = null
       latestCartRef.current = []
@@ -1766,6 +1838,8 @@ const usePosController = ({ onEditingStateChange = () => {} }) => {
     removeFromCart,
     handleRequestFinalizeSale,
     handleFinalizeSale,
+    canPrintOpenAccount,
+    handlePrintOpenAccount,
     handleConfirmCubetaBuilder,
     setShowCubetaBuilder,
     handleSetPaymentMethod: (value) => dispatch({ type: 'set_payment_method', value }),
@@ -1815,6 +1889,8 @@ const POS = ({ onEditingStateChange = () => {} }) => {
     removeFromCart,
     handleRequestFinalizeSale,
     handleFinalizeSale,
+    canPrintOpenAccount,
+    handlePrintOpenAccount,
     handleConfirmCubetaBuilder,
     setShowCubetaBuilder,
     handleSetPaymentMethod,
@@ -1886,6 +1962,8 @@ const POS = ({ onEditingStateChange = () => {} }) => {
       onChangeQuantity={changeQuantity}
       onRemoveFromCart={removeFromCart}
       onRequestFinalizeSale={handleRequestFinalizeSale}
+      canPrintOpenAccount={canPrintOpenAccount}
+      onPrintOpenAccount={handlePrintOpenAccount}
       onCloseTicket={() => dispatch({ type: 'set_ticket_data', ticketData: null })}
       onCloseFinalizeConfirm={() => dispatch({ type: 'set_show_finalize_confirm', value: false })}
       onConfirmFinalizeSale={handleFinalizeSale}
@@ -2144,178 +2222,6 @@ const buildTicketPdf = async ({ ticket, dateLabel, timeLabel, ticketReference })
   return pdf
 }
 
-const buildTicketPrintHtml = ({ ticket, dateLabel, timeLabel, ticketReference }) => {
-  const watermarkUrl = new URL('../assets/la_carreta_sin_fondo.png', import.meta.url).href
-  const itemsMarkup = ticket.items
-    .map(
-      (item) => `
-        <div class="ticket-row">
-          <div>
-            <div class="item-name">${item.name}</div>
-            <div class="item-meta">${
-              item.details?.length > 0
-                ? `${item.totalPieces || item.details.reduce((acc, detail) => acc + detail.quantity, 0)} piezas · $${item.unitPrice.toFixed(2)}`
-                : `${item.quantity} x $${item.unitPrice.toFixed(2)}`
-            }</div>
-            ${
-              item.details?.length > 0
-                ? `<div class="bundle-details">${item.details
-                    .map((detail) => `<div class="bundle-detail">- ${detail.name} x${detail.quantity}</div>`)
-                    .join('')}</div>`
-                : ''
-            }
-          </div>
-          <strong>$${item.subtotal.toFixed(2)}</strong>
-        </div>
-      `
-    )
-    .join('')
-
-  return `
-    <!doctype html>
-    <html lang="es">
-      <head>
-        <meta charset="utf-8" />
-        <title>Ticket Virtual</title>
-        <style>
-          body {
-            margin: 0;
-            font-family: Arial, sans-serif;
-            background: #f3f4f6;
-            color: #111827;
-          }
-          @page {
-            size: ${TICKET_WIDTH_MM}mm auto;
-            margin: 0;
-          }
-          .sheet {
-            position: relative;
-            width: ${TICKET_WIDTH_MM}mm;
-            max-width: ${TICKET_WIDTH_MM}mm;
-            margin: 24px auto;
-            padding: 8mm 6mm;
-            background: #ffffff;
-            border-radius: 18px;
-            overflow: hidden;
-            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
-            box-sizing: border-box;
-          }
-          .watermark {
-            position: absolute;
-            inset: 50% auto auto 50%;
-            transform: translate(-50%, -50%);
-            width: 64mm;
-            opacity: 0.08;
-            pointer-events: none;
-          }
-          .header,
-          .total-row,
-          .ticket-row,
-          .items-header {
-            position: relative;
-            z-index: 1;
-          }
-          .header h1 {
-            margin: 0 0 14px 0;
-            font-size: 24px;
-          }
-          .meta {
-            position: relative;
-            z-index: 1;
-            display: grid;
-            gap: 6px;
-            margin-bottom: 18px;
-            font-size: 14px;
-            color: #374151;
-          }
-          .items-header {
-            display: flex;
-            justify-content: space-between;
-            gap: 12px;
-            padding-bottom: 8px;
-            border-bottom: 1px solid #e5e7eb;
-            font-size: 12px;
-            font-weight: 700;
-            color: #6b7280;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-          }
-          .ticket-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            gap: 12px;
-            padding: 12px 0;
-            border-bottom: 1px solid #f1f5f9;
-          }
-          .item-name {
-            font-weight: 700;
-          }
-          .item-meta {
-            margin-top: 4px;
-            color: #6b7280;
-            font-size: 13px;
-          }
-          .bundle-details {
-            margin-top: 8px;
-            display: grid;
-            gap: 4px;
-          }
-          .bundle-detail {
-            color: #475569;
-            font-size: 12px;
-          }
-          .total-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-top: 18px;
-            padding-top: 14px;
-            border-top: 2px solid #e5e7eb;
-            font-size: 18px;
-            font-weight: 800;
-          }
-          @media print {
-            body {
-              background: #ffffff;
-            }
-            .sheet {
-              margin: 0;
-              width: ${TICKET_WIDTH_MM}mm;
-              max-width: ${TICKET_WIDTH_MM}mm;
-              border-radius: 0;
-              box-shadow: none;
-            }
-          }
-        </style>
-      </head>
-      <body>
-        <div class="sheet">
-          <img src="${watermarkUrl}" alt="" class="watermark" />
-          <div class="header">
-            <h1>Ticket Virtual</h1>
-          </div>
-          <div class="meta">
-            ${ticketReference ? `<div><strong>Folio de venta:</strong> ${ticketReference}</div>` : ''}
-            <div><strong>Fecha:</strong> ${dateLabel}</div>
-            <div><strong>Hora:</strong> ${timeLabel}</div>
-            <div><strong>Cuenta:</strong> ${ticket.tableNumber || 'General'}</div>
-          </div>
-          <div class="items-header">
-            <span>Producto</span>
-            <span>Importe</span>
-          </div>
-          ${itemsMarkup}
-          <div class="total-row">
-            <span>Total</span>
-            <strong>$${ticket.total.toFixed(2)}</strong>
-          </div>
-        </div>
-      </body>
-    </html>
-  `
-}
-
 const useTicketModalController = ({ ticket }) => {
   const [isExportingPdf, setIsExportingPdf] = useState(false)
   const { dateLabel, timeLabel, ticketReference } = getTicketLabels(ticket)
@@ -2368,17 +2274,8 @@ const useTicketModalController = ({ ticket }) => {
   }
 
   const handlePrintTicket = () => {
-    const printWindow = window.open('', '_blank', 'width=760,height=900')
-
-    if (!printWindow) {
-      alert('No se pudo abrir la ventana de impresion. Revisa si el navegador bloqueo la ventana emergente.')
-      return
-    }
-
-    printWindow.document.write(buildTicketPrintHtml({ ticket, dateLabel, timeLabel, ticketReference }))
-    printWindow.document.close()
-    printWindow.focus()
-    printWindow.print()
+    const printError = printTicket58({ ticket, logoUrl: new URL(logoCarreta, window.location.href).href })
+    if (printError) alert(printError)
   }
 
   return {
@@ -2409,7 +2306,7 @@ const TicketModalHeader = ({
         Compartir
       </button>
       <button type="button" onClick={onPrintTicket} style={ticketPrintBtnStyle} disabled={isExportingPdf}>
-        Imprimir
+        Imprimir ticket
       </button>
       <button type="button" onClick={onClose} style={ticketCloseBtnStyle}>
         Cerrar
@@ -3196,38 +3093,47 @@ const mobileProductsSectionStyle = {
   paddingTop: '60px',
   paddingLeft: space[4],
   paddingRight: space[4],
-  paddingBottom: '80px',
+  // Clears the two-row bottom bar (summary + 44 px actions) plus the device safe area.
+  paddingBottom: 'calc(120px + env(safe-area-inset-bottom, 0px))',
   backgroundColor: colors.gray100,
   minHeight: '100vh',
 }
 
-const mobileBottomBarRowStyle = {
+const mobileBottomBarSummaryStyle = {
   display: 'flex',
   justifyContent: 'space-between',
-  alignItems: 'center',
+  alignItems: 'baseline',
   gap: space[4],
-}
-
-const mobileBottomBarSummaryStyle = {
+  marginBottom: space[4],
   fontSize: type.sm,
   fontWeight: type.bold,
   color: colors.gray900,
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
-  flex: 1,
+}
+
+const mobileBottomBarTotalStyle = {
+  fontSize: type.base,
+  fontWeight: type.black,
+}
+
+const mobileBottomBarActionsStyle = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+  gap: space[3],
 }
 
 const mobileVerCuentaStyle = {
-  padding: `${space[3]} ${space[7]}`,
+  width: '100%',
+  minHeight: '44px',
+  padding: `${space[2]} ${space[3]}`,
   backgroundColor: colors.blue100,
   color: colors.blue700,
   border: `1px solid ${colors.blue100}`,
   borderRadius: radius.md,
   fontWeight: type.bold,
   fontSize: type.sm,
+  lineHeight: 1.15,
   cursor: 'pointer',
-  whiteSpace: 'nowrap',
 }
 
 const mobileVerCuentaDisabledStyle = {
@@ -3237,15 +3143,17 @@ const mobileVerCuentaDisabledStyle = {
 }
 
 const mobileCheckoutBtnStyle = {
-  padding: `${space[3]} ${space[7]}`,
+  width: '100%',
+  minHeight: '44px',
+  padding: `${space[2]} ${space[3]}`,
   backgroundColor: colors.green500,
   color: colors.white,
   border: 'none',
   borderRadius: radius.md,
   fontWeight: type.black,
   fontSize: type.sm,
+  lineHeight: 1.15,
   cursor: 'pointer',
-  whiteSpace: 'nowrap',
 }
 
 const mobileDisabledCheckoutBtnStyle = {

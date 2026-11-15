@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import {
+  TICKET58_CONTENT_MM,
   TICKET58_PRINT_FRAME_CLEANUP_MS,
   TICKET_CAPTURE_NOTICES,
   buildOpenAccountTicket58Html,
@@ -124,12 +125,19 @@ test('uses print CSS compatible with a 58 mm roll', () => {
   assert.match(html, /@page \{ margin: 0; \}/)
   assert.doesNotMatch(html, /@page[^}]*size/)
   assert.doesNotMatch(html, /[^-]height:/)
-  // 48 mm content centered in the driver's printable page, shifted by the calibration offset.
-  assert.match(html, /left: -1mm;/)
-  assert.match(html, /width: 48mm;/)
-  assert.match(html, /margin: 0 auto;/)
-  assert.match(html, /padding: 3mm 0 6mm;/)
+  // 44 mm safe content width, centered by symmetric margins: no offset, no relative positioning.
+  assert.match(html, /\.sheet \{ width: 44mm; max-width: 100%; margin: 0 auto; padding: 3mm 0 6mm; \}/)
+  assert.doesNotMatch(html, /position:|left:|transform:|nowrap|[^-]width: 48mm/)
+  assert.equal(TICKET58_CONTENT_MM, 44)
   assert.match(html, /overflow-wrap: anywhere/)
+  assert.match(html, /\* \{ box-sizing: border-box; min-width: 0; \}/)
+})
+
+test('prints the total on two lines: label, then the amount aligned right', () => {
+  const html = buildTicket58Html({ ticket: confirmedTicket(), logoUrl: 'logo.png' })
+  assert.match(html, /<div class="total-label">TOTAL A PAGAR<\/div>\s*<div class="total-amount">\$250\.00<\/div>/)
+  assert.match(html, /\.total-amount \{[^}]*text-align: right/)
+  assert.doesNotMatch(html, /\.total \{[^}]*flex/)
 })
 
 test('escapes product names', () => {
@@ -504,10 +512,10 @@ const withNoNetwork = async (t, run) => {
   return result
 }
 
-test('K: confirmed ticket HTML is byte-identical to the validated a1429d6 template', () => {
+test('K: confirmed ticket HTML is byte-identical to the reviewed FIX-01 width template', () => {
   const html = buildTicket58Html({ ticket: confirmedTicket(), logoUrl: 'logo.png' })
-  // sha256 of the same fixture rendered by src/lib/ticket58.js at a1429d6, before the refactor.
-  assert.equal(createHash('sha256').update(html).digest('hex'), 'e1472e2bafdbae8d0f31ad7ec1a3bab5b90121c460054c0d66f622cd37260a15')
+  // sha256 of this fixture; changes only on an intentional template edit (was a1429d6 before FIX-01 width).
+  assert.equal(createHash('sha256').update(html).digest('hex'), 'd1b62c0259053afbb399144bc99079baaf4a4d9e80986d910b098415fbb9fdd5')
 })
 
 test('K: open account and confirmed sale share one template, only the date source differs', () => {

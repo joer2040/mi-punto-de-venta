@@ -1,10 +1,9 @@
 // IMPRESORA-01: POS-58 thermal ticket (58 mm paper). Built from server-confirmed sale data, or from
 // the visible open account (informative, before any sale).
 
-// Printable width of common POS-58 printers (58 mm roll). Tune here if a printer clips the edges.
-export const TICKET58_CONTENT_MM = 48
-// Horizontal calibration: negative moves the printed content left, positive right (mm).
-export const TICKET58_OFFSET_X_MM = -1
+// Safe content width on a 58 mm roll: well inside the printable area of common POS-58 drivers, so the
+// ticket needs no print-scale tuning. Every box in the ticket is limited to this one width.
+export const TICKET58_CONTENT_MM = 44
 export const TICKET58_TIME_ZONE = 'America/Monterrey'
 
 // Same labels as BUNDLE_RULES in pos-operations; used only when the server omits bundle_label.
@@ -140,25 +139,21 @@ const renderTicket58Html = ({ items, total, dateIso, logoUrl }) => {
     <title>Ticket</title>
     <style>
       @page { margin: 0; }
-      * { box-sizing: border-box; }
+      * { box-sizing: border-box; min-width: 0; }
       html, body { margin: 0; padding: 0; background: #fff; color: #000; }
       body { font-family: Arial, Helvetica, sans-serif; font-size: 12px; line-height: 1.3; }
-      .sheet {
-        position: relative;
-        left: ${TICKET58_OFFSET_X_MM}mm;
-        width: ${TICKET58_CONTENT_MM}mm;
-        margin: 0 auto;
-        padding: 3mm 0 6mm;
-      }
+      .sheet { width: ${TICKET58_CONTENT_MM}mm; max-width: 100%; margin: 0 auto; padding: 3mm 0 6mm; }
       .logo { display: block; width: 32mm; max-width: 100%; margin: 0 auto 2mm; }
-      .date { text-align: center; margin-bottom: 2mm; }
+      .date { text-align: center; margin-bottom: 2mm; font-size: 11px; overflow-wrap: anywhere; }
       .items { border-top: 1px dashed #000; border-bottom: 1px dashed #000; padding: 1mm 0; }
       .item { padding: 1mm 0; break-inside: avoid; }
       .item-name { font-weight: 700; overflow-wrap: anywhere; word-break: break-word; white-space: normal; }
-      .item-amounts { display: flex; justify-content: flex-end; gap: 4mm; white-space: nowrap; }
-      .item-amount { min-width: 16mm; text-align: right; }
-      .total { display: flex; justify-content: space-between; gap: 2mm; margin-top: 2mm; font-size: 14px; font-weight: 800; }
-      .footer { text-align: center; margin-top: 4mm; }
+      .item-amounts { display: flex; flex-wrap: wrap; justify-content: flex-end; column-gap: 3mm; }
+      .item-amount { text-align: right; }
+      .total { margin-top: 2mm; font-weight: 800; }
+      .total-label { font-size: 13px; }
+      .total-amount { font-size: 16px; text-align: right; overflow-wrap: anywhere; }
+      .footer { text-align: center; margin-top: 4mm; overflow-wrap: anywhere; }
     </style>
   </head>
   <body>
@@ -167,8 +162,8 @@ const renderTicket58Html = ({ items, total, dateIso, logoUrl }) => {
       <div class="date">${escapeHtml(formatTicket58DateTime(dateIso))}</div>
       <div class="items">${itemsMarkup}</div>
       <div class="total">
-        <span>TOTAL A PAGAR</span>
-        <span>${formatMoney(total)}</span>
+        <div class="total-label">TOTAL A PAGAR</div>
+        <div class="total-amount">${formatMoney(total)}</div>
       </div>
       <div class="footer">¡Gracias por su visita!</div>
     </div>
